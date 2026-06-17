@@ -28,6 +28,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "cel/expr/syntax.pb.h"
@@ -51,7 +52,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
-#include "absl/types/variant.h"
 #include "antlr4-runtime.h"
 #include "common/ast.h"
 #include "common/ast/expr_proto.h"
@@ -257,7 +257,7 @@ class ParserMacroExprFactory final : public MacroExprFactory {
     if (auto it = macro_calls_.find(expr.id()); it != macro_calls_.end()) {
       return NewUnspecified(expr.id());
     }
-    return absl::visit(
+    return std::visit(
         absl::Overload(
             [this, &expr](const UnspecifiedExpr&) -> Expr {
               return NewUnspecified(expr.id());

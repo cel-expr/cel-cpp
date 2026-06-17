@@ -19,6 +19,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "google/protobuf/struct.pb.h"
@@ -34,7 +35,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
-#include "absl/types/variant.h"
 #include "base/attribute.h"
 #include "common/casting.h"
 #include "common/kind.h"
@@ -1003,7 +1003,7 @@ absl::Status LegacyStructValue::Qualify(
   const auto* access_apis =
       message_wrapper.legacy_type_info()->GetAccessApis(message_wrapper);
   if (ABSL_PREDICT_FALSE(access_apis == nullptr)) {
-    absl::string_view field_name = absl::visit(
+    absl::string_view field_name = std::visit(
         absl::Overload(
             [](const FieldSpecifier& field) -> absl::string_view {
               return field.name;

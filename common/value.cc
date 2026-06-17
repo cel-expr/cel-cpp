@@ -21,6 +21,7 @@
 #include <string>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "google/protobuf/struct.pb.h"
 #include "absl/base/attributes.h"
@@ -37,7 +38,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
-#include "absl/types/variant.h"
 #include "common/allocator.h"
 #include "common/memory.h"
 #include "common/optional_ref.h"
@@ -933,7 +933,7 @@ void StringRepeatedFieldAccessor(
   ABSL_DCHECK_LT(index, reflection->FieldSize(*message, field));
 
   std::string scratch;
-  absl::visit(
+  std::visit(
       absl::Overload(
           [&](absl::string_view string) {
             if (string.data() == scratch.data() &&
@@ -1000,7 +1000,7 @@ void BytesRepeatedFieldAccessor(
   ABSL_DCHECK_LT(index, reflection->FieldSize(*message, field));
 
   std::string scratch;
-  absl::visit(
+  std::visit(
       absl::Overload(
           [&](absl::string_view string) {
             if (string.data() == scratch.data() &&
@@ -1154,49 +1154,49 @@ struct OwningWellKnownTypesValueVisitor {
   std::string* absl_nonnull scratch;
 
   Value operator()(well_known_types::BytesValue&& value) const {
-    return absl::visit(absl::Overload(
-                           [&](absl::string_view string) -> BytesValue {
-                             if (string.empty()) {
-                               return BytesValue();
-                             }
-                             if (scratch->data() == string.data() &&
-                                 scratch->size() == string.size()) {
-                               return BytesValue(arena, std::move(*scratch));
-                             }
-                             return BytesValue(arena, string);
-                           },
-                           [&](absl::Cord&& cord) -> BytesValue {
-                             if (cord.empty()) {
-                               return BytesValue();
-                             }
-                             return BytesValue(arena, cord);
-                           }),
-                       well_known_types::AsVariant(std::move(value)));
+    return std::visit(absl::Overload(
+                          [&](absl::string_view string) -> BytesValue {
+                            if (string.empty()) {
+                              return BytesValue();
+                            }
+                            if (scratch->data() == string.data() &&
+                                scratch->size() == string.size()) {
+                              return BytesValue(arena, std::move(*scratch));
+                            }
+                            return BytesValue(arena, string);
+                          },
+                          [&](absl::Cord&& cord) -> BytesValue {
+                            if (cord.empty()) {
+                              return BytesValue();
+                            }
+                            return BytesValue(arena, cord);
+                          }),
+                      well_known_types::AsVariant(std::move(value)));
   }
 
   Value operator()(well_known_types::StringValue&& value) const {
-    return absl::visit(absl::Overload(
-                           [&](absl::string_view string) -> StringValue {
-                             if (string.empty()) {
-                               return StringValue();
-                             }
-                             if (scratch->data() == string.data() &&
-                                 scratch->size() == string.size()) {
-                               return StringValue(arena, std::move(*scratch));
-                             }
-                             return StringValue(arena, string);
-                           },
-                           [&](absl::Cord&& cord) -> StringValue {
-                             if (cord.empty()) {
-                               return StringValue();
-                             }
-                             return StringValue(arena, cord);
-                           }),
-                       well_known_types::AsVariant(std::move(value)));
+    return std::visit(absl::Overload(
+                          [&](absl::string_view string) -> StringValue {
+                            if (string.empty()) {
+                              return StringValue();
+                            }
+                            if (scratch->data() == string.data() &&
+                                scratch->size() == string.size()) {
+                              return StringValue(arena, std::move(*scratch));
+                            }
+                            return StringValue(arena, string);
+                          },
+                          [&](absl::Cord&& cord) -> StringValue {
+                            if (cord.empty()) {
+                              return StringValue();
+                            }
+                            return StringValue(arena, cord);
+                          }),
+                      well_known_types::AsVariant(std::move(value)));
   }
 
   Value operator()(well_known_types::ListValue&& value) const {
-    return absl::visit(
+    return std::visit(
         absl::Overload(
             [&](well_known_types::ListValueConstRef value) -> ListValue {
               auto* cloned = value.get().New(arena);
@@ -1215,7 +1215,7 @@ struct OwningWellKnownTypesValueVisitor {
   }
 
   Value operator()(well_known_types::Struct&& value) const {
-    return absl::visit(
+    return std::visit(
         absl::Overload(
             [&](well_known_types::StructConstRef value) -> MapValue {
               auto* cloned = value.get().New(arena);
@@ -1254,7 +1254,7 @@ struct BorrowingWellKnownTypesValueVisitor {
   std::string* absl_nonnull scratch;
 
   Value operator()(well_known_types::BytesValue&& value) const {
-    return absl::visit(
+    return std::visit(
         absl::Overload(
             [&](absl::string_view string) -> BytesValue {
               if (string.data() == scratch->data() &&
@@ -1272,7 +1272,7 @@ struct BorrowingWellKnownTypesValueVisitor {
   }
 
   Value operator()(well_known_types::StringValue&& value) const {
-    return absl::visit(
+    return std::visit(
         absl::Overload(
             [&](absl::string_view string) -> StringValue {
               if (string.data() == scratch->data() &&
@@ -1290,7 +1290,7 @@ struct BorrowingWellKnownTypesValueVisitor {
   }
 
   Value operator()(well_known_types::ListValue&& value) const {
-    return absl::visit(
+    return std::visit(
         absl::Overload(
             [&](well_known_types::ListValueConstRef value)
                 -> ParsedJsonListValue {
@@ -1309,7 +1309,7 @@ struct BorrowingWellKnownTypesValueVisitor {
   }
 
   Value operator()(well_known_types::Struct&& value) const {
-    return absl::visit(
+    return std::visit(
         absl::Overload(
             [&](well_known_types::StructConstRef value) -> ParsedJsonMapValue {
               return ParsedJsonMapValue(&value.get(),
@@ -1360,7 +1360,7 @@ Value Value::FromMessage(
   if (ABSL_PREDICT_FALSE(!status_or_adapted.ok())) {
     return ErrorValue(std::move(status_or_adapted).status());
   }
-  return absl::visit(
+  return std::visit(
       absl::Overload(OwningWellKnownTypesValueVisitor{
                          /* .arena = */ arena, /* .scratch = */ &scratch},
                      [&](std::monostate) -> Value {
@@ -1388,7 +1388,7 @@ Value Value::FromMessage(
   if (ABSL_PREDICT_FALSE(!status_or_adapted.ok())) {
     return ErrorValue(std::move(status_or_adapted).status());
   }
-  return absl::visit(
+  return std::visit(
       absl::Overload(OwningWellKnownTypesValueVisitor{
                          /* .arena = */ arena, /* .scratch = */ &scratch},
                      [&](std::monostate) -> Value {
@@ -1418,7 +1418,7 @@ Value Value::WrapMessage(
   if (ABSL_PREDICT_FALSE(!adapted_value.ok())) {
     return ErrorValue(std::move(adapted_value).status());
   }
-  return absl::visit(
+  return std::visit(
       absl::Overload(BorrowingWellKnownTypesValueVisitor{
                          /* .message = */ message, /* .arena = */ arena,
                          /* .scratch = */ &scratch},
@@ -1452,7 +1452,7 @@ Value Value::WrapMessageUnsafe(
   if (ABSL_PREDICT_FALSE(!adapted_value.ok())) {
     return ErrorValue(std::move(adapted_value).status());
   }
-  return absl::visit(
+  return std::visit(
       absl::Overload(BorrowingWellKnownTypesValueVisitor{
                          /* .message = */ message, /* .arena = */ arena,
                          /* .scratch = */ &scratch},
@@ -1552,7 +1552,7 @@ Value WrapFieldImpl(
       return BoolValue(reflection->GetBool(*message, field));
     case google::protobuf::FieldDescriptor::TYPE_STRING: {
       std::string scratch;
-      return absl::visit(
+      return std::visit(
           absl::Overload(
               [&](absl::string_view string) -> StringValue {
                 if (string.data() == scratch.data() &&
@@ -1590,7 +1590,7 @@ Value WrapFieldImpl(
       }
     case google::protobuf::FieldDescriptor::TYPE_BYTES: {
       std::string scratch;
-      return absl::visit(
+      return std::visit(
           absl::Overload(
               [&](absl::string_view string) -> BytesValue {
                 if (string.data() == scratch.data() &&
@@ -1681,7 +1681,7 @@ Value WrapRepeatedFieldImpl(
       return BoolValue(reflection->GetRepeatedBool(*message, field, index));
     case google::protobuf::FieldDescriptor::TYPE_STRING: {
       std::string scratch;
-      return absl::visit(
+      return std::visit(
           absl::Overload(
               [&](absl::string_view string) -> StringValue {
                 if (string.data() == scratch.data() &&
@@ -1715,7 +1715,7 @@ Value WrapRepeatedFieldImpl(
       }
     case google::protobuf::FieldDescriptor::TYPE_BYTES: {
       std::string scratch;
-      return absl::visit(
+      return std::visit(
           absl::Overload(
               [&](absl::string_view string) -> BytesValue {
                 if (string.data() == scratch.data() &&
