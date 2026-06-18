@@ -54,14 +54,18 @@ class CompilerImpl : public Compiler {
         validator_(std::move(validator)),
         options_(options) {}
 
-  absl::StatusOr<ValidationResult> Compile(
-      absl::string_view expression, absl::string_view description,
-      google::protobuf::Arena* arena) const override {
-    CEL_ASSIGN_OR_RETURN(auto source,
-                         cel::NewSource(expression, std::string(description)));
+  std::unique_ptr<CompilerBuilder> ToBuilder() const override;
+
+  const TypeChecker& GetTypeChecker() const override { return *type_checker_; }
+  const Parser& GetParser() const override { return *parser_; }
+  const Validator& GetValidator() const override { return validator_; }
+
+ protected:
+  absl::StatusOr<ValidationResult> CompileImpl(
+      const Source& source, google::protobuf::Arena* arena) const override {
     std::vector<cel::ParseIssue> parse_issues;
     absl::StatusOr<std::unique_ptr<cel::Ast>> ast =
-        parser_->Parse(*source, &parse_issues);
+        parser_->Parse(source, &parse_issues);
     if (!ast.ok()) {
       if (!options_.adapt_parser_errors ||
           ast.status().code() != absl::StatusCode::kInvalidArgument ||
@@ -74,25 +78,16 @@ class CompilerImpl : public Compiler {
         check_issues.push_back(TypeCheckIssue::CreateError(
             issue.location(), std::string(issue.message())));
       }
-      ValidationResult result(std::move(check_issues));
-      result.SetSource(std::move(source));
-      return result;
+      return ValidationResult(std::move(check_issues));
     }
     CEL_ASSIGN_OR_RETURN(ValidationResult result,
                          type_checker_->Check(*std::move(ast), arena));
 
-    result.SetSource(std::move(source));
     if (!validator_.validations().empty()) {
       validator_.UpdateValidationResult(result);
     }
     return result;
   }
-
-  std::unique_ptr<CompilerBuilder> ToBuilder() const override;
-
-  const TypeChecker& GetTypeChecker() const override { return *type_checker_; }
-  const Parser& GetParser() const override { return *parser_; }
-  const Validator& GetValidator() const override { return validator_; }
 
  private:
   std::unique_ptr<TypeChecker> type_checker_;
