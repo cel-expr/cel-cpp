@@ -427,5 +427,19 @@ TEST(CompilerFactoryTest, ReturnsIssuesFromParser) {
   EXPECT_THAT(result.GetIssues(), testing::Not(testing::IsEmpty()));
 }
 
+TEST(CompilerFactoryTest, CompileSourceOverload) {
+  ASSERT_OK_AND_ASSIGN(
+      auto builder,
+      NewCompilerBuilder(cel::internal::GetSharedTestingDescriptorPool()));
+
+  ASSERT_THAT(builder->AddLibrary(StandardCompilerLibrary()), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto compiler, builder->Build());
+
+  ASSERT_OK_AND_ASSIGN(auto source, cel::NewSource("1 + 2"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, compiler->Compile(*source));
+
+  EXPECT_TRUE(result.IsValid());
+}
+
 }  // namespace
 }  // namespace cel

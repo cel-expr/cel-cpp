@@ -223,5 +223,44 @@ TEST(Source, DisplayErrorLocationFullWidth) {
             "\n | .．＾");
 }
 
+TEST(SourceSubrange, Description) {
+  ASSERT_OK_AND_ASSIGN(auto source, NewSource("hello world", "subrange-test"));
+  SourceSubrange subrange(*source, SourceRange{0, 5});
+  EXPECT_THAT(subrange.description(), Eq("subrange-test"));
+}
+
+TEST(SourceSubrange, Content) {
+  ASSERT_OK_AND_ASSIGN(auto source, NewSource("hello world", "subrange-test"));
+  SourceSubrange subrange(*source, SourceRange{6, 11});
+  EXPECT_THAT(subrange.content().ToString(), Eq("world"));
+}
+
+TEST(SourceSubrange, ContentEmpty) {
+  ASSERT_OK_AND_ASSIGN(auto source, NewSource("hello world", "subrange-test"));
+  SourceSubrange subrange(*source, SourceRange{5, 5});
+  EXPECT_THAT(subrange.content().ToString(), Eq(""));
+}
+
+TEST(SourceSubrange, LineOffsetsNoNewlines) {
+  ASSERT_OK_AND_ASSIGN(auto source,
+                       NewSource("hello\nworld\n", "subrange-test"));
+  SourceSubrange subrange(*source, SourceRange{0, 5});
+  EXPECT_THAT(subrange.line_offsets(), ElementsAre(6));
+}
+
+TEST(SourceSubrange, LineOffsetsWithNewlines) {
+  ASSERT_OK_AND_ASSIGN(auto source,
+                       NewSource("hello\nworld\ncel", "subrange-test"));
+  SourceSubrange subrange(*source, SourceRange{0, 11});
+  EXPECT_THAT(subrange.line_offsets(), ElementsAre(6, 12));
+}
+
+TEST(SourceSubrange, LineOffsetsMiddleSubrange) {
+  ASSERT_OK_AND_ASSIGN(auto source,
+                       NewSource("hello\nworld\ncel\ncpp", "subrange-test"));
+  SourceSubrange subrange(*source, SourceRange{6, 15});
+  EXPECT_THAT(subrange.line_offsets(), ElementsAre(6, 10));
+}
+
 }  // namespace
 }  // namespace cel

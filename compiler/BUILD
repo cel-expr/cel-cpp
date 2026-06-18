@@ -25,6 +25,7 @@ cc_library(
         "//checker:type_checker",
         "//checker:type_checker_builder",
         "//checker:validation_result",
+        "//common:source",
         "//parser:options",
         "//parser:parser_interface",
         "//validator",

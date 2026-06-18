@@ -27,6 +27,7 @@
 #include "checker/type_checker.h"
 #include "checker/type_checker_builder.h"
 #include "checker/validation_result.h"
+#include "common/source.h"
 #include "parser/options.h"
 #include "parser/parser_interface.h"
 #include "validator/validator.h"
@@ -129,9 +130,18 @@ class Compiler {
  public:
   virtual ~Compiler() = default;
 
-  virtual absl::StatusOr<ValidationResult> Compile(
+  absl::StatusOr<ValidationResult> Compile(
+      const Source& source, google::protobuf::Arena* absl_nullable arena) const {
+    return CompileImpl(source, arena);
+  }
+
+  absl::StatusOr<ValidationResult> Compile(const Source& source) const {
+    return CompileImpl(source, nullptr);
+  }
+
+  absl::StatusOr<ValidationResult> Compile(
       absl::string_view source, absl::string_view description,
-      google::protobuf::Arena* absl_nullable arena) const = 0;
+      google::protobuf::Arena* absl_nullable arena) const;
 
   absl::StatusOr<ValidationResult> Compile(absl::string_view source) const {
     return Compile(source, "<input>", nullptr);
@@ -159,7 +169,26 @@ class Compiler {
   // The returned builder does not share state with the compiler and may be
   // modified independently.
   virtual std::unique_ptr<CompilerBuilder> ToBuilder() const = 0;
+
+ protected:
+  virtual absl::StatusOr<ValidationResult> CompileImpl(
+      const Source& source, google::protobuf::Arena* absl_nullable arena) const = 0;
 };
+
+inline absl::StatusOr<ValidationResult> Compiler::Compile(
+    absl::string_view source, absl::string_view description,
+    google::protobuf::Arena* absl_nullable arena) const {
+  absl::StatusOr<SourcePtr> source_obj =
+      NewSource(source, std::string(description));
+  if (!source_obj.ok()) {
+    return source_obj.status();
+  }
+  absl::StatusOr<ValidationResult> result = CompileImpl(**source_obj, arena);
+  if (result.ok()) {
+    result->SetSource(std::move(*source_obj));
+  }
+  return result;
+}
 
 }  // namespace cel
 
