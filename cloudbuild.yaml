@@ -1,5 +1,5 @@
 steps:
-- name: 'gcr.io/cel-analysis/cel-cpp/ubuntu_floor@sha256:211a0c505b361d987b3d8b08a5144a84e62cb95edc3f897fe46d5cd3f556f79d'
+- name: 'gcr.io/cel-analysis/cel-cpp/ubuntu_floor@sha256:41392c9ad2347476495089401004f2a3e2e0f5b3a0be905a8601ae7899811ccb'
   args:
   - '--output_base=/bazel' # This is mandatory to avoid steps accidently sharing data.
   - 'test'
@@ -14,12 +14,12 @@ steps:
   - '--local_ram_resources=HOST_RAM*.4'
   - '--remote_cache=https://storage.googleapis.com/cel-cpp-remote-cache'
   - '--google_default_credentials'
-  id: gcc-9
+  id: gcc-10
   waitFor: ['-']
-- name: 'gcr.io/cel-analysis/cel-cpp/ubuntu_floor@sha256:211a0c505b361d987b3d8b08a5144a84e62cb95edc3f897fe46d5cd3f556f79d'
+- name: 'gcr.io/cel-analysis/cel-cpp/ubuntu_floor@sha256:41392c9ad2347476495089401004f2a3e2e0f5b3a0be905a8601ae7899811ccb'
   env:
-  - 'CC=clang-11'
-  - 'CXX=clang++-11'
+  - 'CC=clang-12'
+  - 'CXX=clang++-12'
   args:
   - '--output_base=/bazel' # This is mandatory to avoid steps accidently sharing data.
   - 'test'
@@ -34,7 +34,7 @@ steps:
   - '--local_ram_resources=HOST_RAM*.4'
   - '--remote_cache=https://storage.googleapis.com/cel-cpp-remote-cache'
   - '--google_default_credentials'
-  id: clang-11
+  id: clang-12
   waitFor: ['-']
 timeout: 1h
 options:

@@ -41,8 +41,8 @@ RUN apt-get update && apt-get upgrade -y && \
       zip \
       zlib1g-dev \
       default-jdk-headless \
-      clang-11 \
-      gcc-9 g++-9 \
+      clang-12 \
+      gcc-10 g++-10 \
       tzdata \
       && apt-get clean
 
@@ -63,7 +63,7 @@ RUN mkdir -p /bazel
 RUN USE_BAZEL_VERSION=8.7.0 bazelisk help
 RUN USE_BAZEL_VERSION=7.3.2 bazelisk help
 
-ENV CC=gcc-9
-ENV CXX=g++-9
+ENV CC=gcc-10
+ENV CXX=g++-10
 
 ENTRYPOINT ["/usr/bin/bazelisk"]
