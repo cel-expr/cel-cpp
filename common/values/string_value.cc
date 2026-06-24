@@ -742,7 +742,7 @@ absl::StatusOr<absl::Cord> SubstringImpl(const absl::Cord& cord, uint64_t start,
     }
     if (size_code_points == end) {
       return cord.Subcord(start_code_units,
-                          size_code_points - start_code_units);
+                          size_code_units - start_code_units);
     }
     char32_t code_point;
     size_t code_units;
