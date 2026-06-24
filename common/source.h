@@ -22,6 +22,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
+#include "absl/container/inlined_vector.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
@@ -36,6 +37,7 @@ class SourceImpl;
 }  // namespace common_internal
 
 class Source;
+class SourceSubrange;
 
 // SourcePosition represents an offset in source text.
 using SourcePosition = int32_t;
@@ -94,6 +96,7 @@ class SourceContentView final {
 
  private:
   friend class Source;
+  friend class SourceSubrange;
 
   constexpr SourceContentView() = default;
 
@@ -178,6 +181,7 @@ class Source {
 
  private:
   friend class common_internal::SourceImpl;
+  friend class SourceSubrange;
 
   Source() = default;
 
@@ -185,6 +189,34 @@ class Source {
 
   absl::optional<std::pair<int32_t, SourcePosition>> FindLine(
       SourcePosition position) const;
+};
+
+// `SourceSubrange` is a view of a subrange fo an underlying `Source` object.
+// Intended to be used when the CEL expression is embedded in a larger text
+// representation (such as a.celpolicy).
+//
+// The parent `Source` must outlive this object.
+class SourceSubrange final : public Source {
+ public:
+  SourceSubrange(const Source& source ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                 SourceRange range);
+
+  absl::string_view description() const ABSL_ATTRIBUTE_LIFETIME_BOUND override {
+    return source_.description();
+  }
+
+  // Returns a view of the underlying expression text.
+  ContentView content() const ABSL_ATTRIBUTE_LIFETIME_BOUND override;
+
+  // Returns a `absl::Span` of `SourcePosition` which represent the positions
+  // where new lines occur.
+  absl::Span<const SourcePosition> line_offsets() const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND override;
+
+ private:
+  const Source& source_;
+  SourceRange range_;
+  absl::InlinedVector<SourcePosition, 1> line_offsets_;
 };
 
 using SourcePtr = std::unique_ptr<Source>;
