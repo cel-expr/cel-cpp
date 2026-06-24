@@ -33,6 +33,7 @@
 #include "extensions/protobuf/internal/map_reflection.h"
 #include "internal/json.h"
 #include "internal/message_equality.h"
+#include "internal/number.h"
 #include "internal/status_macros.h"
 #include "internal/well_known_types.h"
 #include "google/protobuf/arena.h"
@@ -197,11 +198,15 @@ absl::optional<int32_t> ValueAsInt32(const Value& value) {
              uint_value &&
              uint_value->NativeValue() <= std::numeric_limits<int32_t>::max()) {
     return static_cast<int32_t>(uint_value->NativeValue());
-  } else if (auto double_value = value.AsDouble();
-             double_value &&
-             static_cast<double>(static_cast<int32_t>(
-                 double_value->NativeValue())) == double_value->NativeValue()) {
-    return static_cast<int32_t>(double_value->NativeValue());
+  } else if (auto double_value = value.AsDouble(); double_value) {
+    auto number = internal::Number::FromDouble(double_value->NativeValue());
+    if (number.LosslessConvertibleToInt()) {
+      int64_t wide_value = number.AsInt();
+      if (wide_value >= std::numeric_limits<int32_t>::min() &&
+          wide_value <= std::numeric_limits<int32_t>::max()) {
+        return static_cast<int32_t>(wide_value);
+      }
+    }
   }
   return absl::nullopt;
 }
@@ -213,11 +218,11 @@ absl::optional<int64_t> ValueAsInt64(const Value& value) {
              uint_value &&
              uint_value->NativeValue() <= std::numeric_limits<int64_t>::max()) {
     return static_cast<int64_t>(uint_value->NativeValue());
-  } else if (auto double_value = value.AsDouble();
-             double_value &&
-             static_cast<double>(static_cast<int64_t>(
-                 double_value->NativeValue())) == double_value->NativeValue()) {
-    return static_cast<int64_t>(double_value->NativeValue());
+  } else if (auto double_value = value.AsDouble(); double_value) {
+    auto number = internal::Number::FromDouble(double_value->NativeValue());
+    if (number.LosslessConvertibleToInt()) {
+      return number.AsInt();
+    }
   }
   return absl::nullopt;
 }
@@ -231,11 +236,14 @@ absl::optional<uint32_t> ValueAsUInt32(const Value& value) {
              uint_value && uint_value->NativeValue() <=
                                std::numeric_limits<uint32_t>::max()) {
     return static_cast<uint32_t>(uint_value->NativeValue());
-  } else if (auto double_value = value.AsDouble();
-             double_value &&
-             static_cast<double>(static_cast<uint32_t>(
-                 double_value->NativeValue())) == double_value->NativeValue()) {
-    return static_cast<uint32_t>(double_value->NativeValue());
+  } else if (auto double_value = value.AsDouble(); double_value) {
+    auto number = internal::Number::FromDouble(double_value->NativeValue());
+    if (number.LosslessConvertibleToUint()) {
+      uint64_t wide_value = number.AsUint();
+      if (wide_value <= std::numeric_limits<uint32_t>::max()) {
+        return static_cast<uint32_t>(wide_value);
+      }
+    }
   }
   return absl::nullopt;
 }
@@ -246,11 +254,11 @@ absl::optional<uint64_t> ValueAsUInt64(const Value& value) {
     return static_cast<uint64_t>(int_value->NativeValue());
   } else if (auto uint_value = value.AsUint(); uint_value) {
     return uint_value->NativeValue();
-  } else if (auto double_value = value.AsDouble();
-             double_value &&
-             static_cast<double>(static_cast<uint64_t>(
-                 double_value->NativeValue())) == double_value->NativeValue()) {
-    return static_cast<uint64_t>(double_value->NativeValue());
+  } else if (auto double_value = value.AsDouble(); double_value) {
+    auto number = internal::Number::FromDouble(double_value->NativeValue());
+    if (number.LosslessConvertibleToUint()) {
+      return number.AsUint();
+    }
   }
   return absl::nullopt;
 }

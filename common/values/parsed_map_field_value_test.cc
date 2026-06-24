@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -222,6 +223,77 @@ TEST_F(ParsedMapFieldValueTest, Find) {
               IsOkAndHolds(Optional(BoolValueIs(true))));
   EXPECT_THAT(value.Find(StringValue("baz"), descriptor_pool(),
                          message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+}
+
+TEST_F(ParsedMapFieldValueTest, FindDoubleKeyConversion) {
+  // Lookups on integer-keyed maps coerce double keys following CEL's numeric
+  // semantics ({1: 'x'}[1.0] resolves to key 1). A double that is out of range,
+  // negative for an unsigned key, or non-finite must be reported as absent
+  // rather than narrowed to the key type: converting such a double straight to
+  // an integer with static_cast is undefined behaviour.
+  ParsedMapFieldValue int64_map(
+      DynamicParseTextProto<TestAllTypesProto3>(R"pb(
+        map_int64_int64 { key: 1 value: 100 }
+      )pb"),
+      DynamicGetField<TestAllTypesProto3>("map_int64_int64"), arena());
+  EXPECT_THAT(int64_map.Find(DoubleValue(1.0), descriptor_pool(),
+                             message_factory(), arena()),
+              IsOkAndHolds(Optional(IntValueIs(100))));
+  EXPECT_THAT(int64_map.Find(DoubleValue(1e19), descriptor_pool(),
+                             message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+  EXPECT_THAT(int64_map.Find(DoubleValue(-1e19), descriptor_pool(),
+                             message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+  EXPECT_THAT(int64_map.Find(DoubleValue(std::numeric_limits<double>::infinity()),
+                             descriptor_pool(), message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+  EXPECT_THAT(
+      int64_map.Find(DoubleValue(std::numeric_limits<double>::quiet_NaN()),
+                     descriptor_pool(), message_factory(), arena()),
+      IsOkAndHolds(Eq(absl::nullopt)));
+
+  ParsedMapFieldValue uint64_map(
+      DynamicParseTextProto<TestAllTypesProto3>(R"pb(
+        map_uint64_uint64 { key: 1 value: 100 }
+      )pb"),
+      DynamicGetField<TestAllTypesProto3>("map_uint64_uint64"), arena());
+  EXPECT_THAT(uint64_map.Find(DoubleValue(1.0), descriptor_pool(),
+                              message_factory(), arena()),
+              IsOkAndHolds(Optional(UintValueIs(100))));
+  EXPECT_THAT(uint64_map.Find(DoubleValue(-1.0), descriptor_pool(),
+                              message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+  EXPECT_THAT(uint64_map.Find(DoubleValue(1e20), descriptor_pool(),
+                              message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+
+  ParsedMapFieldValue int32_map(
+      DynamicParseTextProto<TestAllTypesProto3>(R"pb(
+        map_int32_int32 { key: 1 value: 100 }
+      )pb"),
+      DynamicGetField<TestAllTypesProto3>("map_int32_int32"), arena());
+  EXPECT_THAT(int32_map.Find(DoubleValue(1.0), descriptor_pool(),
+                             message_factory(), arena()),
+              IsOkAndHolds(Optional(IntValueIs(100))));
+  EXPECT_THAT(int32_map.Find(DoubleValue(1e19), descriptor_pool(),
+                             message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+
+  ParsedMapFieldValue uint32_map(
+      DynamicParseTextProto<TestAllTypesProto3>(R"pb(
+        map_uint32_uint32 { key: 1 value: 100 }
+      )pb"),
+      DynamicGetField<TestAllTypesProto3>("map_uint32_uint32"), arena());
+  EXPECT_THAT(uint32_map.Find(DoubleValue(1.0), descriptor_pool(),
+                              message_factory(), arena()),
+              IsOkAndHolds(Optional(UintValueIs(100))));
+  EXPECT_THAT(uint32_map.Find(DoubleValue(-1.0), descriptor_pool(),
+                              message_factory(), arena()),
+              IsOkAndHolds(Eq(absl::nullopt)));
+  EXPECT_THAT(uint32_map.Find(DoubleValue(1e19), descriptor_pool(),
+                              message_factory(), arena()),
               IsOkAndHolds(Eq(absl::nullopt)));
 }
 
