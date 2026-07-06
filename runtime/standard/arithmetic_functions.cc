@@ -14,6 +14,7 @@
 
 #include "runtime/standard/arithmetic_functions.h"
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 
@@ -138,6 +139,17 @@ template <>
 Value Div<double>(double v0, double v1) {
   static_assert(std::numeric_limits<double>::is_iec559,
                 "Division by zero for doubles must be supported");
+
+  if (v1 == 0.0) {
+    if (v0 == 0.0 || std::isnan(v0)) {
+      return DoubleValue(std::numeric_limits<double>::quiet_NaN());
+    }
+    double inf = std::numeric_limits<double>::infinity();
+    if (std::signbit(v0) != std::signbit(v1)) {
+      return DoubleValue(-inf);
+    }
+    return DoubleValue(inf);
+  }
 
   // For double, division will result in +/- inf
   return DoubleValue(v0 / v1);
