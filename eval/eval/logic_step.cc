@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/status/status.h"
@@ -188,8 +189,8 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
 class LogicalOpStep : public ExpressionStepBase {
  public:
   // Constructs FunctionStep that uses overloads specified.
-  LogicalOpStep(OpType op_type, int64_t expr_id)
-      : ExpressionStepBase(expr_id), op_type_(op_type) {
+  LogicalOpStep(OpType op_type, size_t count, int64_t expr_id)
+      : ExpressionStepBase(expr_id), op_type_(op_type), count_(count) {
     shortcircuit_ = (op_type_ == OpType::kOr);
   }
 
@@ -198,28 +199,25 @@ class LogicalOpStep : public ExpressionStepBase {
  private:
   void Calculate(ExecutionFrame* frame, absl::Span<const Value> args,
                  Value& result) const {
-    bool bool_args[2];
-    bool has_bool_args[2];
+    std::optional<size_t> error_pos;
 
     for (size_t i = 0; i < args.size(); i++) {
-      has_bool_args[i] = args[i]->Is<BoolValue>();
-      if (has_bool_args[i]) {
-        bool_args[i] = args[i].GetBool().NativeValue();
-        if (bool_args[i] == shortcircuit_) {
-          result = BoolValue{bool_args[i]};
-          return;
-        }
-      }
-    }
-
-    if (has_bool_args[0] && has_bool_args[1]) {
-      switch (op_type_) {
-        case OpType::kAnd:
-          result = BoolValue{bool_args[0] && bool_args[1]};
-          return;
-        case OpType::kOr:
-          result = BoolValue{bool_args[0] || bool_args[1]};
-          return;
+      const Value& arg = args[i];
+      switch (arg.kind()) {
+        case ValueKind::kBool:
+          if (arg.GetBool() == shortcircuit_) {
+            result = arg;
+            return;
+          }
+          break;
+        case ValueKind::kUnknown:
+          break;
+        case ValueKind::kError:
+        default:
+          if (!error_pos.has_value()) {
+            error_pos = i;
+          }
+          break;
       }
     }
 
@@ -237,31 +235,31 @@ class LogicalOpStep : public ExpressionStepBase {
       }
     }
 
-    if (args[0]->Is<cel::ErrorValue>()) {
-      result = args[0];
-      return;
-    } else if (args[1]->Is<cel::ErrorValue>()) {
-      result = args[1];
+    if (!error_pos.has_value()) {
+      result = cel::BoolValue(!shortcircuit_);
       return;
     }
 
-    // Fallback.
-    result = cel::ErrorValue(CreateNoMatchingOverloadError(
-        (op_type_ == OpType::kOr) ? cel::builtin::kOr : cel::builtin::kAnd));
+    result = args[error_pos.value()];
+    if (!result.IsError()) {
+      result = cel::ErrorValue(CreateNoMatchingOverloadError(
+          (op_type_ == OpType::kOr) ? cel::builtin::kOr : cel::builtin::kAnd));
+    }
   }
 
   const OpType op_type_;
+  size_t count_;
   bool shortcircuit_;
 };
 
 absl::Status LogicalOpStep::Evaluate(ExecutionFrame* frame) const {
   // Must have 2 or more values on the stack.
-  if (!frame->value_stack().HasEnough(2)) {
+  if (!frame->value_stack().HasEnough(count_)) {
     return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
   }
 
   // Create Span object that contains input arguments to the function.
-  auto args = frame->value_stack().GetSpan(2);
+  auto args = frame->value_stack().GetSpan(count_);
   Value result;
   Calculate(frame, args, result);
   frame->value_stack().PopAndPush(args.size(), std::move(result));
@@ -452,13 +450,15 @@ std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
 }
 
 // Factory method for "And" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateAndStep(int64_t expr_id) {
-  return std::make_unique<LogicalOpStep>(OpType::kAnd, expr_id);
+absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateAndStep(size_t num_args,
+                                                              int64_t expr_id) {
+  return std::make_unique<LogicalOpStep>(OpType::kAnd, num_args, expr_id);
 }
 
 // Factory method for "Or" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateOrStep(int64_t expr_id) {
-  return std::make_unique<LogicalOpStep>(OpType::kOr, expr_id);
+absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateOrStep(size_t num_args,
+                                                             int64_t expr_id) {
+  return std::make_unique<LogicalOpStep>(OpType::kOr, num_args, expr_id);
 }
 
 // Factory method for recursive logical not "!" Execution step

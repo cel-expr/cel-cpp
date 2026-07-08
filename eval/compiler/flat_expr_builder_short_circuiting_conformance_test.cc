@@ -1,11 +1,13 @@
 // A collection of tests that confirm that short-circuit and non-short-circuit
 // produce expressions with the same outputs.
 #include <memory>
+#include <string>
+#include <tuple>
 
+#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/substitute.h"
-#include "base/builtins.h"
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_attribute.h"
@@ -14,10 +16,10 @@
 #include "eval/public/unknown_attribute_set.h"
 #include "eval/public/unknown_set.h"
 #include "internal/testing.h"
+#include "parser/parser.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
-#include "google/protobuf/text_format.h"
 
 namespace google::api::expr::runtime {
 
@@ -25,63 +27,9 @@ namespace {
 
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::expr::Expr;
+using ::google::api::expr::parser::Parse;
 using ::testing::Eq;
 using ::testing::SizeIs;
-
-constexpr char kTwoLogicalOp[] = R"cel(
-id: 1
-call_expr {
-  function: "$0"
-  args {
-    id: 2
-    ident_expr {
-      name: "var1",
-    }
-  }
-  args {
-    id: 3
-    call_expr {
-      function: "$0"
-      args {
-        id: 4
-        ident_expr {
-          name: "var2"
-        }
-      }
-      args {
-        id: 5
-        ident_expr {
-          name: "var3"
-        }
-      }
-    }
-  }
-}
-)cel";
-
-constexpr char kTernaryExpr[] = R"cel(
-id: 1
-call_expr {
-  function: "_?_:_"
-  args {
-    id: 2
-    ident_expr {
-      name: "cond"
-    }
-  }
-  args {
-    id: 3
-    ident_expr {
-      name: "arg1"
-    }
-  }
-  args {
-    id: 4
-    ident_expr {
-      name: "arg2"
-    }
-  }
-})cel";
 
 void BuildAndEval(CelExpressionBuilder* builder, const Expr& expr,
                   const Activation& activation, google::protobuf::Arena* arena,
@@ -95,12 +43,16 @@ void BuildAndEval(CelExpressionBuilder* builder, const Expr& expr,
   *result = *value;
 }
 
-class ShortCircuitingTest : public testing::TestWithParam<bool> {
+class ShortCircuitingTest
+    : public testing::TestWithParam<std::tuple<bool, bool>> {
  public:
+  bool short_circuiting() const { return std::get<0>(GetParam()); }
+  bool enable_variadic() const { return std::get<1>(GetParam()); }
+
   std::unique_ptr<CelExpressionBuilder> GetBuilder(
       bool enable_unknowns = false) {
     cel::RuntimeOptions options;
-    options.short_circuiting = GetParam();
+    options.short_circuiting = short_circuiting();
     if (enable_unknowns) {
       options.unknown_processing =
           cel::UnknownProcessingOptions::kAttributeAndFunction;
@@ -109,14 +61,20 @@ class ShortCircuitingTest : public testing::TestWithParam<bool> {
         NewTestingRuntimeEnv(), options);
     return result;
   }
+
+  Expr ParseExpr(absl::string_view expression) {
+    cel::ParserOptions options;
+    options.enable_variadic_logical_operators = enable_variadic();
+    auto parsed_expr = Parse(expression, "<input>", options);
+    ABSL_CHECK_OK(parsed_expr.status());
+    return parsed_expr->expr();
+  }
 };
 
 TEST_P(ShortCircuitingTest, BasicAnd) {
-  Expr expr;
+  Expr expr = ParseExpr("var1 && var2 && var3");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      absl::Substitute(kTwoLogicalOp, ::cel::builtin::kAnd), &expr));
   auto builder = GetBuilder();
 
   activation.InsertValue("var1", CelValue::CreateBool(true));
@@ -140,11 +98,9 @@ TEST_P(ShortCircuitingTest, BasicAnd) {
 }
 
 TEST_P(ShortCircuitingTest, BasicOr) {
-  Expr expr;
+  Expr expr = ParseExpr("var1 || var2 || var3");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      absl::Substitute(kTwoLogicalOp, ::cel::builtin::kOr), &expr));
   auto builder = GetBuilder();
 
   activation.InsertValue("var1", CelValue::CreateBool(false));
@@ -168,11 +124,9 @@ TEST_P(ShortCircuitingTest, BasicOr) {
 }
 
 TEST_P(ShortCircuitingTest, ErrorAnd) {
-  Expr expr;
+  Expr expr = ParseExpr("var1 && var2 && var3");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      absl::Substitute(kTwoLogicalOp, ::cel::builtin::kAnd), &expr));
   auto builder = GetBuilder();
   absl::Status error = absl::InternalError("error");
 
@@ -198,11 +152,9 @@ TEST_P(ShortCircuitingTest, ErrorAnd) {
 }
 
 TEST_P(ShortCircuitingTest, ErrorOr) {
-  Expr expr;
+  Expr expr = ParseExpr("var1 || var2 || var3");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      absl::Substitute(kTwoLogicalOp, ::cel::builtin::kOr), &expr));
   auto builder = GetBuilder();
   absl::Status error = absl::InternalError("error");
 
@@ -228,11 +180,9 @@ TEST_P(ShortCircuitingTest, ErrorOr) {
 }
 
 TEST_P(ShortCircuitingTest, UnknownAnd) {
-  Expr expr;
+  Expr expr = ParseExpr("var1 && var2 && var3");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      absl::Substitute(kTwoLogicalOp, ::cel::builtin::kAnd), &expr));
   auto builder = GetBuilder(/* enable_unknowns=*/true);
   absl::Status error = absl::InternalError("error");
 
@@ -260,11 +210,9 @@ TEST_P(ShortCircuitingTest, UnknownAnd) {
 }
 
 TEST_P(ShortCircuitingTest, UnknownOr) {
-  Expr expr;
+  Expr expr = ParseExpr("var1 || var2 || var3");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      absl::Substitute(kTwoLogicalOp, ::cel::builtin::kOr), &expr));
   auto builder = GetBuilder(/* enable_unknowns=*/true);
   absl::Status error = absl::InternalError("error");
 
@@ -292,10 +240,9 @@ TEST_P(ShortCircuitingTest, UnknownOr) {
 }
 
 TEST_P(ShortCircuitingTest, BasicTernary) {
-  Expr expr;
+  Expr expr = ParseExpr("cond ? arg1 : arg2");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kTernaryExpr, &expr));
   auto builder = GetBuilder();
 
   activation.InsertValue("cond", CelValue::CreateBool(true));
@@ -319,10 +266,9 @@ TEST_P(ShortCircuitingTest, BasicTernary) {
 }
 
 TEST_P(ShortCircuitingTest, TernaryErrorHandling) {
-  Expr expr;
+  Expr expr = ParseExpr("cond ? arg1 : arg2");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kTernaryExpr, &expr));
   auto builder = GetBuilder();
 
   absl::Status error1 = absl::InternalError("error1");
@@ -349,10 +295,9 @@ TEST_P(ShortCircuitingTest, TernaryErrorHandling) {
 }
 
 TEST_P(ShortCircuitingTest, TernaryUnknownCondHandling) {
-  Expr expr;
+  Expr expr = ParseExpr("cond ? arg1 : arg2");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kTernaryExpr, &expr));
   auto builder = GetBuilder(/*enable_unknowns=*/true);
 
   absl::Status error = absl::InternalError("error1");
@@ -386,10 +331,9 @@ TEST_P(ShortCircuitingTest, TernaryUnknownCondHandling) {
 }
 
 TEST_P(ShortCircuitingTest, TernaryUnknownArgsHandling) {
-  Expr expr;
+  Expr expr = ParseExpr("cond ? arg1 : arg2");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kTernaryExpr, &expr));
   auto builder = GetBuilder(/*enable_unknowns=*/true);
 
   absl::Status error = absl::InternalError("error1");
@@ -421,10 +365,9 @@ TEST_P(ShortCircuitingTest, TernaryUnknownArgsHandling) {
 }
 
 TEST_P(ShortCircuitingTest, TernaryUnknownAndErrorHandling) {
-  Expr expr;
+  Expr expr = ParseExpr("cond ? arg1 : arg2");
   Activation activation;
   google::protobuf::Arena arena;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kTernaryExpr, &expr));
   auto builder = GetBuilder(/*enable_unknowns=*/true);
 
   absl::Status error = absl::InternalError("error1");
@@ -457,16 +400,16 @@ TEST_P(ShortCircuitingTest, TernaryUnknownAndErrorHandling) {
   EXPECT_EQ(attrs.begin()->variable_name(), "cond");
 }
 
-const char* TestName(testing::TestParamInfo<bool> info) {
-  if (info.param) {
-    return "short_circuit_enabled";
-  } else {
-    return "short_circuit_disabled";
-  }
+std::string TestName(testing::TestParamInfo<std::tuple<bool, bool>> info) {
+  return absl::StrCat(
+      std::get<0>(info.param) ? "short_circuit_enabled"
+                              : "short_circuit_disabled",
+      "_", std::get<1>(info.param) ? "variadic_enabled" : "variadic_disabled");
 }
 
 INSTANTIATE_TEST_SUITE_P(Test, ShortCircuitingTest,
-                         testing::Values(false, true), &TestName);
+                         testing::Combine(testing::Bool(), testing::Bool()),
+                         &TestName);
 
 }  // namespace
 

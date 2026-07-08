@@ -23,10 +23,12 @@ std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
     bool shortcircuiting);
 
 // Factory method for "And" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateAndStep(int64_t expr_id);
+absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateAndStep(size_t num_args,
+                                                              int64_t expr_id);
 
 // Factory method for "Or" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateOrStep(int64_t expr_id);
+absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateOrStep(size_t num_args,
+                                                             int64_t expr_id);
 
 // Factory method for recursive logical not "!" Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectNotStep(

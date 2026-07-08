@@ -48,14 +48,20 @@ class JumpStepBase : public ExpressionStepBase {
 std::unique_ptr<JumpStepBase> CreateJumpStep(absl::optional<int> jump_offset,
                                              int64_t expr_id);
 
-// Factory method for Conditional Jump step.
+// Factory method for Conditional Jump step (used for and/or shortcircuiting).
 // Conditional Jump requires a boolean value to sit on the stack.
 // It is compared to jump_condition, and if matched, jump is performed.
-// leave on stack indicates whether value should be kept on top of the stack or
-// removed.
+// The boolean value is left on top of the stack.
 std::unique_ptr<JumpStepBase> CreateCondJumpStep(
-    bool jump_condition, bool leave_on_stack, absl::optional<int> jump_offset,
-    int64_t expr_id);
+    bool jump_condition, absl::optional<int> jump_offset,
+    size_t expected_stack_size, int64_t expr_id);
+
+// Factory method for Ternary Conditional Jump step.
+// Requires a boolean condition value on top of the stack.
+// If the boolean value is false, a jump is performed to the second branch.
+// The condition value is popped from the stack before jumping or continuing.
+std::unique_ptr<JumpStepBase> CreateTernaryCondJumpStep(
+    absl::optional<int> jump_offset, int64_t expr_id);
 
 // Factory method for ErrorJump step.
 // This step performs a Jump when an Error is on the top of the stack.
