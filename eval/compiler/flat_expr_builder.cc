@@ -198,14 +198,7 @@ class CondVisitor {
   virtual void PostVisitTarget(const cel::Expr* expr) {}
 };
 
-enum class BinaryCond {
-  kAnd = 0,
-  kOr,
-  kOptionalOr,
-  kOptionalOrValue,
-};
-
-// Visitor managing the "&&" and "||" operatiions.
+// Visitor managing the "&&" and "||" (boolean logic) operations.
 // Implements short-circuiting if enabled.
 //
 // With short-circuiting enabled, generates a program like:
@@ -218,20 +211,41 @@ enum class BinaryCond {
 //   | i + 3       | BooleanOperator        | Op(arg1, arg2)        |
 //   | i + 4       | <rest of program>      | arg1 | Op(arg1, arg2) |
 //   +-------------+------------------------+------------------------+
-class BinaryCondVisitor : public CondVisitor {
+class LogicalCondVisitor : public CondVisitor {
  public:
-  explicit BinaryCondVisitor(FlatExprVisitor* visitor, BinaryCond cond,
-                             bool short_circuiting)
-      : visitor_(visitor), cond_(cond), short_circuiting_(short_circuiting) {}
+  explicit LogicalCondVisitor(FlatExprVisitor* visitor, bool is_or,
+                              bool short_circuiting)
+      : visitor_(visitor), is_or_(is_or), short_circuiting_(short_circuiting) {}
 
   void PreVisit(const cel::Expr* expr) override;
   void PostVisitArg(int arg_num, const cel::Expr* expr) override;
   void PostVisit(const cel::Expr* expr) override;
-  void PostVisitTarget(const cel::Expr* expr) override;
 
  private:
   FlatExprVisitor* visitor_;
-  const BinaryCond cond_;
+  const bool is_or_;
+  std::vector<Jump> jump_steps_;
+  bool short_circuiting_;
+};
+
+// Visitor managing optional "or" and "orValue" operations.
+// Implements short-circuiting if enabled.
+class OptionalOrCondVisitor : public CondVisitor {
+ public:
+  explicit OptionalOrCondVisitor(FlatExprVisitor* visitor, bool is_or_value,
+                                 bool short_circuiting)
+      : visitor_(visitor),
+        is_or_value_(is_or_value),
+        short_circuiting_(short_circuiting) {}
+
+  void PreVisit(const cel::Expr* expr) override;
+  void PostVisitArg(int arg_num, const cel::Expr* expr) override {}
+  void PostVisitTarget(const cel::Expr* expr) override;
+  void PostVisit(const cel::Expr* expr) override;
+
+ private:
+  FlatExprVisitor* visitor_;
+  const bool is_or_value_;
   std::vector<Jump> jump_steps_;
   bool short_circuiting_;
 };
@@ -997,11 +1011,11 @@ class FlatExprVisitor : public cel::AstVisitor {
 
     std::unique_ptr<CondVisitor> cond_visitor;
     if (call_expr.function() == cel::builtin::kAnd) {
-      cond_visitor = std::make_unique<BinaryCondVisitor>(
-          this, BinaryCond::kAnd, options_.short_circuiting);
+      cond_visitor = std::make_unique<LogicalCondVisitor>(
+          this, /*is_or=*/false, options_.short_circuiting);
     } else if (call_expr.function() == cel::builtin::kOr) {
-      cond_visitor = std::make_unique<BinaryCondVisitor>(
-          this, BinaryCond::kOr, options_.short_circuiting);
+      cond_visitor = std::make_unique<LogicalCondVisitor>(
+          this, /*is_or=*/true, options_.short_circuiting);
     } else if (call_expr.function() == cel::builtin::kTernary) {
       if (options_.short_circuiting) {
         cond_visitor = std::make_unique<TernaryCondVisitor>(this);
@@ -1011,13 +1025,13 @@ class FlatExprVisitor : public cel::AstVisitor {
     } else if (enable_optional_types_ &&
                call_expr.function() == kOptionalOrFn &&
                call_expr.has_target() && call_expr.args().size() == 1) {
-      cond_visitor = std::make_unique<BinaryCondVisitor>(
-          this, BinaryCond::kOptionalOr, options_.short_circuiting);
+      cond_visitor = std::make_unique<OptionalOrCondVisitor>(
+          this, /*is_or_value=*/false, options_.short_circuiting);
     } else if (enable_optional_types_ &&
                call_expr.function() == kOptionalOrValueFn &&
                call_expr.has_target() && call_expr.args().size() == 1) {
-      cond_visitor = std::make_unique<BinaryCondVisitor>(
-          this, BinaryCond::kOptionalOrValue, options_.short_circuiting);
+      cond_visitor = std::make_unique<OptionalOrCondVisitor>(
+          this, /*is_or_value=*/true, options_.short_circuiting);
     } else if (IsBlock(&call_expr)) {
       // cel.@block
       if (block_.has_value()) {
@@ -2147,91 +2161,35 @@ FlatExprVisitor::HandleHeterogeneousEqualityIn(const cel::Expr& expr,
   return CallHandlerResult::kIntercepted;
 }
 
-void BinaryCondVisitor::PreVisit(const cel::Expr* expr) {
-  switch (cond_) {
-    case BinaryCond::kAnd:
-      ABSL_FALLTHROUGH_INTENDED;
-    case BinaryCond::kOr:
-      visitor_->ValidateOrError(
-          !expr->call_expr().has_target() &&
-              expr->call_expr().args().size() >= 2,
-          "Invalid argument count for a binary function call.");
-      break;
-    case BinaryCond::kOptionalOr:
-      ABSL_FALLTHROUGH_INTENDED;
-    case BinaryCond::kOptionalOrValue:
-      visitor_->ValidateOrError(expr->call_expr().has_target() &&
-                                    expr->call_expr().args().size() == 1,
-                                "Invalid argument count for or/orValue call.");
-      break;
-  }
+void LogicalCondVisitor::PreVisit(const cel::Expr* expr) {
+  visitor_->ValidateOrError(
+      !expr->call_expr().has_target() && expr->call_expr().args().size() >= 2,
+      "Invalid argument count for a binary function call.");
 }
 
-void BinaryCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
+void LogicalCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
   if (visitor_->PlanRecursiveProgram()) {
     return;
   }
   const int last_arg_index = expr->call_expr().args().size() - 1;
-  if (cond_ == BinaryCond::kAnd || cond_ == BinaryCond::kOr) {
-    if (arg_num > 0) {
-      switch (cond_) {
-        case BinaryCond::kAnd:
-          visitor_->AddStep(CreateAndStep(expr->id()));
-          break;
-        case BinaryCond::kOr:
-          visitor_->AddStep(CreateOrStep(expr->id()));
-          break;
-        default:
-          break;
-      }
-      if (short_circuiting_ && !jump_steps_.empty()) {
+  const size_t num_args = expr->call_expr().args().size();
+  if (arg_num == last_arg_index) {
+    if (is_or_) {
+      visitor_->AddStep(CreateOrStep(num_args, expr->id()));
+    } else {
+      visitor_->AddStep(CreateAndStep(num_args, expr->id()));
+    }
+    if (short_circuiting_ && !jump_steps_.empty()) {
+      for (auto& jump : jump_steps_) {
         visitor_->SetProgressStatusIfError(
-            jump_steps_.back().set_target(visitor_->GetCurrentIndex()));
-      }
-    }
-    if (short_circuiting_ && arg_num < last_arg_index) {
-      std::unique_ptr<JumpStepBase> jump_step;
-      switch (cond_) {
-        case BinaryCond::kAnd:
-          jump_step = CreateCondJumpStep(false, true, {}, expr->id());
-          break;
-        case BinaryCond::kOr:
-          jump_step = CreateCondJumpStep(true, true, {}, expr->id());
-          break;
-        default:
-          ABSL_UNREACHABLE();
-      }
-      ProgramStepIndex index = visitor_->GetCurrentIndex();
-      if (JumpStepBase* jump_step_ptr = visitor_->AddStep(std::move(jump_step));
-          jump_step_ptr) {
-        jump_steps_.push_back(Jump(index, jump_step_ptr));
+            jump.set_target(visitor_->GetCurrentIndex()));
       }
     }
   }
-}
-
-void BinaryCondVisitor::PostVisitTarget(const cel::Expr* expr) {
-  if (visitor_->PlanRecursiveProgram()) {
-    return;
-  }
-  if (short_circuiting_ && (cond_ == BinaryCond::kOptionalOr ||
-                            cond_ == BinaryCond::kOptionalOrValue)) {
-    // If first branch evaluation result is enough to determine output,
-    // jump over the second branch and provide result of the first argument as
-    // final output.
-    // Retain a pointer to the jump step so we can update the target after
-    // planning the second argument.
-    std::unique_ptr<JumpStepBase> jump_step;
-    switch (cond_) {
-      case BinaryCond::kOptionalOr:
-        jump_step = CreateOptionalHasValueJumpStep(false, expr->id());
-        break;
-      case BinaryCond::kOptionalOrValue:
-        jump_step = CreateOptionalHasValueJumpStep(true, expr->id());
-        break;
-      default:
-        ABSL_UNREACHABLE();
-    }
+  if (short_circuiting_ && arg_num < last_arg_index) {
+    std::unique_ptr<JumpStepBase> jump_step =
+        is_or_ ? CreateCondJumpStep(true, {}, arg_num + 1, expr->id())
+               : CreateCondJumpStep(false, {}, arg_num + 1, expr->id());
     ProgramStepIndex index = visitor_->GetCurrentIndex();
     if (JumpStepBase* jump_step_ptr = visitor_->AddStep(std::move(jump_step));
         jump_step_ptr) {
@@ -2240,48 +2198,49 @@ void BinaryCondVisitor::PostVisitTarget(const cel::Expr* expr) {
   }
 }
 
-void BinaryCondVisitor::PostVisit(const cel::Expr* expr) {
+void LogicalCondVisitor::PostVisit(const cel::Expr* expr) {
   if (visitor_->PlanRecursiveProgram()) {
-    switch (cond_) {
-      case BinaryCond::kAnd:
-        visitor_->MakeShortcircuitRecursive(expr, /*is_or=*/false);
-        break;
-      case BinaryCond::kOr:
-        visitor_->MakeShortcircuitRecursive(expr, /*is_or=*/true);
-        break;
-      case BinaryCond::kOptionalOr:
-        visitor_->MakeOptionalShortcircuit(expr,
-                                           /*is_or_value=*/false);
-        break;
-      case BinaryCond::kOptionalOrValue:
-        visitor_->MakeOptionalShortcircuit(expr,
-                                           /*is_or_value=*/true);
-        break;
-      default:
-        ABSL_UNREACHABLE();
+    visitor_->MakeShortcircuitRecursive(expr, is_or_);
+  }
+}
+
+void OptionalOrCondVisitor::PreVisit(const cel::Expr* expr) {
+  visitor_->ValidateOrError(
+      expr->call_expr().has_target() && expr->call_expr().args().size() == 1,
+      "Invalid argument count for or/orValue call.");
+}
+
+void OptionalOrCondVisitor::PostVisitTarget(const cel::Expr* expr) {
+  if (visitor_->PlanRecursiveProgram()) {
+    return;
+  }
+  if (short_circuiting_) {
+    // If first branch evaluation result is enough to determine output,
+    // jump over the second branch and provide result of the first argument as
+    // final output.
+    // Retain a pointer to the jump step so we can update the target after
+    // planning the second argument.
+    std::unique_ptr<JumpStepBase> jump_step =
+        CreateOptionalHasValueJumpStep(is_or_value_, expr->id());
+    ProgramStepIndex index = visitor_->GetCurrentIndex();
+    if (JumpStepBase* jump_step_ptr = visitor_->AddStep(std::move(jump_step));
+        jump_step_ptr) {
+      jump_steps_.push_back(Jump(index, jump_step_ptr));
     }
+  }
+}
+
+void OptionalOrCondVisitor::PostVisit(const cel::Expr* expr) {
+  if (visitor_->PlanRecursiveProgram()) {
+    visitor_->MakeOptionalShortcircuit(expr, is_or_value_);
     return;
   }
 
-  if (cond_ == BinaryCond::kOptionalOr ||
-      cond_ == BinaryCond::kOptionalOrValue) {
-    switch (cond_) {
-      case BinaryCond::kOptionalOr:
-        visitor_->AddStep(
-            CreateOptionalOrStep(/*is_or_value=*/false, expr->id()));
-        break;
-      case BinaryCond::kOptionalOrValue:
-        visitor_->AddStep(
-            CreateOptionalOrStep(/*is_or_value=*/true, expr->id()));
-        break;
-      default:
-        ABSL_UNREACHABLE();
-    }
-    if (short_circuiting_) {
-      for (auto& jump : jump_steps_) {
-        visitor_->SetProgressStatusIfError(
-            jump.set_target(visitor_->GetCurrentIndex()));
-      }
+  visitor_->AddStep(CreateOptionalOrStep(is_or_value_, expr->id()));
+  if (short_circuiting_) {
+    for (auto& jump : jump_steps_) {
+      visitor_->SetProgressStatusIfError(
+          jump.set_target(visitor_->GetCurrentIndex()));
     }
   }
 }
@@ -2321,7 +2280,7 @@ void TernaryCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
     // Value is to be removed from the stack.
     ProgramStepIndex cond_jump_pos = visitor_->GetCurrentIndex();
     auto* jump_to_second =
-        visitor_->AddStep(CreateCondJumpStep(false, false, {}, expr->id()));
+        visitor_->AddStep(CreateTernaryCondJumpStep({}, expr->id()));
     if (jump_to_second) {
       jump_to_second_ =
           Jump(cond_jump_pos, static_cast<JumpStepBase*>(jump_to_second));

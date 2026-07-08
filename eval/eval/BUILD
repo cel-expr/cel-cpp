@@ -418,7 +418,6 @@ cc_library(
         "//common:value",
         "//eval/internal:errors",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/types:optional",
         "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
     ],

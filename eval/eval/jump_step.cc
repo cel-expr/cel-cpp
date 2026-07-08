@@ -14,14 +14,15 @@
 
 #include "eval/eval/jump_step.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <utility>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "absl/types/optional.h"
 #include "common/value.h"
+#include "eval/eval/evaluator_core.h"
 #include "eval/internal/errors.h"
 
 namespace google::api::expr::runtime {
@@ -47,28 +48,24 @@ class JumpStep : public JumpStepBase {
 
 class CondJumpStep : public JumpStepBase {
  public:
-  // Constructs FunctionStep that uses overloads specified.
-  CondJumpStep(bool jump_condition, bool leave_on_stack,
-               absl::optional<int> jump_offset, int64_t expr_id)
+  CondJumpStep(bool jump_condition, absl::optional<int> jump_offset,
+               size_t stack_size, int64_t expr_id)
       : JumpStepBase(jump_offset, expr_id),
         jump_condition_(jump_condition),
-        leave_on_stack_(leave_on_stack) {}
+        stack_size_(stack_size) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     // Peek the top value
-    if (!frame->value_stack().HasEnough(1)) {
+    if (!frame->value_stack().HasEnough(stack_size_)) {
       return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
     }
 
     const auto& value = frame->value_stack().Peek();
-    const auto should_jump = value.Is<BoolValue>() &&
-                             jump_condition_ == value.GetBool().NativeValue();
-
-    if (!leave_on_stack_) {
-      frame->value_stack().Pop(1);
-    }
+    const auto should_jump =
+        value.IsBool() && jump_condition_ == value.GetBool().NativeValue();
 
     if (should_jump) {
+      frame->value_stack().SwapAndPop(stack_size_, stack_size_ - 1);
       return Jump(frame);
     }
 
@@ -77,7 +74,31 @@ class CondJumpStep : public JumpStepBase {
 
  private:
   const bool jump_condition_;
-  const bool leave_on_stack_;
+  const size_t stack_size_;
+};
+
+class TernaryCondJumpStep : public JumpStepBase {
+ public:
+  TernaryCondJumpStep(absl::optional<int> jump_offset, int64_t expr_id)
+      : JumpStepBase(jump_offset, expr_id) {}
+
+  absl::Status Evaluate(ExecutionFrame* frame) const override {
+    // Peek the top value
+    if (!frame->value_stack().HasEnough(1)) {
+      return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
+    }
+
+    const auto& value = frame->value_stack().Peek();
+    const auto should_jump = value.IsBool() && !value.GetBool().NativeValue();
+
+    frame->value_stack().Pop(1);
+
+    if (should_jump) {
+      return Jump(frame);
+    }
+
+    return absl::OkStatus();
+  }
 };
 
 class BoolCheckJumpStep : public JumpStepBase {
@@ -121,13 +142,17 @@ class BoolCheckJumpStep : public JumpStepBase {
 }  // namespace
 
 // Factory method for Conditional Jump step.
-// Conditional Jump requires a boolean value to sit on the stack.
-// It is compared to jump_condition, and if matched, jump is performed.
 std::unique_ptr<JumpStepBase> CreateCondJumpStep(
-    bool jump_condition, bool leave_on_stack, absl::optional<int> jump_offset,
-    int64_t expr_id) {
-  return std::make_unique<CondJumpStep>(jump_condition, leave_on_stack,
-                                        jump_offset, expr_id);
+    bool jump_condition, absl::optional<int> jump_offset,
+    size_t expected_stack_size, int64_t expr_id) {
+  return std::make_unique<CondJumpStep>(jump_condition, jump_offset,
+                                        expected_stack_size, expr_id);
+}
+
+// Factory method for Ternary Conditional Jump step.
+std::unique_ptr<JumpStepBase> CreateTernaryCondJumpStep(
+    absl::optional<int> jump_offset, int64_t expr_id) {
+  return std::make_unique<TernaryCondJumpStep>(jump_offset, expr_id);
 }
 
 // Factory method for Jump step.

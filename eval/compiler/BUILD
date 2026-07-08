@@ -501,7 +501,6 @@ cc_test(
     ],
     deps = [
         ":cel_expression_builder_flat_impl",
-        "//base:builtins",
         "//eval/public:activation",
         "//eval/public:cel_attribute",
         "//eval/public:cel_expression",
@@ -509,8 +508,10 @@ cc_test(
         "//eval/public:unknown_attribute_set",
         "//eval/public:unknown_set",
         "//internal:testing",
+        "//parser",
         "//runtime:runtime_options",
         "//runtime/internal:runtime_env_testing",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",

@@ -73,7 +73,9 @@ class LogicStepTest : public testing::TestWithParam<bool> {
     CEL_ASSIGN_OR_RETURN(step, CreateIdentStep("name1", /*expr_id=*/-1));
     path.push_back(std::move(step));
 
-    CEL_ASSIGN_OR_RETURN(step, (is_or) ? CreateOrStep(2) : CreateAndStep(2));
+    CEL_ASSIGN_OR_RETURN(
+        step, (is_or) ? CreateOrStep(/*num_args=*/2, /*expr_id=*/2)
+                      : CreateAndStep(/*num_args=*/2, /*expr_id=*/2));
     path.push_back(std::move(step));
 
     auto dummy_expr = std::make_unique<Expr>();
