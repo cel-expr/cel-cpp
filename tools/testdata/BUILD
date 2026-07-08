@@ -25,6 +25,7 @@ flatbuffer_library_public(
     name = "flatbuffers_test",
     srcs = ["flatbuffers.fbs"],
     outs = ["flatbuffers_generated.h"],
+    compatible_with = ["//buildenv/target:non_prod"],
     language_flag = "-c",
     reflection_name = "flatbuffers_reflection",
 )
