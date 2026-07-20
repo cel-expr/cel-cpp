@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "testutil/expr_printer.h"
+#include "common/expr_printer.h"
 
 #include <algorithm>
 #include <memory>
@@ -29,7 +29,7 @@
 #include "common/expr.h"
 #include "internal/strings.h"
 
-namespace cel::test {
+namespace cel {
 namespace {
 
 class EmptyAdornerImpl : public ExpressionAdorner {
@@ -328,4 +328,4 @@ std::string ExprPrinter::Print(const Expr& expr) const {
   return w.Print(expr);
 }
 
-}  // namespace cel::test
+}  // namespace cel

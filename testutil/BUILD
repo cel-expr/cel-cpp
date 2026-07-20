@@ -21,39 +21,6 @@ package(default_visibility = ["//visibility:public"])
 licenses(["notice"])
 
 cc_library(
-    name = "expr_printer",
-    srcs = ["expr_printer.cc"],
-    hdrs = ["expr_printer.h"],
-    deps = [
-        "//common:ast",
-        "//common:ast_proto",
-        "//common:constant",
-        "//common:expr",
-        "//internal:strings",
-        "@com_google_absl//absl/base:no_destructor",
-        "@com_google_absl//absl/log:absl_log",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:str_format",
-        "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
-    ],
-)
-
-cc_test(
-    name = "expr_printer_test",
-    srcs = ["expr_printer_test.cc"],
-    deps = [
-        ":expr_printer",
-        "//common:expr",
-        "//internal:testing",
-        "//parser",
-        "//parser:options",
-        "@com_google_absl//absl/base:no_destructor",
-        "@com_google_absl//absl/strings",
-    ],
-)
-
-cc_library(
     name = "util",
     testonly = True,
     hdrs = [
@@ -88,9 +55,9 @@ cc_library(
     srcs = ["baseline_tests.cc"],
     hdrs = ["baseline_tests.h"],
     deps = [
-        ":expr_printer",
         "//common:ast",
         "//common:expr",
+        "//common:expr_printer",
         "//extensions/protobuf:ast_converters",
         "@com_google_absl//absl/strings",
         "@com_google_cel_spec//proto/cel/expr:checked_cc_proto",

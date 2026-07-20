@@ -36,6 +36,7 @@
 #include "common/ast.h"
 #include "common/constant.h"
 #include "common/expr.h"
+#include "common/expr_printer.h"
 #include "common/source.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
@@ -45,7 +46,6 @@
 #include "parser/macro_expr_factory.h"
 #include "parser/options.h"
 #include "parser/parser_interface.h"
-#include "testutil/expr_printer.h"
 
 // Change to 0 to test with the ANTLR parser to check for differences.
 #define USE_PRATT_PARSER 1
@@ -135,7 +135,7 @@ absl::string_view ExprKind(const cel::Expr& e) {
   }
 }
 
-class KindAndIdAdorner : public cel::test::ExpressionAdorner {
+class KindAndIdAdorner : public cel::ExpressionAdorner {
  public:
   std::string Adorn(const cel::Expr& e) const override {
     if (e.has_const_expr()) {
@@ -169,7 +169,7 @@ std::string Unindent(absl::string_view multiline) {
 
 MATCHER_P(AstIs, expected_ast, "") {
   KindAndIdAdorner kind_and_id_adorner;
-  test::ExprPrinter printer(kind_and_id_adorner);
+  cel::ExprPrinter printer(kind_and_id_adorner);
   std::string actual = Unindent(printer.Print(arg));
   std::string expected = Unindent(expected_ast);
   if (actual == expected) {

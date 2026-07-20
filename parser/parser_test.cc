@@ -32,13 +32,13 @@
 #include "absl/types/optional.h"
 #include "common/constant.h"
 #include "common/expr.h"
+#include "common/expr_printer.h"
 #include "common/source.h"
 #include "internal/testing.h"
 #include "parser/macro.h"
 #include "parser/options.h"
 #include "parser/parser_interface.h"
 #include "parser/source_factory.h"
-#include "testutil/expr_printer.h"
 
 namespace google::api::expr::parser {
 
@@ -48,7 +48,7 @@ using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::ConstantKindCase;
 using ::cel::ExprKindCase;
-using ::cel::test::ExprPrinter;
+using ::cel::ExprPrinter;
 using ::cel::expr::Expr;
 using ::testing::HasSubstr;
 using ::testing::Not;
@@ -1556,7 +1556,7 @@ absl::string_view ExprKind(const cel::Expr& e) {
   }
 }
 
-class KindAndIdAdorner : public cel::test::ExpressionAdorner {
+class KindAndIdAdorner : public cel::ExpressionAdorner {
  public:
   // Use default source_info constructor to make source_info "optional". This
   // will prevent macro_calls lookups from interfering with adorning expressions
@@ -1595,7 +1595,7 @@ class KindAndIdAdorner : public cel::test::ExpressionAdorner {
   const cel::expr::SourceInfo& source_info_;
 };
 
-class LocationAdorner : public cel::test::ExpressionAdorner {
+class LocationAdorner : public cel::ExpressionAdorner {
  public:
   explicit LocationAdorner(const cel::expr::SourceInfo& source_info)
       : source_info_(source_info) {}

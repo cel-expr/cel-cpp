@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef THIRD_PARTY_CEL_CPP_TESTUTIL_EXPR_PRINTER_H_
-#define THIRD_PARTY_CEL_CPP_TESTUTIL_EXPR_PRINTER_H_
+#ifndef THIRD_PARTY_CEL_CPP_COMMON_EXPR_PRINTER_H_
+#define THIRD_PARTY_CEL_CPP_COMMON_EXPR_PRINTER_H_
 
 #include <string>
 
 #include "cel/expr/syntax.pb.h"
 #include "common/expr.h"
 
-namespace cel::test {
+namespace cel {
 
 // Interface for adding additional information to an expression during
 // printing.
@@ -52,6 +52,6 @@ class ExprPrinter {
   const ExpressionAdorner& adorner_;
 };
 
-}  // namespace cel::test
+}  // namespace cel
 
-#endif  // THIRD_PARTY_CEL_CPP_TESTUTIL_EXPR_PRINTER_H_
+#endif  // THIRD_PARTY_CEL_CPP_COMMON_EXPR_PRINTER_H_

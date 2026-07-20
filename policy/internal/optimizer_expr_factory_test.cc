@@ -29,6 +29,7 @@
 #include "common/decl.h"
 #include "common/expr.h"
 #include "common/expr_factory.h"
+#include "common/expr_printer.h"
 #include "common/source.h"
 #include "common/type.h"
 #include "compiler/compiler.h"
@@ -37,7 +38,6 @@
 #include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
-#include "testutil/expr_printer.h"
 #include "tools/cel_unparser.h"
 
 namespace cel {
@@ -347,7 +347,7 @@ TEST(OptimizerExprFactory, RecordReplacement) {
   EXPECT_EQ(arg.ident_expr().name(), "replacement");
 }
 
-class IdAdorner : public cel::test::ExpressionAdorner {
+class IdAdorner : public cel::ExpressionAdorner {
  public:
   std::string Adorn(const cel::Expr& e) const override {
     return absl::StrCat("#", e.id());
@@ -398,9 +398,8 @@ TEST(OptimizerExprFactory, UnparseCopiedMacroCall) {
   factory.RecordReplacement(to_replace_id, copied_expr);
 
   // Test AST structure.
-  EXPECT_EQ(
-      cel::test::ExprPrinter(IdAdorner()).Print(factory.ast().root_expr()),
-      R"(__comprehension__(
+  EXPECT_EQ(cel::ExprPrinter(IdAdorner()).Print(factory.ast().root_expr()),
+            R"(__comprehension__(
   // Variable
   x,
   // Target

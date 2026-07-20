@@ -22,8 +22,8 @@
 #include "absl/strings/str_join.h"
 #include "common/ast.h"
 #include "common/expr.h"
+#include "common/expr_printer.h"
 #include "extensions/protobuf/ast_converters.h"
-#include "testutil/expr_printer.h"
 
 namespace cel::test {
 namespace {
