@@ -59,7 +59,7 @@ TEST(FunctionRegistryTest, InsertAndRetrieveLazyFunction) {
   cel::FunctionDescriptor lazy_function_desc{"LazyFunction", false, {}};
   FunctionRegistry registry;
   Activation activation;
-  ASSERT_OK(registry.RegisterLazyFunction(lazy_function_desc));
+  ASSERT_THAT(registry.RegisterLazyFunction(lazy_function_desc));
 
   const auto descriptors =
       registry.FindLazyOverloads("LazyFunction", false, {});
@@ -72,7 +72,7 @@ TEST(FunctionRegistryTest, InsertAndRetrieveLazyFunction) {
 TEST(FunctionRegistryTest, LazyAndStaticFunctionShareDescriptorSpace) {
   FunctionRegistry registry;
   cel::FunctionDescriptor desc = ConstIntFunction::MakeDescriptor();
-  ASSERT_OK(registry.RegisterLazyFunction(desc));
+  ASSERT_THAT(registry.RegisterLazyFunction(desc));
 
   absl::Status status = registry.Register(ConstIntFunction::MakeDescriptor(),
                                           std::make_unique<ConstIntFunction>());
@@ -82,7 +82,7 @@ TEST(FunctionRegistryTest, LazyAndStaticFunctionShareDescriptorSpace) {
 TEST(FunctionRegistryTest, FindStaticOverloadsReturns) {
   FunctionRegistry registry;
   cel::FunctionDescriptor desc = ConstIntFunction::MakeDescriptor();
-  ASSERT_OK(registry.Register(desc, std::make_unique<ConstIntFunction>()));
+  ASSERT_THAT(registry.Register(desc, std::make_unique<ConstIntFunction>()));
 
   std::vector<cel::FunctionOverloadReference> overloads =
       registry.FindStaticOverloads(desc.name(), false, {});
@@ -95,13 +95,32 @@ TEST(FunctionRegistryTest, FindStaticOverloadsReturns) {
       << "Expected single ConstFunction()";
 }
 
+TEST(FunctionRegistryTest, FindStaticOverloadsByArityExactCapacity) {
+  FunctionRegistry registry;
+  ASSERT_THAT(registry.Register({"Func", false, {Kind::kInt64}},
+                                std::make_unique<ConstIntFunction>()),
+              IsOk());
+  ASSERT_THAT(registry.Register({"Func", false, {Kind::kDouble}},
+                                std::make_unique<ConstIntFunction>()),
+              IsOk());
+  ASSERT_THAT(registry.Register({"Func", false, {Kind::kBool}},
+                                std::make_unique<ConstIntFunction>()),
+              IsOk());
+
+  std::vector<cel::FunctionOverloadReference> overloads =
+      registry.FindStaticOverloadsByArity("Func", false, 1);
+  EXPECT_EQ(overloads.size(), 3);
+  EXPECT_EQ(overloads.size(), overloads.capacity());
+}
+
 TEST(FunctionRegistryTest, ListFunctions) {
   cel::FunctionDescriptor lazy_function_desc{"LazyFunction", false, {}};
   FunctionRegistry registry;
 
-  ASSERT_OK(registry.RegisterLazyFunction(lazy_function_desc));
+  ASSERT_THAT(registry.RegisterLazyFunction(lazy_function_desc));
   EXPECT_OK(registry.Register(ConstIntFunction::MakeDescriptor(),
-                              std::make_unique<ConstIntFunction>()));
+                              std::make_unique<ConstIntFunction>()),
+            IsOk());
 
   auto registered_functions = registry.ListFunctions();
 
@@ -217,7 +236,7 @@ TEST_P(NonStrictRegistrationFailTest,
                                      /*receiver_style=*/false, {Kind::kAny},
                                      /*is_strict=*/true);
   if (existing_function_is_lazy) {
-    ASSERT_OK(registry.RegisterLazyFunction(descriptor));
+    ASSERT_THAT(registry.RegisterLazyFunction(descriptor));
   } else {
     ASSERT_OK(
         registry.Register(descriptor, std::make_unique<ConstIntFunction>()));
@@ -246,7 +265,7 @@ TEST_P(NonStrictRegistrationFailTest,
                                      /*receiver_style=*/false, {Kind::kAny},
                                      /*is_strict=*/false);
   if (existing_function_is_lazy) {
-    ASSERT_OK(registry.RegisterLazyFunction(descriptor));
+    ASSERT_THAT(registry.RegisterLazyFunction(descriptor));
   } else {
     ASSERT_OK(
         registry.Register(descriptor, std::make_unique<ConstIntFunction>()));
@@ -274,7 +293,7 @@ TEST_P(NonStrictRegistrationFailTest, CanRegisterStrictFunctionsWithoutLimit) {
                                      /*receiver_style=*/false, {Kind::kAny},
                                      /*is_strict=*/true);
   if (existing_function_is_lazy) {
-    ASSERT_OK(registry.RegisterLazyFunction(descriptor));
+    ASSERT_THAT(registry.RegisterLazyFunction(descriptor));
   } else {
     ASSERT_OK(
         registry.Register(descriptor, std::make_unique<ConstIntFunction>()));

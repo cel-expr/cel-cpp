@@ -145,6 +145,19 @@ FunctionRegistry::FindStaticOverloadsByArity(absl::string_view name,
     return matched_funcs;
   }
 
+  size_t count = 0;
+  for (const auto& overload : overloads->second.static_overloads) {
+    if (overload.descriptor->receiver_style() == receiver_style &&
+        overload.descriptor->types().size() == arity) {
+      ++count;
+    }
+  }
+  // per go/dram-cy we are OK trading CPU for RAM as long as it's net positive
+  // in SWE terms
+  if (count > 1) {
+    matched_funcs.reserve(count);
+  }
+
   for (const auto& overload : overloads->second.static_overloads) {
     if (overload.descriptor->receiver_style() == receiver_style &&
         overload.descriptor->types().size() == arity) {
