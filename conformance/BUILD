@@ -228,12 +228,18 @@ _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP + [
     "block_ext/basic/optional_map",
     "block_ext/basic/optional_map_chained",
     "block_ext/basic/optional_message",
+
+    # Opaque types (net.IP, net.CIDR) are not supported as values in legacy mode.
+    "network_ext/ip_type/ip_type",
+    "network_ext/cidr/parse_cidr_ipv4",
+    "network_ext/cidr/cidr_type",
 ]
 
 _TESTS_TO_SKIP_CHECKED = [
     # block is a post-check optimization that inserts internal variables. The C++ type checker
     # needs support for a proper optimizer for this to work.
     # "block_ext",
+    "network_ext/ip_type/is_ip_cidr_compile_error",
 ]
 
 _TESTS_TO_SKIP_LEGACY_DASHBOARD = [
