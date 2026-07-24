@@ -65,33 +65,33 @@ using ::testing::TestWithParam;
 MATCHER_P(MatchesOptionalReceiver1, name, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{Kind::kOpaque};
+  std::vector<Kind> kinds{Kind::kOpaque};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesOptionalReceiver2, name, kind, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{Kind::kOpaque, kind};
+  std::vector<Kind> kinds{Kind::kOpaque, kind};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesOptionalSelect, kind1, kind2, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{kind1, kind2};
+  std::vector<Kind> kinds{kind1, kind2};
   return descriptor.name() == "_?._" && descriptor.receiver_style() == false &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesOptionalIndex, kind1, kind2, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{kind1, kind2};
+  std::vector<Kind> kinds{kind1, kind2};
   return descriptor.name() == "_[?_]" && descriptor.receiver_style() == false &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 TEST(EnableOptionalTypes, HeterogeneousEqualityRequired) {

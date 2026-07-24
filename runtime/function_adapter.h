@@ -230,6 +230,14 @@ class NullaryFunctionAdapter
     return FunctionDescriptor(name, receiver_style, {}, options);
   }
 
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, receiver_style, {},
+                              options);
+  }
+
  private:
   class UnaryFunctionImpl : public Function {
    public:
@@ -327,6 +335,15 @@ class UnaryFunctionAdapter : public RegisterHelper<UnaryFunctionAdapter<T, U>> {
       FunctionDescriptorOptions options = {}) {
     return FunctionDescriptor(name, receiver_style,
                               {runtime_internal::AdaptedKind<U>()}, options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, receiver_style,
+                              {runtime_internal::AdaptedKind<U>()},
+                              options);
   }
 
  private:
@@ -480,6 +497,16 @@ class BinaryFunctionAdapter
                               options);
   }
 
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, receiver_style,
+                              {runtime_internal::AdaptedKind<U>(),
+                               runtime_internal::AdaptedKind<V>()},
+                              options);
+  }
+
  private:
   class BinaryFunctionImpl : public Function {
    public:
@@ -566,6 +593,17 @@ class TernaryFunctionAdapter
       FunctionDescriptorOptions options = {}) {
     return FunctionDescriptor(
         name, receiver_style,
+        {runtime_internal::AdaptedKind<U>(), runtime_internal::AdaptedKind<V>(),
+         runtime_internal::AdaptedKind<W>()},
+        options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(
+        name, overload_id, receiver_style,
         {runtime_internal::AdaptedKind<U>(), runtime_internal::AdaptedKind<V>(),
          runtime_internal::AdaptedKind<W>()},
         options);
@@ -661,6 +699,18 @@ class QuaternaryFunctionAdapter
       FunctionDescriptorOptions options = {}) {
     return FunctionDescriptor(
         name, receiver_style,
+        {runtime_internal::AdaptedKind<U>(), runtime_internal::AdaptedKind<V>(),
+         runtime_internal::AdaptedKind<W>(),
+         runtime_internal::AdaptedKind<X>()},
+        options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(
+        name, overload_id, receiver_style,
         {runtime_internal::AdaptedKind<U>(), runtime_internal::AdaptedKind<V>(),
          runtime_internal::AdaptedKind<W>(),
          runtime_internal::AdaptedKind<X>()},

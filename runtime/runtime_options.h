@@ -188,6 +188,15 @@ struct RuntimeOptions {
   //
   // If disabled, will use the legacy behavior of rounding to 6 decimal places.
   bool enable_precision_preserving_double_format = true;
+
+  // Enable type-level function overload resolution.
+  //
+  // When true, function overload resolution uses ArgumentTypesMatch with
+  // Value.GetRuntimeType() for type-level verification (including container
+  // element types and TypeParam bindings).
+  //
+  // When false (default), uses ArgumentKindsMatch for Kind-level matching only.
+  bool enable_type_level_overload = false;
 };
 // LINT.ThenChange(//depot/google3/eval/public/cel_options.h)
 

@@ -18,6 +18,7 @@
 #include "absl/strings/string_view.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "internal/status_macros.h"
 #include "runtime/function_registry.h"
@@ -47,18 +48,24 @@ Value NotStrictlyFalseImpl(const Value& value) {
 
 absl::Status RegisterLogicalFunctions(FunctionRegistry& registry,
                                       const RuntimeOptions& options) {
+  using cel::StandardOverloadIds;
+
   // logical NOT
   CEL_RETURN_IF_ERROR(
       (RegisterHelper<UnaryFunctionAdapter<bool, bool>>::RegisterGlobalOverload(
-          builtin::kNot, [](bool value) -> bool { return !value; }, registry)));
+          builtin::kNot, StandardOverloadIds::kNot,
+          [](bool value) -> bool { return !value; }, registry)));
 
   // Strictness
   using StrictnessHelper = RegisterHelper<UnaryFunctionAdapter<Value, Value>>;
   CEL_RETURN_IF_ERROR(StrictnessHelper::RegisterNonStrictOverload(
-      builtin::kNotStrictlyFalse, &NotStrictlyFalseImpl, registry));
+      builtin::kNotStrictlyFalse, StandardOverloadIds::kNotStrictlyFalse,
+      &NotStrictlyFalseImpl, registry));
 
   CEL_RETURN_IF_ERROR(StrictnessHelper::RegisterNonStrictOverload(
-      builtin::kNotStrictlyFalseDeprecated, &NotStrictlyFalseImpl, registry));
+      builtin::kNotStrictlyFalseDeprecated,
+      StandardOverloadIds::kNotStrictlyFalseDeprecated, &NotStrictlyFalseImpl,
+      registry));
 
   return absl::OkStatus();
 }

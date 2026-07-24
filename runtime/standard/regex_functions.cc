@@ -17,6 +17,7 @@
 #include "absl/strings/string_view.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "internal/re2_options.h"
 #include "internal/status_macros.h"
@@ -29,6 +30,8 @@ namespace {}  // namespace
 
 absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
                                     const RuntimeOptions& options) {
+  using cel::StandardOverloadIds;
+
   if (options.enable_regex) {
     auto regex_matches = [max_size = options.regex_max_program_size](
                              const StringValue& target,
@@ -40,14 +43,20 @@ absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
     };
 
     // bind str.matches(re) and matches(str, re)
-    for (bool receiver_style : {true, false}) {
-      using MatchFnAdapter =
-          BinaryFunctionAdapter<Value, const StringValue&, const StringValue&>;
-      CEL_RETURN_IF_ERROR(
-          registry.Register(MatchFnAdapter::CreateDescriptor(
-                                cel::builtin::kRegexMatch, receiver_style),
-                            MatchFnAdapter::WrapFunction(regex_matches)));
-    }
+    using MatchFnAdapter =
+        BinaryFunctionAdapter<Value, const StringValue&, const StringValue&>;
+
+    CEL_RETURN_IF_ERROR(registry.Register(
+        MatchFnAdapter::CreateDescriptor(cel::builtin::kRegexMatch,
+                                         StandardOverloadIds::kMatches,
+                                         /*receiver_style=*/false),
+        MatchFnAdapter::WrapFunction(regex_matches)));
+
+    CEL_RETURN_IF_ERROR(registry.Register(
+        MatchFnAdapter::CreateDescriptor(cel::builtin::kRegexMatch,
+                                         StandardOverloadIds::kMatchesMember,
+                                         /*receiver_style=*/true),
+        MatchFnAdapter::WrapFunction(regex_matches)));
   }  // if options.enable_regex
 
   return absl::OkStatus();

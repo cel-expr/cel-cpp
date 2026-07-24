@@ -81,6 +81,41 @@ absl::StatusOr<Value> OptionalHasValue(const OpaqueValue& opaque_value) {
       runtime_internal::CreateNoMatchingOverloadError("hasValue")};
 }
 
+absl::StatusOr<Value> OptionalOr(
+    const OpaqueValue& opaque_value1, const OpaqueValue& opaque_value2,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  if (auto optional_value1 = opaque_value1.AsOptional(); optional_value1) {
+    if (optional_value1->HasValue()) {
+      return optional_value1->Value();
+    }
+    if (auto optional_value2 = opaque_value2.AsOptional(); optional_value2) {
+      if (optional_value2->HasValue()) {
+        return optional_value2->Value();
+      }
+      return OptionalValue::None();
+    }
+    return OptionalValue::None();
+  }
+  return ErrorValue{runtime_internal::CreateNoMatchingOverloadError("or")};
+}
+
+absl::StatusOr<Value> OptionalOrValue(
+    const OpaqueValue& opaque_value, const Value& value,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  if (auto optional_value = opaque_value.AsOptional(); optional_value) {
+    if (optional_value->HasValue()) {
+      return optional_value->Value();
+    } else {
+      return value;
+    }
+  }
+  return ErrorValue{runtime_internal::CreateNoMatchingOverloadError("orValue")};
+}
+
 absl::StatusOr<Value> SelectOptionalFieldStruct(
     const StructValue& struct_value, const StringValue& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
@@ -230,9 +265,9 @@ absl::StatusOr<Value> OptionalOptIndexOptionalValue(
 }
 
 absl::StatusOr<Value> ListFirst(const cel::ListValue& list,
-                                const google::protobuf::DescriptorPool* descriptor_pool,
-                                google::protobuf::MessageFactory* message_factory,
-                                google::protobuf::Arena* arena) {
+    const google::protobuf::DescriptorPool* descriptor_pool,
+    google::protobuf::MessageFactory* message_factory,
+    google::protobuf::Arena* arena) {
   CEL_ASSIGN_OR_RETURN(size_t size, list.Size());
   if (size == 0) {
     return Value(OptionalValue::None());
@@ -243,9 +278,9 @@ absl::StatusOr<Value> ListFirst(const cel::ListValue& list,
 }
 
 absl::StatusOr<Value> ListLast(const cel::ListValue& list,
-                               const google::protobuf::DescriptorPool* descriptor_pool,
-                               google::protobuf::MessageFactory* message_factory,
-                               google::protobuf::Arena* arena) {
+    const google::protobuf::DescriptorPool* descriptor_pool,
+    google::protobuf::MessageFactory* message_factory,
+    google::protobuf::Arena* arena) {
   CEL_ASSIGN_OR_RETURN(size_t size, list.Size());
   if (size == 0) {
     return Value(OptionalValue::None());
@@ -297,26 +332,53 @@ absl::Status RegisterOptionalTypeFunctions(FunctionRegistry& registry,
     return absl::FailedPreconditionError(
         "optional_type requires RuntimeOptions.enable_heterogeneous_equality");
   }
+
+  // Optional overload IDs from checker/optional.cc
+  static constexpr absl::string_view kOptionalOf = "optional_of";
+  static constexpr absl::string_view kOptionalOfNonZeroValue =
+      "optional_ofNonZeroValue";
+  static constexpr absl::string_view kOptionalNone = "optional_none";
+  static constexpr absl::string_view kOptionalValue = "optional_value";
+  static constexpr absl::string_view kOptionalHasValue = "optional_hasValue";
+  static constexpr absl::string_view kOptionalOr = "optional_or_optional";
+  static constexpr absl::string_view kOptionalOrValue =
+      "optional_orValue_value";
+  static constexpr absl::string_view kMapOptionalIndexValue =
+      "map_optindex_optional_value";
+  static constexpr absl::string_view kListOptionalIndexInt =
+      "list_optindex_optional_int";
+  static constexpr absl::string_view kListFirst = "list_first";
+  static constexpr absl::string_view kListLast = "list_last";
+  static constexpr absl::string_view kOptionalUnwrapList =
+      "optional_unwrap_list";
+  static constexpr absl::string_view kOptionalUnwrapOptList =
+      "optional_unwrapOpt_list";
+
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<Value, Value>::CreateDescriptor("optional.of",
+                                                           kOptionalOf,
                                                            false),
       UnaryFunctionAdapter<Value, Value>::WrapFunction(&OptionalOf)));
-  CEL_RETURN_IF_ERROR(
-      registry.Register(UnaryFunctionAdapter<Value, Value>::CreateDescriptor(
-                            "optional.ofNonZeroValue", false),
-                        UnaryFunctionAdapter<Value, Value>::WrapFunction(
-                            &OptionalOfNonZeroValue)));
   CEL_RETURN_IF_ERROR(registry.Register(
-      NullaryFunctionAdapter<Value>::CreateDescriptor("optional.none", false),
+      UnaryFunctionAdapter<Value, Value>::CreateDescriptor(
+          "optional.ofNonZeroValue", kOptionalOfNonZeroValue, false),
+      UnaryFunctionAdapter<Value, Value>::WrapFunction(
+          &OptionalOfNonZeroValue)));
+  CEL_RETURN_IF_ERROR(registry.Register(
+      NullaryFunctionAdapter<Value>::CreateDescriptor("optional.none",
+                                                      kOptionalNone, false),
       NullaryFunctionAdapter<Value>::WrapFunction(&OptionalNone)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>,
-                           OpaqueValue>::CreateDescriptor("value", true),
+                           OpaqueValue>::CreateDescriptor("value",
+                                                          kOptionalValue, true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue>::WrapFunction(
           &OptionalGetValue)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>,
-                           OpaqueValue>::CreateDescriptor("hasValue", true),
+                           OpaqueValue>::CreateDescriptor("hasValue",
+                                                          kOptionalHasValue,
+                                                          true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue>::WrapFunction(
           &OptionalHasValue)));
   CEL_RETURN_IF_ERROR(registry.Register(
@@ -336,12 +398,16 @@ absl::Status RegisterOptionalTypeFunctions(FunctionRegistry& registry,
                             StringValue>::WrapFunction(&SelectOptionalField)));
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue,
-                            Value>::CreateDescriptor("_[?_]", false),
+                            Value>::CreateDescriptor("_[?_]",
+                                                     kMapOptionalIndexValue,
+                                                     false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue,
                             Value>::WrapFunction(&MapOptIndexOptionalValue)));
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, ListValue,
-                            int64_t>::CreateDescriptor("_[?_]", false),
+                            int64_t>::CreateDescriptor("_[?_]",
+                                                       kListOptionalIndexInt,
+                                                       false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, ListValue,
                             int64_t>::WrapFunction(&ListOptIndexOptionalInt)));
   CEL_RETURN_IF_ERROR(registry.Register(
@@ -351,24 +417,36 @@ absl::Status RegisterOptionalTypeFunctions(FunctionRegistry& registry,
           WrapFunction(&OptionalOptIndexOptionalValue)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::CreateDescriptor(
-          "optional.unwrap", false),
+          "optional.unwrap", kOptionalUnwrapList, false),
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::WrapFunction(
           &ListUnwrapOpt)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::CreateDescriptor(
-          "unwrapOpt", true),
+          "unwrapOpt", kOptionalUnwrapOptList, true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::WrapFunction(
           &ListUnwrapOpt)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::CreateDescriptor(
-          "first", true),
+          "first", kListFirst, true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::WrapFunction(
           &ListFirst)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::CreateDescriptor(
-          "last", true),
+          "last", kListLast, true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::WrapFunction(
           &ListLast)));
+  CEL_RETURN_IF_ERROR(registry.Register(
+      BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue,
+                            OpaqueValue>::CreateDescriptor("or", kOptionalOr,
+                                                           true),
+      BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue,
+                            OpaqueValue>::WrapFunction(&OptionalOr)));
+  CEL_RETURN_IF_ERROR(registry.Register(
+      BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue,
+                            Value>::CreateDescriptor("orValue",
+                                                     kOptionalOrValue, true),
+      BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue,
+                            Value>::WrapFunction(&OptionalOrValue)));
   return absl::OkStatus();
 }
 

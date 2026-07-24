@@ -28,9 +28,9 @@ using ::testing::UnorderedElementsAre;
 
 MATCHER_P3(MatchesUnaryDescriptor, name, receiver, expected_kind, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
-  std::vector<Kind> types{expected_kind};
+  std::vector<Kind> kinds{expected_kind};
   return descriptor.name() == name && descriptor.receiver_style() == receiver &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 TEST(RegisterTypeConversionFunctions, RegisterBoolConversionFunctions) {

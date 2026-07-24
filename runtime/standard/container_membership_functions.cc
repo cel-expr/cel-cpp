@@ -24,6 +24,7 @@
 #include "absl/strings/string_view.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
@@ -132,8 +133,10 @@ absl::Status RegisterListMembershipFunctions(FunctionRegistry& registry,
       CEL_RETURN_IF_ERROR(
           (RegisterHelper<BinaryFunctionAdapter<
                absl::StatusOr<Value>, const Value&, const ListValue&>>::
-               RegisterGlobalOverload(op, &HeterogeneousEqualityIn, registry)));
+               RegisterGlobalOverload(op, cel::StandardOverloadIds::kInList,
+                                      &HeterogeneousEqualityIn, registry)));
     } else {
+      // Generic function: no overload_id, fallback to runtime matching
       CEL_RETURN_IF_ERROR(
           (RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<bool>, bool,
                                                 const ListValue&>>::

@@ -24,7 +24,9 @@
 #include "absl/types/span.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
+#include "common/type.h"
 #include "common/value.h"
+#include "google/protobuf/arena.h"
 #include "internal/testing.h"
 #include "runtime/activation.h"
 #include "runtime/function.h"
@@ -152,7 +154,7 @@ TEST(FunctionRegistryTest, DefaultLazyProviderReturnsImpl) {
 
   ASSERT_TRUE(func.has_value());
   EXPECT_EQ(func->descriptor.name(), "LazyFunction");
-  EXPECT_EQ(func->descriptor.types(), std::vector{cel::Kind::kInt64});
+  EXPECT_EQ(func->descriptor.kinds(), std::vector{cel::Kind::kInt64});
 }
 
 TEST(FunctionRegistryTest, DefaultLazyProviderAmbiguousOverload) {
@@ -296,6 +298,206 @@ TEST_P(NonStrictRegistrationFailTest, CanRegisterStrictFunctionsWithoutLimit) {
 INSTANTIATE_TEST_SUITE_P(NonStrictRegistrationFailTest,
                          NonStrictRegistrationFailTest,
                          testing::Combine(testing::Bool(), testing::Bool()));
+
+// Test type-level overload resolution: distinguish list<int> vs list<string>
+TEST(FunctionRegistryTest, TypeLevelOverloadResolution_ListTypes) {
+  google::protobuf::Arena arena;
+  FunctionRegistry registry;
+
+  // Register fn(list<int>)
+  ListType list_int_type(&arena, IntType{});
+  cel::FunctionDescriptor desc_list_int("fn", "fn_int", false,
+                                        std::vector<Type>{list_int_type}, true);
+
+  class ListIntFunction : public cel::Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                                 const InvokeContext& context) const override {
+      return IntValue(1);  // Return 1 for list<int>
+    }
+  };
+
+  ASSERT_OK(
+      registry.Register(desc_list_int, std::make_unique<ListIntFunction>()));
+
+  // Register fn(list<string>)
+  ListType list_string_type(&arena, StringType{});
+  cel::FunctionDescriptor desc_list_string(
+      "fn", "fn_string", false, std::vector<Type>{list_string_type}, true);
+
+  class ListStringFunction : public cel::Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                                 const InvokeContext& context) const override {
+      return IntValue(2);  // Return 2 for list<string>
+    }
+  };
+
+  ASSERT_OK(registry.Register(desc_list_string,
+                              std::make_unique<ListStringFunction>()));
+
+  // Verify both overloads are registered using Kind-based lookup
+  auto overloads = registry.FindStaticOverloads("fn", false, {Kind::kList});
+  EXPECT_THAT(overloads, SizeIs(2));
+
+  // Verify type-level lookup can distinguish them
+  auto list_int_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {list_int_type});
+  EXPECT_THAT(list_int_overloads, SizeIs(1));
+  EXPECT_EQ(list_int_overloads[0].descriptor.types()[0].DebugString(),
+            "list<int>");
+
+  auto list_string_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {list_string_type});
+  EXPECT_THAT(list_string_overloads, SizeIs(1));
+  EXPECT_EQ(list_string_overloads[0].descriptor.types()[0].DebugString(),
+            "list<string>");
+}
+
+// Test type-level overload resolution: map<string, int> vs map<string, string>
+TEST(FunctionRegistryTest, TypeLevelOverloadResolution_MapTypes) {
+  google::protobuf::Arena arena;
+  FunctionRegistry registry;
+
+  // Register fn(map<string, int>)
+  MapType map_string_int_type(&arena, StringType{}, IntType{});
+  cel::FunctionDescriptor desc_map_int(
+      "fn", "fn_map_int", false, std::vector<Type>{map_string_int_type}, true);
+
+  class MapIntFunction : public cel::Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                                 const InvokeContext& context) const override {
+      return IntValue(1);
+    }
+  };
+
+  ASSERT_OK(
+      registry.Register(desc_map_int, std::make_unique<MapIntFunction>()));
+
+  // Register fn(map<string, string>)
+  MapType map_string_string_type(&arena, StringType{}, StringType{});
+  cel::FunctionDescriptor desc_map_string(
+      "fn", "fn_map_string", false, std::vector<Type>{map_string_string_type},
+      true);
+
+  class MapStringFunction : public cel::Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                                 const InvokeContext& context) const override {
+      return IntValue(2);
+    }
+  };
+
+  ASSERT_OK(registry.Register(desc_map_string,
+                              std::make_unique<MapStringFunction>()));
+
+  // Verify both are registered
+  auto overloads = registry.FindStaticOverloads("fn", false, {Kind::kMap});
+  EXPECT_THAT(overloads, SizeIs(2));
+
+  // Verify type-level lookup
+  auto map_int_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {map_string_int_type});
+  EXPECT_THAT(map_int_overloads, SizeIs(1));
+  EXPECT_EQ(map_int_overloads[0].descriptor.types()[0].DebugString(),
+            "map<string, int>");
+
+  auto map_string_overloads = registry.FindStaticOverloadsByTypes(
+      "fn", false, {map_string_string_type});
+  EXPECT_THAT(map_string_overloads, SizeIs(1));
+  EXPECT_EQ(map_string_overloads[0].descriptor.types()[0].DebugString(),
+            "map<string, string>");
+}
+
+// Test wildcard types: dyn, any, error
+TEST(FunctionRegistryTest, TypeLevelOverloadResolution_WildcardTypes) {
+  google::protobuf::Arena arena;
+  FunctionRegistry registry;
+
+  // Register fn(dyn) - should match anything
+  cel::FunctionDescriptor desc_dyn("fn", "fn_dyn", false,
+                                   std::vector<Type>{DynType{}}, true);
+
+  class DynFunction : public cel::Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                                 const InvokeContext& context) const override {
+      return IntValue(1);
+    }
+  };
+
+  ASSERT_OK(registry.Register(desc_dyn, std::make_unique<DynFunction>()));
+
+  // Verify it matches various types
+  auto int_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {IntType{}});
+  EXPECT_THAT(int_overloads, SizeIs(1));
+
+  auto string_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {StringType{}});
+  EXPECT_THAT(string_overloads, SizeIs(1));
+
+  ListType list_type(&arena, IntType{});
+  auto list_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {list_type});
+  EXPECT_THAT(list_overloads, SizeIs(1));
+}
+
+// Test that list<dyn> acts as wildcard for any list
+TEST(FunctionRegistryTest, TypeLevelOverloadResolution_ListDynWildcard) {
+  google::protobuf::Arena arena;
+  FunctionRegistry registry;
+
+  // Register fn(list<dyn>)
+  ListType list_dyn_type(&arena, DynType{});
+  cel::FunctionDescriptor desc("fn", "fn_list_dyn", false,
+                               std::vector<Type>{list_dyn_type}, true);
+
+  class ListDynFunction : public cel::Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                                 const InvokeContext& context) const override {
+      return IntValue(1);
+    }
+  };
+
+  ASSERT_OK(registry.Register(desc, std::make_unique<ListDynFunction>()));
+
+  // Should match list<int>, list<string>, etc.
+  ListType list_int(&arena, IntType{});
+  auto list_int_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {list_int});
+  EXPECT_THAT(list_int_overloads, SizeIs(1));
+
+  ListType list_string(&arena, StringType{});
+  auto list_string_overloads =
+      registry.FindStaticOverloadsByTypes("fn", false, {list_string});
+  EXPECT_THAT(list_string_overloads, SizeIs(1));
+}
+
+// Test empty struct type acts as wildcard
+TEST(FunctionRegistryTest, TypeLevelOverloadResolution_StructWildcard) {
+  FunctionRegistry registry;
+
+  // Register fn(struct) - empty MessageType acts as wildcard
+  cel::FunctionDescriptor desc("fn", "fn_struct", false,
+                               std::vector<Type>{MessageType{}}, true);
+
+  class StructFunction : public cel::Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                                 const InvokeContext& context) const override {
+      return IntValue(1);
+    }
+  };
+
+  ASSERT_OK(registry.Register(desc, std::make_unique<StructFunction>()));
+
+  // Should match any struct type
+  auto overloads = registry.FindStaticOverloads("fn", false, {Kind::kStruct});
+  EXPECT_THAT(overloads, SizeIs(1));
+}
 
 }  // namespace
 

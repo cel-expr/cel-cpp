@@ -309,76 +309,106 @@ absl::Status RegisterStringsFunctions(
     FunctionRegistry& registry, const RuntimeOptions& options,
     const StringsExtensionOptions& extension_options) {
   const int version = extension_options.version;
+  // Overload IDs from decls
+  static constexpr absl::string_view kListJoin = "list_join";
+  static constexpr absl::string_view kListJoinString = "list_join_string";
+  static constexpr absl::string_view kStringSplitString = "string_split_string";
+  static constexpr absl::string_view kStringSplitStringInt =
+      "string_split_string_int";
+  static constexpr absl::string_view kStringLowerAscii = "string_lower_ascii";
+  static constexpr absl::string_view kStringReplaceStringString =
+      "string_replace_string_string";
+  static constexpr absl::string_view kStringReplaceStringStringInt =
+      "string_replace_string_string_int";
+  static constexpr absl::string_view kStringCharAtInt = "string_char_at_int";
+  static constexpr absl::string_view kStringIndexOfString =
+      "string_index_of_string";
+  static constexpr absl::string_view kStringIndexOfStringInt =
+      "string_index_of_string_int";
+  static constexpr absl::string_view kStringLastIndexOfString =
+      "string_last_index_of_string";
+  static constexpr absl::string_view kStringLastIndexOfStringInt =
+      "string_last_index_of_string_int";
+  static constexpr absl::string_view kStringSubstringInt =
+      "string_substring_int";
+  static constexpr absl::string_view kStringSubstringIntInt =
+      "string_substring_int_int";
+  static constexpr absl::string_view kStringUpperAscii = "string_upper_ascii";
+  static constexpr absl::string_view kStringsQuote = "strings_quote";
+  static constexpr absl::string_view kStringReverse = "string_reverse";
+  static constexpr absl::string_view kStringTrim = "string_trim";
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue>::
-          CreateDescriptor("split", /*receiver_style=*/true),
+          CreateDescriptor("split", kStringSplitString,
+                           /*receiver_style=*/true),
       BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue,
                             StringValue>::WrapFunction(Split2)));
   CEL_RETURN_IF_ERROR(registry.Register(
       TernaryFunctionAdapter<
           absl::StatusOr<Value>, StringValue, StringValue,
-          int64_t>::CreateDescriptor("split", /*receiver_style=*/true),
+          int64_t>::CreateDescriptor("split", kStringSplitStringInt,
+                                     /*receiver_style=*/true),
       TernaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue,
                              int64_t>::WrapFunction(Split3)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, StringValue>::
-          CreateDescriptor("lowerAscii", /*receiver_style=*/true),
+          CreateDescriptor("lowerAscii", kStringLowerAscii,
+                           /*receiver_style=*/true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, StringValue>::WrapFunction(
           LowerAscii)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, StringValue>::
-          CreateDescriptor("upperAscii", /*receiver_style=*/true),
+          CreateDescriptor("upperAscii", kStringUpperAscii,
+                           /*receiver_style=*/true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, StringValue>::WrapFunction(
           UpperAscii)));
   CEL_RETURN_IF_ERROR(registry.Register(
       TernaryFunctionAdapter<
           absl::StatusOr<Value>, StringValue, StringValue,
-          StringValue>::CreateDescriptor("replace", /*receiver_style=*/true),
+          StringValue>::CreateDescriptor("replace", kStringReplaceStringString,
+                                         /*receiver_style=*/true),
       TernaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue,
                              StringValue>::WrapFunction(Replace1)));
   CEL_RETURN_IF_ERROR(registry.Register(
       QuaternaryFunctionAdapter<
           absl::StatusOr<Value>, StringValue, StringValue, StringValue,
-          int64_t>::CreateDescriptor("replace", /*receiver_style=*/true),
+          int64_t>::CreateDescriptor("replace", kStringReplaceStringStringInt,
+                                     /*receiver_style=*/true),
       QuaternaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue,
                                 StringValue, int64_t>::WrapFunction(Replace2)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, StringValue,
-                             int64_t>::RegisterMemberOverload("charAt", &CharAt,
+                             int64_t>::RegisterMemberOverload("charAt",
+                                                              kStringCharAtInt,
+                                                              &CharAt,
                                                               registry)));
   CEL_RETURN_IF_ERROR(
-      (BinaryFunctionAdapter<int64_t, StringValue,
-                             StringValue>::RegisterMemberOverload("indexOf",
-                                                                  &IndexOf2,
-                                                                  registry)));
+      (BinaryFunctionAdapter<int64_t, StringValue, StringValue>::
+           RegisterMemberOverload("indexOf", kStringIndexOfString, &IndexOf2,
+                                  registry)));
   CEL_RETURN_IF_ERROR(
-      (TernaryFunctionAdapter<Value, StringValue, StringValue,
-                              int64_t>::RegisterMemberOverload("indexOf",
-                                                               &IndexOf3,
-                                                               registry)));
+      (TernaryFunctionAdapter<Value, StringValue, StringValue, int64_t>::
+           RegisterMemberOverload("indexOf", kStringIndexOfStringInt, &IndexOf3,
+                                  registry)));
   CEL_RETURN_IF_ERROR(
-      (BinaryFunctionAdapter<int64_t, StringValue,
-                             StringValue>::RegisterMemberOverload("lastIndexOf",
-                                                                  &LastIndexOf2,
-                                                                  registry)));
+      (BinaryFunctionAdapter<int64_t, StringValue, StringValue>::
+           RegisterMemberOverload("lastIndexOf", kStringLastIndexOfString,
+                                  &LastIndexOf2, registry)));
   CEL_RETURN_IF_ERROR(
-      (TernaryFunctionAdapter<Value, StringValue, StringValue,
-                              int64_t>::RegisterMemberOverload("lastIndexOf",
-                                                               &LastIndexOf3,
-                                                               registry)));
+      (TernaryFunctionAdapter<Value, StringValue, StringValue, int64_t>::
+           RegisterMemberOverload("lastIndexOf", kStringLastIndexOfStringInt,
+                                  &LastIndexOf3, registry)));
   CEL_RETURN_IF_ERROR(
-      (BinaryFunctionAdapter<Value, StringValue,
-                             int64_t>::RegisterMemberOverload("substring",
-                                                              &Substring2,
-                                                              registry)));
+      (BinaryFunctionAdapter<Value, StringValue, int64_t>::
+           RegisterMemberOverload("substring", kStringSubstringInt, &Substring2,
+                                  registry)));
   CEL_RETURN_IF_ERROR(
-      (TernaryFunctionAdapter<Value, StringValue, int64_t,
-                              int64_t>::RegisterMemberOverload("substring",
-                                                               &Substring3,
-                                                               registry)));
+      (TernaryFunctionAdapter<Value, StringValue, int64_t, int64_t>::
+           RegisterMemberOverload("substring", kStringSubstringIntInt,
+                                  &Substring3, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<StringValue, StringValue>::RegisterMemberOverload(
-          "trim", &Trim, registry)));
+          "trim", kStringTrim, &Trim, registry)));
   if (version == 0) {
     return absl::OkStatus();
   }
@@ -387,19 +417,19 @@ absl::Status RegisterStringsFunctions(
       registry, options, {extension_options.max_precision}));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<StringValue, StringValue>::RegisterGlobalOverload(
-          "strings.quote", &Quote, registry)));
+          "strings.quote", kStringsQuote, &Quote, registry)));
   if (version == 1) {
     return absl::OkStatus();
   }
 
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::CreateDescriptor(
-          "join", /*receiver_style=*/true),
+          "join", kListJoin, /*receiver_style=*/true),
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::WrapFunction(
           Join1)));
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, ListValue, StringValue>::
-          CreateDescriptor("join", /*receiver_style=*/true),
+          CreateDescriptor("join", kListJoinString, /*receiver_style=*/true),
       BinaryFunctionAdapter<absl::StatusOr<Value>, ListValue,
                             StringValue>::WrapFunction(Join2)));
   if (version == 2) {
@@ -408,7 +438,7 @@ absl::Status RegisterStringsFunctions(
 
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<StringValue, StringValue>::RegisterMemberOverload(
-          "reverse", &Reverse, registry)));
+          "reverse", kStringReverse, &Reverse, registry)));
   return absl::OkStatus();
 }
 

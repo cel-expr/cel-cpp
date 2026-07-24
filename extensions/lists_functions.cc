@@ -487,20 +487,25 @@ absl::StatusOr<Value> ListSort(
 }
 
 absl::Status RegisterListDistinctFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListDistinct = "list_distinct";
   return UnaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&>::
-      RegisterMemberOverload("distinct", &ListDistinct, registry);
+      RegisterMemberOverload("distinct", kListDistinct, &ListDistinct, registry);
 }
 
 absl::Status RegisterListFlattenFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListFlattenInt = "list_flatten_int";
+  static constexpr absl::string_view kListFlatten = "list_flatten";
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
                              int64_t>::RegisterMemberOverload("flatten",
+                                                              kListFlattenInt,
                                                               &ListFlatten,
                                                               registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&>::
            RegisterMemberOverload(
                "flatten",
+               kListFlatten,
                [](const ListValue& list,
                   const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
                   google::protobuf::MessageFactory* absl_nonnull message_factory,
@@ -513,26 +518,34 @@ absl::Status RegisterListFlattenFunction(FunctionRegistry& registry) {
 }
 
 absl::Status RegisterListRangeFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListRange = "list_range";
   return UnaryFunctionAdapter<absl::StatusOr<Value>,
                               int64_t>::RegisterGlobalOverload("lists.range",
+                                                               kListRange,
                                                                &ListRange,
                                                                registry);
 }
 
 absl::Status RegisterListReverseFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListReverse = "list_reverse";
   return UnaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&>::
-      RegisterMemberOverload("reverse", &ListReverse, registry);
+      RegisterMemberOverload("reverse", kListReverse, &ListReverse, registry);
 }
 
 absl::Status RegisterListSliceFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListSlice = "list_slice";
   return TernaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
                                 int64_t,
                                 int64_t>::RegisterMemberOverload("slice",
+                                                                 kListSlice,
                                                                  &ListSlice,
                                                                  registry);
 }
 
 absl::Status RegisterListSortFunction(FunctionRegistry& registry) {
+  // Note: checker declares multiple overloads (list_int_sort, list_double_sort, etc.)
+  // but runtime has a single generic implementation. This is hybrid mode where
+  // N decls map to 1 impl, so we don't use overload_id (runtime matching).
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&>::
            RegisterMemberOverload("sort", &ListSort, registry)));

@@ -82,6 +82,105 @@ Type Type::Enum(const google::protobuf::EnumDescriptor* absl_nonnull descriptor)
   return EnumType(descriptor);
 }
 
+Type::Type(Kind kind) {
+  switch (kind) {
+    case Kind::kNull:
+      *this = NullType();
+      break;
+    case Kind::kBool:
+      *this = BoolType();
+      break;
+    case Kind::kInt:
+      *this = IntType();
+      break;
+    case Kind::kUint:
+      *this = UintType();
+      break;
+    case Kind::kDouble:
+      *this = DoubleType();
+      break;
+    case Kind::kString:
+      *this = StringType();
+      break;
+    case Kind::kBytes:
+      *this = BytesType();
+      break;
+    case Kind::kStruct:
+      // Empty MessageType represents any struct (wildcard for matching)
+      // Note: We directly assign to variant_ to avoid StructType::ToTypeVariant()
+      // which converts empty StructType to DynType.
+      variant_ = MessageType();
+      break;
+    case Kind::kDuration:
+      *this = DurationType();
+      break;
+    case Kind::kTimestamp:
+      *this = TimestampType();
+      break;
+    case Kind::kList:
+      // List without element type info defaults to list<dyn>
+      *this = ListType();
+      break;
+    case Kind::kMap:
+      // Map without key/value type info defaults to map<dyn, dyn>
+      *this = MapType();
+      break;
+    case Kind::kUnknown:
+      *this = UnknownType();
+      break;
+    case Kind::kType:
+      *this = TypeType();
+      break;
+    case Kind::kError:
+      *this = ErrorType();
+      break;
+    case Kind::kAny:
+      *this = AnyType();
+      break;
+
+    case Kind::kDyn:
+      *this = DynType();
+      break;
+    case Kind::kOpaque:
+      // Empty OpaqueType represents any opaque (wildcard)
+      *this = OpaqueType();
+      break;
+
+    case Kind::kBoolWrapper:
+      *this = BoolWrapperType();
+      break;
+    case Kind::kIntWrapper:
+      *this = IntWrapperType();
+      break;
+    case Kind::kUintWrapper:
+      *this = UintWrapperType();
+      break;
+    case Kind::kDoubleWrapper:
+      *this = DoubleWrapperType();
+      break;
+    case Kind::kStringWrapper:
+      *this = StringWrapperType();
+      break;
+    case Kind::kBytesWrapper:
+      *this = BytesWrapperType();
+      break;
+
+    case Kind::kTypeParam:
+      *this = TypeParamType();
+      break;
+    case Kind::kFunction:
+      *this = FunctionType();
+      break;
+    case Kind::kEnum:
+      *this = EnumType();
+      break;
+
+    default:
+      *this = DynType();
+      break;
+  }
+}
+
 namespace {
 
 static constexpr std::array<TypeKind, 28> kTypeToKindArray = {

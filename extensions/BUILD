@@ -505,6 +505,7 @@ cc_library(
     deps = [
         "//base:function_adapter",
         "//checker:type_checker_builder",
+        "//checker/internal:builtins_arena",
         "//common:decl",
         "//common:type",
         "//common:value",

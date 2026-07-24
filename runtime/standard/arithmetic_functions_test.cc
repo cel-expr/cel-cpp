@@ -27,16 +27,16 @@ using ::testing::UnorderedElementsAre;
 
 MATCHER_P2(MatchesOperatorDescriptor, name, expected_kind, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
-  std::vector<Kind> types{expected_kind, expected_kind};
+  std::vector<Kind> kinds{expected_kind, expected_kind};
   return descriptor.name() == name && descriptor.receiver_style() == false &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P(MatchesNegationDescriptor, expected_kind, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
-  std::vector<Kind> types{expected_kind};
+  std::vector<Kind> kinds{expected_kind};
   return descriptor.name() == builtin::kNeg &&
-         descriptor.receiver_style() == false && descriptor.types() == types;
+         descriptor.receiver_style() == false && descriptor.kinds() == kinds;
 }
 
 TEST(RegisterArithmeticFunctions, Registered) {
