@@ -48,11 +48,14 @@ using ::cel::Value;
 // `CreateStruct` implementation for message/struct.
 class CreateStructStepForStruct final : public ExpressionStepBase {
  public:
-  CreateStructStepForStruct(int64_t expr_id, std::string name,
-                            std::vector<std::string> entries,
-                            absl::flat_hash_set<int32_t> optional_indices)
+  CreateStructStepForStruct(
+      int64_t expr_id, std::string name,
+      cel::TypeReflector::ValueBuilderFactory builder_factory,
+      std::vector<std::string> entries,
+      absl::flat_hash_set<int32_t> optional_indices)
       : ExpressionStepBase(expr_id),
         name_(std::move(name)),
+        builder_factory_(std::move(builder_factory)),
         entries_(std::move(entries)),
         optional_indices_(std::move(optional_indices)) {}
 
@@ -62,6 +65,7 @@ class CreateStructStepForStruct final : public ExpressionStepBase {
   absl::StatusOr<Value> DoEvaluate(ExecutionFrame* frame) const;
 
   std::string name_;
+  mutable cel::TypeReflector::ValueBuilderFactory builder_factory_;
   std::vector<std::string> entries_;
   absl::flat_hash_set<int32_t> optional_indices_;
 };
@@ -88,9 +92,8 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
     }
   }
 
-  CEL_ASSIGN_OR_RETURN(auto builder,
-                       frame->type_provider().NewValueBuilder(
-                           name_, frame->message_factory(), frame->arena()));
+  CEL_ASSIGN_OR_RETURN(
+      auto builder, builder_factory_(frame->message_factory(), frame->arena()));
   if (builder == nullptr) {
     return ErrorValue(
         absl::NotFoundError(absl::StrCat("Unable to find builder: ", name_)));
@@ -144,11 +147,14 @@ absl::Status CreateStructStepForStruct::Evaluate(ExecutionFrame* frame) const {
 class DirectCreateStructStep : public DirectExpressionStep {
  public:
   DirectCreateStructStep(
-      int64_t expr_id, std::string name, std::vector<std::string> field_keys,
+      int64_t expr_id, std::string name,
+      cel::TypeReflector::ValueBuilderFactory builder_factory,
+      std::vector<std::string> field_keys,
       std::vector<std::unique_ptr<DirectExpressionStep>> deps,
       absl::flat_hash_set<int32_t> optional_indices)
       : DirectExpressionStep(expr_id),
         name_(std::move(name)),
+        builder_factory_(std::move(builder_factory)),
         field_keys_(std::move(field_keys)),
         deps_(std::move(deps)),
         optional_indices_(std::move(optional_indices)) {}
@@ -158,6 +164,7 @@ class DirectCreateStructStep : public DirectExpressionStep {
 
  private:
   std::string name_;
+  mutable cel::TypeReflector::ValueBuilderFactory builder_factory_;
   std::vector<std::string> field_keys_;
   std::vector<std::unique_ptr<DirectExpressionStep>> deps_;
   absl::flat_hash_set<int32_t> optional_indices_;
@@ -170,9 +177,8 @@ absl::Status DirectCreateStructStep::Evaluate(ExecutionFrameBase& frame,
   AttributeTrail field_attr;
   auto unknowns = frame.attribute_utility().CreateAccumulator();
 
-  CEL_ASSIGN_OR_RETURN(auto builder,
-                       frame.type_provider().NewValueBuilder(
-                           name_, frame.message_factory(), frame.arena()));
+  CEL_ASSIGN_OR_RETURN(
+      auto builder, builder_factory_(frame.message_factory(), frame.arena()));
   if (builder == nullptr) {
     result = cel::ErrorValue(
         absl::NotFoundError(absl::StrCat("Unable to find builder: ", name_)));
@@ -251,20 +257,21 @@ absl::Status DirectCreateStructStep::Evaluate(ExecutionFrameBase& frame,
 }  // namespace
 
 std::unique_ptr<DirectExpressionStep> CreateDirectCreateStructStep(
-    std::string resolved_name, std::vector<std::string> field_keys,
+    std::string name, cel::TypeReflector::ValueBuilderFactory builder_factory,
+    std::vector<std::string> field_keys,
     std::vector<std::unique_ptr<DirectExpressionStep>> deps,
     absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id) {
   return std::make_unique<DirectCreateStructStep>(
-      expr_id, std::move(resolved_name), std::move(field_keys), std::move(deps),
-      std::move(optional_indices));
+      expr_id, std::move(name), std::move(builder_factory),
+      std::move(field_keys), std::move(deps), std::move(optional_indices));
 }
 
 std::unique_ptr<ExpressionStep> CreateCreateStructStep(
-    std::string name, std::vector<std::string> field_keys,
+    std::string name, cel::TypeReflector::ValueBuilderFactory builder_factory,
+    std::vector<std::string> field_keys,
     absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id) {
-  // MakeOptionalIndicesSet(create_struct_expr)
   return std::make_unique<CreateStructStepForStruct>(
-      expr_id, std::move(name), std::move(field_keys),
-      std::move(optional_indices));
+      expr_id, std::move(name), std::move(builder_factory),
+      std::move(field_keys), std::move(optional_indices));
 }
 }  // namespace google::api::expr::runtime

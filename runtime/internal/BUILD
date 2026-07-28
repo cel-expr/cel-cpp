@@ -197,7 +197,6 @@ cc_library(
         "//common:descriptor_pool_type_introspector",
         "//common:type",
         "//common:value",
-        "//internal:status_macros",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
@@ -205,6 +204,18 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_absl//absl/types:optional",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_test(
+    name = "runtime_type_provider_test",
+    srcs = ["runtime_type_provider_test.cc"],
+    deps = [
+        ":runtime_type_provider",
+        "//internal:testing",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_cel_spec//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
         "@com_google_protobuf//:protobuf",
     ],
 )

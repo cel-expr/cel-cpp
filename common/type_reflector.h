@@ -15,7 +15,11 @@
 #ifndef THIRD_PARTY_CEL_CPP_COMMON_TYPE_REFLECTOR_H_
 #define THIRD_PARTY_CEL_CPP_COMMON_TYPE_REFLECTOR_H_
 
+#include <string>
+
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
+#include "absl/functional/any_invocable.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "common/type_introspector.h"
@@ -36,6 +40,29 @@ class TypeReflector : public virtual TypeIntrospector {
       absl::string_view name,
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena) const = 0;
+
+  using ValueBuilderFactory =
+      absl::AnyInvocable<absl::StatusOr<absl_nullable ValueBuilderPtr>(
+          google::protobuf::MessageFactory* absl_nonnull, google::protobuf::Arena* absl_nonnull)>;
+
+  // `NewValueBuilderFactory` returns a factory for creating new `ValueBuilder`
+  // instances for the corresponding type `name`.
+  //
+  // This is used primarily to eagerly resolve dependencies for creating value
+  // builders at plan time. Caller should assume that that returned factory is
+  // valid for the lifetime of the `TypeReflector`.
+  virtual ValueBuilderFactory NewValueBuilderFactory(
+      absl::string_view name,
+      google::protobuf::MessageFactory* absl_nonnull message_factory) const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    static_cast<void>(message_factory);
+    return [this, name = std::string(name)](
+               google::protobuf::MessageFactory* absl_nonnull message_factory,
+               google::protobuf::Arena* arena)
+               -> absl::StatusOr<absl_nullable ValueBuilderPtr> {
+      return NewValueBuilder(name, message_factory, arena);
+    };
+  }
 };
 
 }  // namespace cel
