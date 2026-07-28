@@ -70,16 +70,21 @@ using ::testing::IsNull;
 using ::testing::Not;
 using ::testing::Pointwise;
 
-absl::StatusOr<ExecutionPath> MakeStackMachinePath(absl::string_view field) {
+absl::StatusOr<ExecutionPath> MakeStackMachinePath(
+    const cel::TypeProvider& type_provider, absl::string_view field) {
   ExecutionPath path;
 
   CEL_ASSIGN_OR_RETURN(auto step0, CreateIdentStep("message", /*expr_id=*/-1));
 
-  auto step1 = CreateCreateStructStep("google.api.expr.runtime.TestMessage",
-                                      {std::string(field)},
-                                      /*optional_indices=*/{},
+  auto step1 =
+      CreateCreateStructStep("google.api.expr.runtime.TestMessage",
+                             type_provider.NewValueBuilderFactory(
+                                 "google.api.expr.runtime.TestMessage",
+                                 google::protobuf::MessageFactory::generated_factory()),
+                             {std::string(field)},
+                             /*optional_indices=*/{},
 
-                                      /*id=*/-1);
+                             /*id=*/-1);
 
   path.push_back(std::move(step0));
   path.push_back(std::move(step1));
@@ -87,18 +92,22 @@ absl::StatusOr<ExecutionPath> MakeStackMachinePath(absl::string_view field) {
   return path;
 }
 
-absl::StatusOr<ExecutionPath> MakeRecursivePath(absl::string_view field) {
+absl::StatusOr<ExecutionPath> MakeRecursivePath(
+    const cel::TypeProvider& type_provider, absl::string_view field) {
   ExecutionPath path;
 
   std::vector<std::unique_ptr<DirectExpressionStep>> deps;
   deps.push_back(CreateDirectIdentStep("message", -1));
 
-  auto step1 =
-      CreateDirectCreateStructStep("google.api.expr.runtime.TestMessage",
-                                   {std::string(field)}, std::move(deps),
-                                   /*optional_indices=*/{},
+  auto step1 = CreateDirectCreateStructStep(
+      "google.api.expr.runtime.TestMessage",
+      type_provider.NewValueBuilderFactory(
+          "google.api.expr.runtime.TestMessage",
+          google::protobuf::MessageFactory::generated_factory()),
+      {std::string(field)}, std::move(deps),
+      /*optional_indices=*/{},
 
-                                   /*id=*/-1);
+      /*id=*/-1);
 
   path.push_back(std::make_unique<WrappedDirectStep>(std::move(step1), -1));
 
@@ -127,9 +136,13 @@ absl::StatusOr<CelValue> RunExpression(
   ExecutionPath path;
 
   if (enable_recursive_planning) {
-    CEL_ASSIGN_OR_RETURN(path, MakeRecursivePath(field));
+    CEL_ASSIGN_OR_RETURN(
+        path,
+        MakeRecursivePath(env->type_registry.GetComposedTypeProvider(), field));
   } else {
-    CEL_ASSIGN_OR_RETURN(path, MakeStackMachinePath(field));
+    CEL_ASSIGN_OR_RETURN(
+        path, MakeStackMachinePath(env->type_registry.GetComposedTypeProvider(),
+                                   field));
   }
 
   CelExpressionFlatImpl cel_expr(
@@ -207,19 +220,26 @@ TEST_P(CreateCreateStructStepTest, TestEmptyMessageCreation) {
                            "google.api.expr.runtime.TestMessage"));
   ASSERT_TRUE(maybe_type.has_value());
   if (enable_recursive_planning()) {
-    auto step =
-        CreateDirectCreateStructStep("google.api.expr.runtime.TestMessage",
-                                     /*fields=*/{},
-                                     /*deps=*/{},
-                                     /*optional_indices=*/{},
-                                     /*id=*/-1);
+    auto step = CreateDirectCreateStructStep(
+        "google.api.expr.runtime.TestMessage",
+        env_->type_registry.GetComposedTypeProvider().NewValueBuilderFactory(
+            "google.api.expr.runtime.TestMessage",
+            google::protobuf::MessageFactory::generated_factory()),
+        /*fields=*/{},
+        /*deps=*/{},
+        /*optional_indices=*/{},
+        /*id=*/-1);
     path.push_back(
         std::make_unique<WrappedDirectStep>(std::move(step), /*id=*/-1));
   } else {
-    auto step = CreateCreateStructStep("google.api.expr.runtime.TestMessage",
-                                       /*fields=*/{},
-                                       /*optional_indices=*/{},
-                                       /*id=*/-1);
+    auto step = CreateCreateStructStep(
+        "google.api.expr.runtime.TestMessage",
+        env_->type_registry.GetComposedTypeProvider().NewValueBuilderFactory(
+            "google.api.expr.runtime.TestMessage",
+            google::protobuf::MessageFactory::generated_factory()),
+        /*fields=*/{},
+        /*optional_indices=*/{},
+        /*id=*/-1);
     path.push_back(std::move(step));
   }
 

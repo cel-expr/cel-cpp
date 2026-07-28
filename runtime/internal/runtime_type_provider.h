@@ -45,6 +45,11 @@ class RuntimeTypeProvider final : public TypeReflector {
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena) const override;
 
+  ValueBuilderFactory NewValueBuilderFactory(
+      absl::string_view name,
+      google::protobuf::MessageFactory* absl_nonnull message_factory) const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND override;
+
  protected:
   absl::StatusOr<absl::optional<Type>> FindTypeImpl(
       absl::string_view name) const override;

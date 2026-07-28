@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -57,6 +58,7 @@
 #include "common/expr.h"
 #include "common/kind.h"
 #include "common/type.h"
+#include "common/type_reflector.h"
 #include "common/type_spec_resolver.h"
 #include "common/value.h"
 #include "eval/compiler/check_ast_extensions.h"
@@ -1609,16 +1611,16 @@ class FlatExprVisitor : public cel::AstVisitor {
       return;
     }
 
-    auto status_or_resolved_fields =
-        ResolveCreateStructFields(struct_expr, expr.id());
-    if (!status_or_resolved_fields.ok()) {
-      SetProgressStatusIfError(status_or_resolved_fields.status());
+    auto resolve_result = ResolveCreateStructFields(struct_expr, expr.id());
+    if (!resolve_result.ok()) {
+      SetProgressStatusIfError(resolve_result.status());
       return;
     }
-    std::string resolved_name =
-        std::move(status_or_resolved_fields.value().first);
-    std::vector<std::string> fields =
-        std::move(status_or_resolved_fields.value().second);
+
+    std::string resolved_name = std::move(resolve_result->name);
+    std::vector<std::string> fields = std::move(resolve_result->fields);
+    cel::TypeReflector::ValueBuilderFactory builder_factory =
+        std::move(resolve_result->builder_factory);
 
     if (auto depth = RecursionEligible(); depth.has_value()) {
       auto deps = ExtractRecursiveDependencies();
@@ -1628,15 +1630,16 @@ class FlatExprVisitor : public cel::AstVisitor {
         return;
       }
       auto step = CreateDirectCreateStructStep(
-          std::move(resolved_name), std::move(fields), std::move(deps),
+          std::move(resolved_name), std::move(builder_factory),
+          std::move(fields), std::move(deps),
           MakeOptionalIndicesSet(struct_expr), expr.id());
       SetRecursiveStep(std::move(step), *depth + 1);
       return;
     }
 
-    AddStep(CreateCreateStructStep(std::move(resolved_name), std::move(fields),
-                                   MakeOptionalIndicesSet(struct_expr),
-                                   expr.id()));
+    AddStep(CreateCreateStructStep(
+        std::move(resolved_name), std::move(builder_factory), std::move(fields),
+        MakeOptionalIndicesSet(struct_expr), expr.id()));
   }
 
   void PostVisitMap(const cel::Expr& expr,
@@ -1909,11 +1912,16 @@ class FlatExprVisitor : public cel::AstVisitor {
     return absl::OkStatus();
   }
 
+  struct ResolveCreateStructResult {
+    std::string name;
+    std::vector<std::string> fields;
+    cel::TypeReflector::ValueBuilderFactory builder_factory;
+  };
+
   // Resolve the name of the message type being created and the names of set
   // fields.
-  absl::StatusOr<std::pair<std::string, std::vector<std::string>>>
-  ResolveCreateStructFields(const cel::StructExpr& create_struct_expr,
-                            int64_t expr_id) {
+  absl::StatusOr<ResolveCreateStructResult> ResolveCreateStructFields(
+      const cel::StructExpr& create_struct_expr, int64_t expr_id) {
     absl::string_view ast_name = create_struct_expr.name();
 
     std::optional<std::pair<std::string, cel::Type>> type;
@@ -1944,8 +1952,20 @@ class FlatExprVisitor : public cel::AstVisitor {
       }
       fields.push_back(entry.name());
     }
+    ResolveCreateStructResult result;
+    if (options_.enable_eager_struct_resolution) {
+      result.builder_factory = type_provider_.NewValueBuilderFactory(
+          resolved_name, extension_context_.MutableMessageFactory());
+    } else {
+      result.builder_factory =
+          type_provider_.TypeReflector::NewValueBuilderFactory(
+              resolved_name, extension_context_.MutableMessageFactory());
+    }
 
-    return std::make_pair(std::move(resolved_name), std::move(fields));
+    result.name = std::move(resolved_name);
+    result.fields = std::move(fields);
+
+    return result;
   }
 
   CallHandlerResult HandleIndex(const cel::Expr& expr,
