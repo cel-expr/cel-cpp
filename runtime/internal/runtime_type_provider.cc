@@ -15,6 +15,7 @@
 #include "runtime/internal/runtime_type_provider.h"
 
 #include <optional>
+#include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -26,6 +27,7 @@
 #include "absl/types/optional.h"
 #include "common/type.h"
 #include "common/type_introspector.h"
+#include "common/type_reflector.h"
 #include "common/value.h"
 #include "common/values/value_builder.h"
 #include "google/protobuf/arena.h"
@@ -91,6 +93,28 @@ RuntimeTypeProvider::NewValueBuilder(
     google::protobuf::Arena* absl_nonnull arena) const {
   return common_internal::NewValueBuilder(arena, descriptor_pool_,
                                           message_factory, name);
+}
+
+TypeReflector::ValueBuilderFactory RuntimeTypeProvider::NewValueBuilderFactory(
+    absl::string_view name,
+    google::protobuf::MessageFactory* absl_nonnull message_factory) const {
+  const google::protobuf::Message* prototype = nullptr;
+
+  if (const auto* descriptor = descriptor_pool_->FindMessageTypeByName(name);
+      descriptor != nullptr) {
+    prototype = message_factory->GetPrototype(descriptor);
+  }
+
+  return [this, name = std::string(name), message_factory, prototype](
+             google::protobuf::MessageFactory* absl_nonnull runtime_message_factory,
+             google::protobuf::Arena* absl_nonnull arena)
+             -> absl::StatusOr<absl_nullable ValueBuilderPtr> {
+    if (prototype != nullptr && runtime_message_factory == message_factory) {
+      return common_internal::NewValueBuilder(arena, descriptor_pool_,
+                                              message_factory, prototype);
+    }
+    return NewValueBuilder(name, runtime_message_factory, arena);
+  };
 }
 
 }  // namespace cel::runtime_internal

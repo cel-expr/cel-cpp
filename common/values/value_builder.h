@@ -31,6 +31,12 @@ absl_nullable cel::ValueBuilderPtr NewValueBuilder(
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     absl::string_view name);
 
+absl_nullable cel::ValueBuilderPtr NewValueBuilder(
+    Allocator<> allocator,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    const google::protobuf::Message* absl_nonnull prototype);
+
 }  // namespace cel::common_internal
 
 #endif  // THIRD_PARTY_CEL_CPP_COMMON_VALUES_VALUE_BUILDER_H_

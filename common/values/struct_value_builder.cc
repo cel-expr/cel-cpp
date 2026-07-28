@@ -1503,6 +1503,16 @@ absl_nullable cel::ValueBuilderPtr NewValueBuilder(
     Allocator<> allocator,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
+    const google::protobuf::Message* absl_nonnull prototype) {
+  return std::make_unique<ValueBuilderImpl>(allocator.arena(), descriptor_pool,
+                                            message_factory,
+                                            prototype->New(allocator.arena()));
+}
+
+absl_nullable cel::ValueBuilderPtr NewValueBuilder(
+    Allocator<> allocator,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
     absl::string_view name) {
   const google::protobuf::Descriptor* absl_nullable descriptor =
       descriptor_pool->FindMessageTypeByName(name);
@@ -1519,9 +1529,8 @@ absl_nullable cel::ValueBuilderPtr NewValueBuilder(
   if (ABSL_PREDICT_FALSE(prototype == nullptr)) {
     return nullptr;
   }
-  return std::make_unique<ValueBuilderImpl>(allocator.arena(), descriptor_pool,
-                                            message_factory,
-                                            prototype->New(allocator.arena()));
+  return NewValueBuilder(allocator, descriptor_pool, message_factory,
+                         prototype);
 }
 
 absl_nullable cel::StructValueBuilderPtr NewStructValueBuilder(

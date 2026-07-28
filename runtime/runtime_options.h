@@ -201,6 +201,11 @@ struct RuntimeOptions {
   // not what the planner expected (e.g. a map that was declared as a proto or
   // a different message with matching field names).
   bool enable_typed_field_access = true;
+
+  // When enabled, the planner will resolve struct to types to a factory for
+  // builders at plan time instead of looking up the builder by name at
+  // evaluation time.
+  bool enable_eager_struct_resolution = false;
 };
 // LINT.ThenChange(//depot/google3/eval/public/cel_options.h)
 
