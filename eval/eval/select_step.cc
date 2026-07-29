@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -566,6 +567,12 @@ absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateTypedSelectStep(
   ABSL_DCHECK(resolved_field.IsMessage());
   const google::protobuf::FieldDescriptor* field_descriptor =
       resolved_field.GetMessage().descriptor();
+
+  if (field_descriptor->containing_type() != descriptor) {
+    return CreateSelectStep(std::move(field), test_only, expr_id,
+                            enable_wrapper_type_null_unboxing,
+                            enable_optional_types);
+  }
 
   if (test_only) {
     return std::make_unique<ProtoHasStep>(

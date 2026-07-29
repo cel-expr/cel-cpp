@@ -401,6 +401,9 @@ bool ParsedMessageValue::HasField(
     const google::protobuf::FieldDescriptor* absl_nonnull field) const {
   ABSL_DCHECK(field != nullptr);
 
+  if (ABSL_PREDICT_FALSE(value_->GetDescriptor() != field->containing_type())) {
+    return false;
+  }
   const auto* reflection = GetReflection();
   if (field->is_map() || field->is_repeated()) {
     return reflection->FieldSize(*value_, field) > 0;
