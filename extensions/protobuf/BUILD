@@ -123,6 +123,7 @@ cc_test(
         "//common:value_kind",
         "//common:value_testing",
         "//internal:testing",
+        "//testutil:test_external_extensions_descriptor_set",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",

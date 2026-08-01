@@ -15,6 +15,8 @@
 load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:cel_cc_embed.bzl", "cel_cc_embed")
+load("//bazel:cel_proto_transitive_descriptor_set.bzl", "cel_proto_transitive_descriptor_set")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -78,4 +80,48 @@ cc_test(
 proto_library(
     name = "test_json_names_proto",
     srcs = ["test_json_names.proto"],
+)
+
+proto_library(
+    name = "test_external_extensions_proto",
+    srcs = ["test_external_extensions.proto"],
+    deps = ["@com_google_cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+)
+
+cel_proto_transitive_descriptor_set(
+    name = "test_external_extensions_transitive_descriptor_set",
+    testonly = True,
+    deps = [
+        ":test_external_extensions_proto",
+    ],
+)
+
+cel_cc_embed(
+    name = "test_external_extensions_descriptor_set_embed",
+    testonly = True,
+    src = ":test_external_extensions_transitive_descriptor_set",
+)
+
+cc_library(
+    name = "test_external_extensions_descriptor_set",
+    testonly = True,
+    srcs = ["test_external_extensions_descriptor_set.cc"],
+    hdrs = ["test_external_extensions_descriptor_set.h"],
+    textual_hdrs = [":test_external_extensions_descriptor_set_embed"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_test(
+    name = "test_external_extensions_descriptor_set_test",
+    srcs = ["test_external_extensions_descriptor_set_test.cc"],
+    deps = [
+        ":test_external_extensions_descriptor_set",
+        "//internal:testing",
+        "@com_google_protobuf//:protobuf",
+    ],
 )

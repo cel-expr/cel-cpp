@@ -1980,6 +1980,12 @@ absl::StatusOr<Unique<google::protobuf::Message>> AdaptAny(
     }
     BytesValue value = reflection.GetValue(*to_unwrap, value_scratch);
     Unique<google::protobuf::Message> unpacked = WrapUnique(prototype->New(arena), arena);
+    // TODO(b/557267722): Extensions that are not included in the same
+    // descriptor pool as the resolved descriptor will be treated as unknown
+    // fields. Extending messages like this should be exceedingly rare and is
+    // hard to support safely.
+    //
+    // See CodedInputStream::SetExtensionRegistry.
     const bool ok = absl::visit(absl::Overload(
                                     [&](absl::string_view string) -> bool {
                                       return unpacked->ParseFromString(string);

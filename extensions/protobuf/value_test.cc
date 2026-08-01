@@ -37,7 +37,11 @@
 #include "common/value_kind.h"
 #include "common/value_testing.h"
 #include "internal/testing.h"
+#include "testutil/test_external_extensions_descriptor_set.h"
 #include "cel/expr/conformance/proto2/test_all_types.pb.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/dynamic_message.h"
+#include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
 
 namespace cel::extensions {
@@ -794,6 +798,148 @@ TEST_F(ProtoValueWrapTest, ProtoListForEachWithIndex) {
 
   EXPECT_THAT(elements,
               ElementsAre(Pair(0, IntValueIs(1)), Pair(1, IntValueIs(2))));
+}
+
+class ProtoValueUnwrapTest : public ProtoValueTest {};
+
+TEST_F(ProtoValueUnwrapTest, SameDescriptor) {
+  TestAllTypes src = ParseTextOrDie<TestAllTypes>(
+      R"pb(single_int32: 1 single_int64: 2 single_string: "hello")pb");
+  ASSERT_OK_AND_ASSIGN(
+      auto value,
+      ProtoMessageToValue(src, descriptor_pool(), message_factory(), arena()));
+  TestAllTypes dest;
+  ASSERT_THAT(ProtoMessageFromValue(value, dest), IsOk());
+  EXPECT_EQ(dest.single_int32(), 1);
+  EXPECT_EQ(dest.single_int64(), 2);
+  EXPECT_EQ(dest.single_string(), "hello");
+}
+
+TEST_F(ProtoValueUnwrapTest, DifferentDescriptorSameFullName) {
+  auto* dynamic_message =
+      DynamicParseTextProto<TestAllTypes>(R"pb(single_int32: 42
+                                               single_string: "dynamic")pb");
+  Value value = Value::WrapMessage(dynamic_message, descriptor_pool(),
+                                   message_factory(), arena());
+  TestAllTypes dest;
+  ASSERT_THAT(ProtoMessageFromValue(value, dest), IsOk());
+  EXPECT_EQ(dest.single_int32(), 42);
+  EXPECT_EQ(dest.single_string(), "dynamic");
+}
+
+TEST_F(ProtoValueUnwrapTest, TypeMismatch) {
+  TestAllTypes::NestedMessage nested;
+  nested.set_bb(100);
+  Value value = Value::WrapMessage(&nested, descriptor_pool(),
+                                   message_factory(), arena());
+  TestAllTypes dest;
+  EXPECT_THAT(ProtoMessageFromValue(value, dest),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+TEST_F(ProtoValueUnwrapTest, NonMessageValue) {
+  TestAllTypes dest;
+  EXPECT_THAT(ProtoMessageFromValue(IntValue(42), dest),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ProtoMessageFromValue(StringValue("not a message"), dest),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(ProtoMessageFromValue(NullValue(), dest),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+const google::protobuf::DescriptorPool&
+GetTestExternalExtensionsDescriptorPoolUnderlay() {
+  static const google::protobuf::DescriptorPool* pool = []() {
+    auto pool = std::make_unique<google::protobuf::DescriptorPool>(
+        google::protobuf::DescriptorPool::generated_pool());
+    google::protobuf::LinkMessageReflection<TestAllTypes>();
+    ABSL_CHECK(
+        pool->BuildFile(test::GetTestExternalExtensionsFileDescriptor()));
+    return pool.release();
+  }();
+  return *pool;
+}
+
+std::unique_ptr<google::protobuf::Message> MakeTestExtendedMessage(
+    const google::protobuf::DescriptorPool& pool, google::protobuf::MessageFactory& factory) {
+  const google::protobuf::Descriptor* desc =
+      pool.FindMessageTypeByName("cel.expr.conformance.proto2.TestAllTypes");
+  ABSL_CHECK(desc != nullptr);
+  const google::protobuf::FieldDescriptor* ext_msg_field =
+      pool.FindExtensionByPrintableName(
+          desc, "cel.cpp.testutil.test_external_extensions_message");
+  ABSL_CHECK(ext_msg_field != nullptr);
+  const google::protobuf::Message* prototype = factory.GetPrototype(desc);
+  ABSL_CHECK(prototype != nullptr);
+  std::unique_ptr<google::protobuf::Message> dynamic_message(prototype->New());
+
+  const auto* reflection = dynamic_message->GetReflection();
+  reflection->SetInt32(dynamic_message.get(),
+                       desc->FindFieldByName("single_int32"), 42);
+  reflection->SetString(dynamic_message.get(),
+                        desc->FindFieldByName("single_string"), "dynamic");
+  google::protobuf::Message* ext = reflection->MutableMessage(dynamic_message.get(),
+                                                    ext_msg_field, &factory);
+  ext->GetReflection()->SetString(
+      ext, ext->GetDescriptor()->FindFieldByName("string_field"),
+      "external_string");
+  return dynamic_message;
+}
+
+TEST_F(ProtoValueUnwrapTest, DynamicMessageFromUnderlayDescriptorPool) {
+  const auto& pool = GetTestExternalExtensionsDescriptorPoolUnderlay();
+  TestAllTypes dest;
+  {
+    google::protobuf::DynamicMessageFactory factory(&pool);
+    factory.SetDelegateToGeneratedFactory(false);
+    std::unique_ptr<google::protobuf::Message> dynamic_message =
+        MakeTestExtendedMessage(pool, factory);
+
+    Value value =
+        Value::WrapMessage(dynamic_message.get(), &pool, &factory, arena());
+    ASSERT_THAT(ProtoMessageFromValue(value, dest), IsOk());
+  }
+  EXPECT_EQ(dest.single_int32(), 42);
+  EXPECT_EQ(dest.single_string(), "dynamic");
+  EXPECT_EQ(dest.unknown_fields().field_count(), 1);
+}
+
+using ProtoValueUnwrapTestDeathTest = ProtoValueUnwrapTest;
+
+TEST_F(ProtoValueUnwrapTestDeathTest,
+       DynamicMessageFromUnderlayDescriptorPoolDelegateToGeneratedFactory) {
+#ifndef ADDRESS_SANITIZER
+  GTEST_SKIP() << "Test requires ASAN enabled";
+#else
+  EXPECT_DEATH_IF_SUPPORTED(
+      {
+        const auto& pool = GetTestExternalExtensionsDescriptorPoolUnderlay();
+        auto dest = std::make_unique<TestAllTypes>();
+        {
+          // The CEL runtime should not create a factory like this.
+          // To get this to work, the caller would need to manage the
+          // message factory, provide it to the runtime, and guarantee that it
+          // outlives the CEL value or any derived messages.
+          google::protobuf::DynamicMessageFactory factory(&pool);
+          factory.SetDelegateToGeneratedFactory(true);
+
+          std::unique_ptr<google::protobuf::Message> dynamic_message =
+              MakeTestExtendedMessage(pool, factory);
+
+          Value value = Value::WrapMessage(dynamic_message.get(), &pool,
+                                           &factory, arena());
+          ASSERT_THAT(ProtoMessageFromValue(value, *dest), IsOk());
+        }
+
+        EXPECT_EQ(dest->single_int32(), 42);
+        EXPECT_EQ(dest->single_string(), "dynamic");
+        EXPECT_TRUE(dest->GetReflection()->HasField(
+            *dest, pool.FindExtensionByName(
+                       "cel.cpp.testutil.test_external_extensions_message")));
+        dest.reset();
+      },
+      "AddressSanitizer: heap-use-after-free");
+#endif
 }
 
 }  // namespace
