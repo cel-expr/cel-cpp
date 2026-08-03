@@ -175,8 +175,6 @@ _TESTS_TO_SKIP = [
     "namespace/namespace/self_eval_container_lookup,self_eval_container_lookup_unchecked",
 
     # Skip until fixed.
-    "wrappers/field_mask/to_json",
-    "wrappers/empty/to_json",
     "fields/qualified_identifier_resolution/map_value_repeat_key_heterogeneous",
 
     # Future features for CEL 1.0

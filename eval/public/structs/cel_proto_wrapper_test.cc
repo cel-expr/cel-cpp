@@ -1,6 +1,7 @@
 #include "eval/public/structs/cel_proto_wrapper.h"
 
 #include <cassert>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <string>
@@ -16,6 +17,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/containers/container_backed_list_impl.h"
 #include "eval/public/containers/container_backed_map_impl.h"
@@ -24,6 +26,7 @@
 #include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "testutil/util.h"
+#include "google/protobuf/arena.h"
 #include "google/protobuf/dynamic_message.h"
 #include "google/protobuf/message.h"
 
@@ -55,7 +58,7 @@ using google::protobuf::Arena;
 
 class CelProtoWrapperTest : public ::testing::Test {
  protected:
-  CelProtoWrapperTest() {}
+  CelProtoWrapperTest() = default;
 
   void ExpectWrappedMessage(const CelValue& value,
                             const google::protobuf::Message& message) {
@@ -290,7 +293,7 @@ TEST_F(CelProtoWrapperTest, UnwrapValueStruct) {
   ASSERT_OK(missing_field_presence);
   EXPECT_FALSE(*missing_field_presence);
 
-  const CelList* key_list = cel_map->ListKeys().value();
+  ASSERT_OK_AND_ASSIGN(const CelList* key_list, cel_map->ListKeys());
   ASSERT_EQ(key_list->size(), kFields.size());
 
   std::vector<std::string> result_keys;
@@ -784,10 +787,10 @@ TEST_F(CelProtoWrapperTest, WrapStruct) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateString(CelValue::StringHolder(&kField1)),
        CelValue::CreateBool(true)}};
-  auto cel_map =
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<CelMap> cel_map,
       CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size()))
-          .value();
+          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
   auto cel_value = CelValue::CreateMap(cel_map.get());
 
   Value json;
@@ -801,13 +804,60 @@ TEST_F(CelProtoWrapperTest, WrapStruct) {
   ExpectWrappedMessage(cel_value, any);
 }
 
+TEST_F(CelProtoWrapperTest, WrapEmptyToValue) {
+  google::protobuf::Empty empty;
+  CelValue value = CelProtoWrapper::CreateMessage(&empty, arena());
+
+  Value expected_message;
+  expected_message.mutable_struct_value();
+
+  ExpectWrappedMessage(value, expected_message);
+}
+
+TEST_F(CelProtoWrapperTest, WrapMapWithEmptyToAny) {
+  const std::string kField = "empty";
+  google::protobuf::Empty empty;
+  CelValue value = CelProtoWrapper::CreateMessage(&empty, arena());
+
+  std::vector<std::pair<CelValue, CelValue>> args = {
+      {CelValue::CreateString(CelValue::StringHolder(&kField)), value}};
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<CelMap> cel_map,
+      CreateContainerBackedMap(
+          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
+  auto cel_value = CelValue::CreateMap(cel_map.get());
+
+  Struct expected_struct;
+  (*expected_struct.mutable_fields())[kField].mutable_struct_value();
+  Any expected_message;
+  expected_message.PackFrom(expected_struct);
+
+  ExpectWrappedMessage(cel_value, expected_message);
+}
+
+TEST_F(CelProtoWrapperTest, WrapListWithEmptyToAny) {
+  google::protobuf::Empty empty;
+  CelValue value = CelProtoWrapper::CreateMessage(&empty, arena());
+
+  std::vector<CelValue> list_entries = {value};
+  ContainerBackedListImpl cel_list(list_entries);
+  CelValue list_value = CelValue::CreateList(&cel_list);
+
+  ListValue expected_list;
+  expected_list.add_values()->mutable_struct_value();
+  Any expected_message;
+  expected_message.PackFrom(expected_list);
+
+  ExpectWrappedMessage(list_value, expected_message);
+}
+
 TEST_F(CelProtoWrapperTest, WrapFailureStructBadKeyType) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateInt64(1L), CelValue::CreateBool(true)}};
-  auto cel_map =
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<CelMap> cel_map,
       CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size()))
-          .value();
+          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
   auto cel_value = CelValue::CreateMap(cel_map.get());
 
   Value json;
@@ -820,10 +870,10 @@ TEST_F(CelProtoWrapperTest, WrapFailureStructBadValueType) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateString(CelValue::StringHolder(&kField1)),
        CelProtoWrapper::CreateMessage(&bad_value, arena())}};
-  auto cel_map =
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<CelMap> cel_map,
       CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size()))
-          .value();
+          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
   auto cel_value = CelValue::CreateMap(cel_map.get());
   Value json;
   ExpectNotWrapped(cel_value, json);
