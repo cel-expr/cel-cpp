@@ -887,6 +887,7 @@ cc_test(
         "@com_google_absl//absl/types:optional",
         "@com_google_cel_spec//proto/cel/expr/conformance/proto2:test_all_types_cc_proto",
         "@com_google_cel_spec//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
+        "@com_google_protobuf//:field_mask_cc_proto",
         "@com_google_protobuf//:protobuf",
         "@com_google_protobuf//:struct_cc_proto",
         "@com_google_protobuf//:type_cc_proto",

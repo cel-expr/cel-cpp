@@ -34,6 +34,7 @@
 #include "base/attribute.h"
 #include "common/memory.h"
 #include "common/value.h"
+#include "common/values/values.h"
 #include "extensions/protobuf/internal/qualify.h"
 #include "internal/empty_descriptors.h"
 #include "internal/json.h"
@@ -50,8 +51,6 @@
 namespace cel {
 
 namespace {
-
-using ::cel::well_known_types::ValueReflection;
 
 template <typename T>
 std::enable_if_t<std::is_base_of_v<google::protobuf::Message, T>,
@@ -114,12 +113,8 @@ absl::Status ParsedMessageValue::ConvertToJson(
   ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
                  google::protobuf::Descriptor::WELLKNOWNTYPE_VALUE);
 
-  ValueReflection value_reflection;
-  CEL_RETURN_IF_ERROR(value_reflection.Initialize(json->GetDescriptor()));
-  google::protobuf::Message* json_object = value_reflection.MutableStructValue(json);
-
   return internal::MessageToJson(*value_, descriptor_pool, message_factory,
-                                 json_object);
+                                 json);
 }
 
 absl::Status ParsedMessageValue::ConvertToJsonObject(

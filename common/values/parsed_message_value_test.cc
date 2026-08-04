@@ -14,6 +14,7 @@
 
 #include <utility>
 
+#include "google/protobuf/field_mask.pb.h"
 #include "google/protobuf/struct.pb.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/cord.h"
@@ -82,6 +83,19 @@ TEST_F(ParsedMessageValueTest, ConvertToJson) {
               IsOk());
   EXPECT_THAT(*json, EqualsTextProto<google::protobuf::Value>(
                          R"pb(struct_value: {})pb"));
+}
+
+TEST_F(ParsedMessageValueTest, ConvertToJsonFieldMask) {
+  ParsedMessageValue value =
+      MakeParsedMessage<google::protobuf::FieldMask>(R"pb(paths: "foo.bar"
+                                                          paths: "baz")pb");
+  google::protobuf::Message* json =
+      DynamicParseTextProto<google::protobuf::Value>(R"pb()pb");
+  ASSERT_THAT(value.ConvertToJson(descriptor_pool(), message_factory(),
+                                  cel::to_address(json)),
+              IsOk());
+  EXPECT_THAT(*json, EqualsTextProto<google::protobuf::Value>(
+                         R"pb(string_value: "foo.bar,baz")pb"));
 }
 
 TEST_F(ParsedMessageValueTest, Equal) {

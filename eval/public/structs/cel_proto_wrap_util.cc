@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -31,6 +32,7 @@
 #include "absl/base/optimization.h"
 #include "absl/functional/overload.h"
 #include "absl/log/absl_check.h"
+#include "absl/log/absl_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/cord.h"
@@ -50,6 +52,7 @@
 #include "internal/well_known_types.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
+#include "google/protobuf/json/json.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/message_lite.h"
 
@@ -79,6 +82,8 @@ using google::protobuf::Descriptor;
 using google::protobuf::DescriptorPool;
 using google::protobuf::Message;
 using google::protobuf::MessageFactory;
+using google::protobuf::json::MessageToJsonString;
+using google::protobuf::json::PrintOptions;
 
 // kMaxIntJSON is defined as the Number.MAX_SAFE_INTEGER value per EcmaScript 6.
 constexpr int64_t kMaxIntJSON = (1ll << 53) - 1;
@@ -96,6 +101,27 @@ static bool IsJSONSafe(int64_t i) {
 // point value in JSON.
 static bool IsJSONSafe(uint64_t i) {
   return i <= static_cast<uint64_t>(kMaxIntJSON);
+}
+
+static std::optional<std::string> GetFieldMaskJsonString(
+    const google::protobuf::Message& message) {
+  // TODO(b/540507668): Refactor to pipe descriptor_pool through
+  // ValueFromValue to use internal::MessageToJson.
+  PrintOptions json_options;
+  std::string json_str;
+  auto status = MessageToJsonString(message, &json_str, json_options);
+  if (!status.ok()) {
+    ABSL_LOG(ERROR) << "Failed to convert FieldMask to JSON: " << status;
+    return std::nullopt;
+  }
+  // If JSON marshalling is correct, we know we'll always get a plain
+  // JSON string value and it shouldn't contain any escapes that we need
+  // to interpret.
+  if (json_str.size() >= 2 && json_str.front() == '"' &&
+      json_str.back() == '"') {
+    return json_str.substr(1, json_str.size() - 2);
+  }
+  return json_str;
 }
 
 // Map implementation wrapping google.protobuf.ListValue
@@ -1079,6 +1105,25 @@ google::protobuf::Message* ValueFromValue(google::protobuf::Message* message, co
         return message;
       }
     } break;
+    case CelValue::Type::kMessage: {
+      const google::protobuf::Message* message_ptr = value.MessageOrDie();
+      if (message_ptr->GetDescriptor()->full_name() ==
+          "google.protobuf.Empty") {
+        reflection.MutableStructValue(message);
+        return message;
+      }
+      if (message_ptr->GetDescriptor()->full_name() ==
+          "google.protobuf.FieldMask") {
+        std::optional<std::string> fm_str =
+            GetFieldMaskJsonString(*message_ptr);
+        if (fm_str.has_value()) {
+          reflection.SetStringValue(message, *fm_str);
+          return message;
+        }
+        return nullptr;
+      }
+      return nullptr;
+    } break;
     case CelValue::Type::kNullType:
       reflection.SetNullValue(message);
       return message;
@@ -1229,6 +1274,25 @@ bool ValueFromValue(Value* json, const CelValue& value, google::protobuf::Arena*
       return ListFromValue(json->mutable_list_value(), value, arena);
     case CelValue::Type::kMap:
       return StructFromValue(json->mutable_struct_value(), value, arena);
+    case CelValue::Type::kMessage: {
+      const google::protobuf::Message* message_ptr = value.MessageOrDie();
+      if (message_ptr->GetDescriptor()->full_name() ==
+          "google.protobuf.Empty") {
+        json->mutable_struct_value();
+        return true;
+      }
+      if (message_ptr->GetDescriptor()->full_name() ==
+          "google.protobuf.FieldMask") {
+        std::optional<std::string> fm_str =
+            GetFieldMaskJsonString(*message_ptr);
+        if (fm_str.has_value()) {
+          json->set_string_value(*fm_str);
+          return true;
+        }
+        return false;
+      }
+      return false;
+    }
     case CelValue::Type::kNullType:
       json->set_null_value(protobuf::NULL_VALUE);
       return true;
@@ -1254,7 +1318,7 @@ google::protobuf::Message* AnyFromValue(const google::protobuf::Message* prototy
     case CelValue::Type::kBytes: {
       BytesValue v;
       type_name = v.GetTypeName();
-      v.set_value(std::string(value.BytesOrDie().value()));
+      v.set_value(value.BytesOrDie().value());
       payload = v.SerializeAsCord();
     } break;
     case CelValue::Type::kDouble: {
