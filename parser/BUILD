@@ -27,9 +27,11 @@ cc_library(
     hdrs = [
         "parser.h",
     ],
-    copts = [
-        "-fexceptions",
-    ],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/EHsc"],
+        "@rules_cc//cc/compiler:clang-cl": ["/EHsc"],
+        "//conditions:default": ["-fexceptions"],
+    }),
     defines = [
         "ANTLR4CPP_STATIC",
     ],
