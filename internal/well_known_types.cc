@@ -19,6 +19,7 @@
 #include <functional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "google/protobuf/any.pb.h"
@@ -44,7 +45,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
 #include "absl/time/time.h"
-#include "absl/types/variant.h"
 #include "common/json.h"
 #include "common/memory.h"
 #include "extensions/protobuf/internal/map_reflection.h"
@@ -85,7 +85,7 @@ FieldDescriptor::Label GetFieldLabel(
 absl::string_view FlatStringValue(
     const StringValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND,
     std::string& scratch ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  return absl::visit(
+  return std::visit(
       absl::Overload(
           [](absl::string_view string) -> absl::string_view { return string; },
           [&](const absl::Cord& cord) -> absl::string_view {
@@ -101,7 +101,7 @@ absl::string_view FlatStringValue(
 StringValue CopyStringValue(const StringValue& value,
                             std::string& scratch
                                 ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  return absl::visit(
+  return std::visit(
       absl::Overload(
           [&](absl::string_view string) -> StringValue {
             if (string.data() != scratch.data()) {
@@ -116,7 +116,7 @@ StringValue CopyStringValue(const StringValue& value,
 
 BytesValue CopyBytesValue(const BytesValue& value,
                           std::string& scratch ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  return absl::visit(
+  return std::visit(
       absl::Overload(
           [&](absl::string_view string) -> BytesValue {
             if (string.data() != scratch.data()) {
@@ -381,18 +381,18 @@ absl::Status CheckMapField(const FieldDescriptor* absl_nonnull field) {
 }  // namespace
 
 bool StringValue::ConsumePrefix(absl::string_view prefix) {
-  return absl::visit(absl::Overload(
-                         [&](absl::string_view& value) {
-                           return absl::ConsumePrefix(&value, prefix);
-                         },
-                         [&](absl::Cord& cord) {
-                           if (cord.StartsWith(prefix)) {
-                             cord.RemovePrefix(prefix.size());
-                             return true;
-                           }
-                           return false;
-                         }),
-                     AsVariant(*this));
+  return std::visit(absl::Overload(
+                        [&](absl::string_view& value) {
+                          return absl::ConsumePrefix(&value, prefix);
+                        },
+                        [&](absl::Cord& cord) {
+                          if (cord.StartsWith(prefix)) {
+                            cord.RemovePrefix(prefix.size());
+                            return true;
+                          }
+                          return false;
+                        }),
+                    AsVariant(*this));
 }
 
 StringValue GetStringField(const google::protobuf::Reflection* absl_nonnull reflection,
@@ -1980,14 +1980,14 @@ absl::StatusOr<Unique<google::protobuf::Message>> AdaptAny(
     }
     BytesValue value = reflection.GetValue(*to_unwrap, value_scratch);
     Unique<google::protobuf::Message> unpacked = WrapUnique(prototype->New(arena), arena);
-    const bool ok = absl::visit(absl::Overload(
-                                    [&](absl::string_view string) -> bool {
-                                      return unpacked->ParseFromString(string);
-                                    },
-                                    [&](const absl::Cord& cord) -> bool {
-                                      return unpacked->ParseFromString(cord);
-                                    }),
-                                AsVariant(value));
+    const bool ok = std::visit(absl::Overload(
+                                   [&](absl::string_view string) -> bool {
+                                     return unpacked->ParseFromString(string);
+                                   },
+                                   [&](const absl::Cord& cord) -> bool {
+                                     return unpacked->ParseFromString(cord);
+                                   }),
+                               AsVariant(value));
     if (!ok) {
       return absl::InvalidArgumentError(absl::StrCat(
           "failed to unpack protocol buffer message: ", type_url_view));
