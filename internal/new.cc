@@ -92,7 +92,11 @@ std::pair<void*, size_t> SizeReturningAlignedNew(size_t size,
                                                  std::align_val_t alignment) {
   ABSL_DCHECK(absl::has_single_bit(static_cast<size_t>(alignment)));
 #ifdef CEL_INTERNAL_HAVE_ALIGNED_NEW
+#if defined(_MSC_VER)
   return std::pair{::operator new(size, alignment), size};
+#else
+  return std::pair{::operator new(size, alignment), size};
+#endif
 #else
   return std::pair{AlignedNew(size, alignment), size};
 #endif
