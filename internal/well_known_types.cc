@@ -1643,6 +1643,7 @@ int StructReflection::FieldsSize(const google::protobuf::Message& message) const
                                                      message, *fields_field_);
 }
 
+#if !defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
 google::protobuf::ConstMapIterator StructReflection::BeginFields(
     const google::protobuf::Message& message) const {
   ABSL_DCHECK(IsInitialized());
@@ -1658,6 +1659,7 @@ google::protobuf::ConstMapIterator StructReflection::EndFields(
   return cel::extensions::protobuf_internal::ConstMapEnd(
       *message.GetReflection(), message, *fields_field_);
 }
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
 
 bool StructReflection::ContainsField(const google::protobuf::Message& message,
                                      absl::string_view name) const {

@@ -17,11 +17,13 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
+#include "absl/status/status.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/map_field.h"
 #include "google/protobuf/message.h"
 
-#ifndef GOOGLE_PROTOBUF_HAS_CEL_MAP_REFLECTION_FRIEND
+#if !defined(GOOGLE_PROTOBUF_HAS_CEL_MAP_REFLECTION_FRIEND) && \
+    !defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
 #error "protobuf library is too old, please update to version 3.15.0 or newer"
 #endif
 
@@ -42,6 +44,19 @@ int MapSize(const google::protobuf::Reflection& reflection,
             const google::protobuf::Message& message,
             const google::protobuf::FieldDescriptor& field);
 
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+template <typename F>
+absl::Status ForEachMapEntry(const google::protobuf::Reflection& reflection,
+                             const google::protobuf::Message& message,
+                             const google::protobuf::FieldDescriptor& field, F f) {
+  for (auto entry : reflection.GetMap(message, &field)) {
+    if (auto status = f(entry.key(), entry.value()); !status.ok()) {
+      return status;
+    }
+  }
+  return absl::OkStatus();
+}
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
 google::protobuf::ConstMapIterator ConstMapBegin(const google::protobuf::Reflection& reflection,
                                        const google::protobuf::Message& message,
                                        const google::protobuf::FieldDescriptor& field);
@@ -49,6 +64,20 @@ google::protobuf::ConstMapIterator ConstMapBegin(const google::protobuf::Reflect
 google::protobuf::ConstMapIterator ConstMapEnd(const google::protobuf::Reflection& reflection,
                                      const google::protobuf::Message& message,
                                      const google::protobuf::FieldDescriptor& field);
+template <typename F>
+absl::Status ForEachMapEntry(const google::protobuf::Reflection& reflection,
+                             const google::protobuf::Message& message,
+                             const google::protobuf::FieldDescriptor& field, F f) {
+  auto it = ConstMapBegin(reflection, message, field);
+  auto end = ConstMapEnd(reflection, message, field);
+  for (; it != end; ++it) {
+    if (auto status = f(it.GetKey(), it.GetValueRef()); !status.ok()) {
+      return status;
+    }
+  }
+  return absl::OkStatus();
+}
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
 
 bool InsertOrLookupMapValue(const google::protobuf::Reflection& reflection,
                             google::protobuf::Message* message,

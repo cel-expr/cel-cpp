@@ -1194,11 +1194,13 @@ class StructReflection final {
 
   int FieldsSize(const google::protobuf::Message& message) const;
 
+#if !defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
   google::protobuf::ConstMapIterator BeginFields(
       const google::protobuf::Message& message ABSL_ATTRIBUTE_LIFETIME_BOUND) const;
 
   google::protobuf::ConstMapIterator EndFields(
       const google::protobuf::Message& message ABSL_ATTRIBUTE_LIFETIME_BOUND) const;
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
 
   bool ContainsField(const google::protobuf::Message& message,
                      absl::string_view name) const;

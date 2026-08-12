@@ -33,6 +33,7 @@
 #include "common/value.h"
 #include "common/values/parsed_json_value.h"
 #include "common/values/values.h"
+#include "extensions/protobuf/internal/map_reflection.h"
 #include "internal/json.h"
 #include "internal/message_equality.h"
 #include "internal/status_macros.h"
@@ -299,12 +300,14 @@ absl::Status ParsedJsonMapValue::ListKeys(
       well_known_types::GetStructReflectionOrDie(value_->GetDescriptor());
   auto builder = NewListValueBuilder(arena);
   builder->Reserve(static_cast<size_t>(reflection.FieldsSize(*value_)));
-  auto keys_begin = reflection.BeginFields(*value_);
-  const auto keys_end = reflection.EndFields(*value_);
-  for (; keys_begin != keys_end; ++keys_begin) {
-    CEL_RETURN_IF_ERROR(builder->Add(
-        Value::WrapMapFieldKeyString(keys_begin.GetKey(), value_, arena)));
-  }
+  CEL_RETURN_IF_ERROR(cel::extensions::protobuf_internal::ForEachMapEntry(
+      *value_->GetReflection(), *value_, *reflection.GetFieldsDescriptor(),
+      [&](auto key_ref, auto value_ref) -> absl::Status {
+        CEL_RETURN_IF_ERROR(
+            builder->Add(Value::WrapMapFieldKeyString(key_ref, value_, arena)));
+        return absl::OkStatus();
+      }));
+
   *result = std::move(*builder).Build();
   return absl::OkStatus();
 }
@@ -321,6 +324,19 @@ absl::Status ParsedJsonMapValue::ForEach(
       well_known_types::GetStructReflectionOrDie(value_->GetDescriptor());
   Value key_scratch;
   Value value_scratch;
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+  for (auto entry : value_->GetReflection()->GetMap(
+           *value_, reflection.GetFieldsDescriptor())) {
+    // We have to copy until `google::protobuf::MapKey` is just a view.
+    key_scratch = StringValue(arena, entry.key().GetStringValue());
+    value_scratch = common_internal::ParsedJsonValue(
+        &entry.value().GetMessageValue(), arena);
+    CEL_ASSIGN_OR_RETURN(auto ok, callback(key_scratch, value_scratch));
+    if (!ok) {
+      break;
+    }
+  }
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
   auto map_begin = reflection.BeginFields(*value_);
   const auto map_end = reflection.EndFields(*value_);
   for (; map_begin != map_end; ++map_begin) {
@@ -333,6 +349,7 @@ absl::Status ParsedJsonMapValue::ForEach(
       break;
     }
   }
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
   return absl::OkStatus();
 }
 
@@ -345,8 +362,19 @@ class ParsedJsonMapValueIterator final : public ValueIterator {
       : message_(message),
         reflection_(well_known_types::GetStructReflectionOrDie(
             message_->GetDescriptor())),
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+        begin_(message->GetReflection()
+                   ->GetMap(*message, reflection_.GetFieldsDescriptor())
+                   .begin()),
+        end_(message->GetReflection()
+                 ->GetMap(*message, reflection_.GetFieldsDescriptor())
+                 .end())
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
         begin_(reflection_.BeginFields(*message_)),
-        end_(reflection_.EndFields(*message_)) {}
+        end_(reflection_.EndFields(*message_))
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
+  {
+  }
 
   bool HasNext() override { return begin_ != end_; }
 
@@ -359,7 +387,11 @@ class ParsedJsonMapValueIterator final : public ValueIterator {
           "`ValueIterator::Next` called after `ValueIterator::HasNext` "
           "returned false");
     }
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    *result = Value::WrapMapFieldKeyString(begin_->key(), message_, arena);
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     *result = Value::WrapMapFieldKeyString(begin_.GetKey(), message_, arena);
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
     ++begin_;
     return absl::OkStatus();
   }
@@ -377,8 +409,13 @@ class ParsedJsonMapValueIterator final : public ValueIterator {
     if (begin_ == end_) {
       return false;
     }
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    *key_or_value =
+        Value::WrapMapFieldKeyString(begin_->key(), message_, arena);
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     *key_or_value =
         Value::WrapMapFieldKeyString(begin_.GetKey(), message_, arena);
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
     ++begin_;
     return true;
   }
@@ -396,11 +433,19 @@ class ParsedJsonMapValueIterator final : public ValueIterator {
     if (begin_ == end_) {
       return false;
     }
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    *key = Value::WrapMapFieldKeyString(begin_->key(), message_, arena);
+    if (value != nullptr) {
+      *value = common_internal::ParsedJsonValue(
+          &begin_->value().GetMessageValue(), arena);
+    }
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     *key = Value::WrapMapFieldKeyString(begin_.GetKey(), message_, arena);
     if (value != nullptr) {
       *value = common_internal::ParsedJsonValue(
           &begin_.GetValueRef().GetMessageValue(), arena);
     }
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
     ++begin_;
     return true;
   }
@@ -408,8 +453,13 @@ class ParsedJsonMapValueIterator final : public ValueIterator {
  private:
   const google::protobuf::Message* absl_nonnull const message_;
   const well_known_types::StructReflection reflection_;
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+  proto2::GenericConstMapRef::iterator begin_;
+  const proto2::GenericConstMapRef::iterator end_;
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
   google::protobuf::ConstMapIterator begin_;
   const google::protobuf::ConstMapIterator end_;
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
   std::string scratch_;
 };
 

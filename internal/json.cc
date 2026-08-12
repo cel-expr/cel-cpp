@@ -803,15 +803,14 @@ class MessageToJsonState {
     const auto* value_descriptor = field->message_type()->map_value();
     CEL_ASSIGN_OR_RETURN(const auto value_to_value,
                          GetMapFieldValueToValue(value_descriptor));
-    auto begin = extensions::protobuf_internal::ConstMapBegin(*reflection,
-                                                              message, *field);
-    const auto end = extensions::protobuf_internal::ConstMapEnd(
-        *reflection, message, *field);
-    for (; begin != end; ++begin) {
-      auto key = (*key_to_string)(begin.GetKey());
-      CEL_RETURN_IF_ERROR((this->*value_to_value)(
-          begin.GetValueRef(), value_descriptor, InsertField(result, key)));
-    }
+    CEL_RETURN_IF_ERROR(extensions::protobuf_internal::ForEachMapEntry(
+        *reflection, message, *field,
+        [&](auto key_ref, auto value_ref) -> absl::Status {
+          auto key = (*key_to_string)(key_ref);
+          CEL_RETURN_IF_ERROR((this->*value_to_value)(
+              value_ref, value_descriptor, InsertField(result, key)));
+          return absl::OkStatus();
+        }));
     return absl::OkStatus();
   }
 
@@ -1381,7 +1380,11 @@ class JsonMapIterator final {
   using Generated =
       typename google::protobuf::Map<std::string,
                            google::protobuf::Value>::const_iterator;
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+  using Dynamic = proto2::GenericConstMapRef::iterator;
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
   using Dynamic = google::protobuf::ConstMapIterator;
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
   using Value = std::pair<well_known_types::StringValue,
                           const google::protobuf::MessageLite* absl_nonnull>;
 
@@ -1405,12 +1408,20 @@ class JsonMapIterator final {
                       ++generated;
                     },
                     [&](Dynamic& dynamic) -> void {
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+                      const auto& key = dynamic->key().GetStringValue();
+                      scratch.assign(key.data(), key.size());
+                      result = std::pair{absl::string_view(scratch),
+                                         &dynamic->value().GetMessageValue()};
+                      ++dynamic;
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
                       const auto& key = dynamic.GetKey().GetStringValue();
                       scratch.assign(key.data(), key.size());
                       result =
                           std::pair{absl::string_view(scratch),
                                     &dynamic.GetValueRef().GetMessageValue()};
                       ++dynamic;
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
                     }),
                 variant_);
     return result;
@@ -1599,8 +1610,15 @@ class DynamicJsonAccessor final : public JsonAccessor {
 
   JsonMapIterator IterateFields(
       const google::protobuf::MessageLite& message) const override {
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    auto& msg = google::protobuf::DownCastMessage<google::protobuf::Message>(message);
+    return msg.GetReflection()
+        ->GetMap(msg, reflection_.Struct().GetFieldsDescriptor())
+        .begin();
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     return reflection_.Struct().BeginFields(
         google::protobuf::DownCastMessage<google::protobuf::Message>(message));
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
   }
 
  private:
