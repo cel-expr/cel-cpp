@@ -200,7 +200,7 @@ struct RuntimeOptions {
   // This is not recommended if the values bound to the activation are typically
   // not what the planner expected (e.g. a map that was declared as a proto or
   // a different message with matching field names).
-  bool enable_typed_field_access = true;
+  bool enable_typed_field_access = false;
 };
 // LINT.ThenChange(//depot/google3/eval/public/cel_options.h)
 
