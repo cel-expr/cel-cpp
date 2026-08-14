@@ -63,6 +63,73 @@ antlr_cc_library(
 )
 
 cc_library(
+    name = "antlr_parser",
+    srcs = ["antlr_parser.cc"],
+    hdrs = ["antlr_parser.h"],
+    copts = [
+        "-fexceptions",
+    ],
+    defines = [
+        "ANTLR4CPP_STATIC",
+    ],
+    features = ["-use_header_modules"],  # Incompatible with -fexceptions
+    deps = [
+        ":cel_cc_parser",
+        "//common:ast",
+        "//common:constant",
+        "//common:expr",
+        "//common:expr_factory",
+        "//common:operators",
+        "//common:source",
+        "//internal:lexis",
+        "//internal:status_macros",
+        "//internal:strings",
+        "//parser:macro",
+        "//parser:macro_expr_factory",
+        "//parser:macro_registry",
+        "//parser:options",
+        "//parser:parser_interface",
+        "//parser:source_factory",
+        "@antlr4-cpp-runtime",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/cleanup",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/container:flat_hash_map",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/functional:overload",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/log:check",
+        "@com_google_absl//absl/memory",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/types:span",
+        "@com_google_absl//absl/types:variant",
+    ],
+)
+
+cc_test(
+    name = "antlr_parser_test",
+    srcs = ["antlr_parser_test.cc"],
+    deps = [
+        ":antlr_parser",
+        "//common:ast",
+        "//common:source",
+        "//internal:status_macros",
+        "//internal:testing",
+        "//parser:options",
+        "//parser:parser_interface",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
     name = "lexer",
     srcs = ["lexer.cc"],
     hdrs = ["lexer.h"],
@@ -93,6 +160,7 @@ cc_library(
         "//parser:parser_interface",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/cleanup",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",

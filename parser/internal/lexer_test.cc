@@ -495,5 +495,42 @@ TEST(LexerErrorRecoveryTest, ResumesAfterError) {
   EXPECT_EQ(token.end, 6);
 }
 
+TEST(LexerPositionTest, SaveAndRestorePosition) {
+  ASSERT_OK_AND_ASSIGN(auto source, cel::NewSource("foo + bar * 42"));
+  Lexer lexer(*source);
+
+  Token tok1 = lexer.Lex();
+  EXPECT_EQ(tok1.type, TokenType::kIdent);
+
+  Token tok2 = lexer.Lex();
+  EXPECT_EQ(tok2.type, TokenType::kWhitespace);
+
+  // Save position before '+'
+  Lexer::Position saved = lexer.SavePosition();
+
+  Token tok3 = lexer.Lex();
+  EXPECT_EQ(tok3.type, TokenType::kPlus);
+
+  Token tok4 = lexer.Lex();
+  EXPECT_EQ(tok4.type, TokenType::kWhitespace);
+
+  Token tok5 = lexer.Lex();
+  EXPECT_EQ(tok5.type, TokenType::kIdent);
+
+  // Restore position to before '+'
+  lexer.RestorePosition(saved);
+
+  Token tok3_restored = lexer.Lex();
+  EXPECT_EQ(tok3_restored.type, TokenType::kPlus);
+  EXPECT_EQ(tok3_restored.start, tok3.start);
+  EXPECT_EQ(tok3_restored.end, tok3.end);
+
+  Token tok4_restored = lexer.Lex();
+  EXPECT_EQ(tok4_restored.type, TokenType::kWhitespace);
+
+  Token tok5_restored = lexer.Lex();
+  EXPECT_EQ(tok5_restored.type, TokenType::kIdent);
+}
+
 }  // namespace
 }  // namespace cel::parser_internal

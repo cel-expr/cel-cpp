@@ -123,7 +123,7 @@ std::string ParserWorker::GetTokenText(const Token& tok) const {
   return "";
 }
 
-Token ParserWorker::NextSignificantToken() {
+Token ParserWorker::NextSignificantToken(bool report_error) {
   if (is_recovery_limit_exceeded()) {
     return Token{.type = TokenType::kEnd, .start = 0, .end = 0};
   }
@@ -132,7 +132,7 @@ Token ParserWorker::NextSignificantToken() {
     if (tok.type == TokenType::kWhitespace || tok.type == TokenType::kComment) {
       continue;
     }
-    if (tok.type == TokenType::kError) {
+    if (tok.type == TokenType::kError && report_error) {
       ReportError(tok, lexer_.GetError().message);
       if (is_recovery_limit_exceeded()) {
         return Token{.type = TokenType::kEnd, .start = 0, .end = 0};

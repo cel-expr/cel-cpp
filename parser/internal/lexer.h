@@ -140,6 +140,13 @@ class Lexer final {
                                         std::numeric_limits<int32_t>::max()));
   }
 
+  struct Position final {
+    int32_t position = 0;
+    bool at_end = false;
+    bool done = false;
+    LexerError error;
+  };
+
   Lexer(const Lexer&) = delete;
   Lexer(Lexer&&) = delete;
   Lexer& operator=(const Lexer&) = delete;
@@ -157,6 +164,17 @@ class Lexer final {
   }
 
   [[nodiscard]] int32_t GetPosition() const { return position_; }
+
+  [[nodiscard]] Position SavePosition() const {
+    return Position{position_, at_end_, done_, error_};
+  }
+
+  void RestorePosition(const Position& position) {
+    position_ = position.position;
+    at_end_ = position.at_end;
+    done_ = position.done;
+    error_ = position.error;
+  }
 
  private:
   [[nodiscard]] bool Match(char32_t c) const {
