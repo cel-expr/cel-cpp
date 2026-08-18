@@ -92,7 +92,6 @@ class SelectStepTest : public testing::Test {
   // Helper method. Creates simple pipeline containing Select step and runs it.
   absl::StatusOr<CelValue> RunExpression(const CelValue target,
                                          absl::string_view field, bool test,
-                                         absl::string_view unknown_path,
                                          RunExpressionOptions options) {
     ExecutionPath path;
 
@@ -118,6 +117,8 @@ class SelectStepTest : public testing::Test {
       runtime_options.unknown_processing =
           cel::UnknownProcessingOptions::kAttributeOnly;
     }
+    // Force the creation of a message factory at the env level.
+    static_cast<void>(env_->MutableMessageFactory());
     CelExpressionFlatImpl cel_expr(
         env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
                              env_->type_registry.GetComposedTypeProvider(),
@@ -132,35 +133,20 @@ class SelectStepTest : public testing::Test {
                                          absl::string_view field, bool test,
                                          RunExpressionOptions options) {
     return RunExpression(CelProtoWrapper::CreateMessage(message, &arena_),
-                         field, test, "", options);
+                         field, test, options);
   }
 
   absl::StatusOr<CelValue> RunExpression(const TestMessage* message,
                                          absl::string_view field, bool test,
-                                         absl::string_view unknown_path,
                                          RunExpressionOptions options) {
     return RunExpression(CelProtoWrapper::CreateMessage(message, &arena_),
-                         field, test, unknown_path, options);
-  }
-
-  absl::StatusOr<CelValue> RunExpression(const TestMessage* message,
-                                         absl::string_view field, bool test,
-                                         RunExpressionOptions options) {
-    return RunExpression(message, field, test, "", options);
-  }
-
-  absl::StatusOr<CelValue> RunExpression(const CelMap* map_value,
-                                         absl::string_view field, bool test,
-                                         absl::string_view unknown_path,
-                                         RunExpressionOptions options) {
-    return RunExpression(CelValue::CreateMap(map_value), field, test,
-                         unknown_path, options);
+                         field, test, options);
   }
 
   absl::StatusOr<CelValue> RunExpression(const CelMap* map_value,
                                          absl::string_view field, bool test,
                                          RunExpressionOptions options) {
-    return RunExpression(map_value, field, test, "", options);
+    return RunExpression(CelValue::CreateMap(map_value), field, test, options);
   }
 
  protected:
@@ -189,8 +175,7 @@ TEST_P(SelectStepConformanceTest, SelectTargetNotStructOrMap) {
   ASSERT_OK_AND_ASSIGN(
       CelValue result,
       RunExpression(CelValue::CreateStringView("some_value"), "some_field",
-                    /*test=*/false,
-                    /*unknown_path=*/"", options));
+                    /*test=*/false, options));
 
   ASSERT_TRUE(result.IsError());
   EXPECT_THAT(*result.ErrorOrDie(),
@@ -547,17 +532,37 @@ TEST_P(SelectStepConformanceTest, GlobalExtensionsMessageTest) {
 }
 
 TEST_P(SelectStepConformanceTest, GlobalExtensionsMessageUnsetTest) {
-  TestExtensions exts;
+  // Implementation details:
+  // The test environment is a dynamic descriptor pool with the same definition
+  // as the linked proto.
+  // Use a dynamic message with the expected factory and pool. Otherwise,
+  // we can end up in a state where we're comparing messages with different
+  // prototypes.
+  const google::protobuf::Descriptor* descriptor =
+      env_->descriptor_pool->FindMessageTypeByName(
+          TestExtensions::descriptor()->full_name());
+  ASSERT_NE(descriptor, nullptr);
+  const google::protobuf::FieldDescriptor* field =
+      env_->descriptor_pool->FindExtensionByPrintableName(
+          descriptor, "google.api.expr.runtime.nested_ext");
+  ASSERT_NE(field, nullptr);
+  ASSERT_TRUE(field->containing_type() == descriptor);
+  const auto* prototype =
+      env_->MutableMessageFactory()->GetPrototype(descriptor);
+  ASSERT_NE(prototype, nullptr);
+  const auto* msg_default = &prototype->GetReflection()->GetMessage(
+      *prototype, field, env_->MutableMessageFactory());
+
   RunExpressionOptions options;
   options.enable_unknowns = GetParam();
 
   ASSERT_OK_AND_ASSIGN(
       CelValue result,
-      RunExpression(&exts, "google.api.expr.runtime.nested_ext", false,
-                    options));
+      RunExpression(CelProtoWrapper::CreateMessage(prototype, &arena_),
+                    "google.api.expr.runtime.nested_ext", false, options));
 
   ASSERT_TRUE(result.IsMessage());
-  EXPECT_THAT(result.MessageOrDie(), Eq(&TestExtensions::default_instance()));
+  EXPECT_THAT(result.MessageOrDie(), Eq(msg_default));
 }
 
 TEST_P(SelectStepConformanceTest, GlobalExtensionsWrapperTest) {
@@ -653,18 +658,15 @@ TEST_P(SelectStepConformanceTest, NullMessageAccessor) {
   CelValue value = CelValue::CreateMessageWrapper(
       CelValue::MessageWrapper(&message, TrivialTypeInfo::GetInstance()));
 
-  ASSERT_OK_AND_ASSIGN(CelValue result,
-                       RunExpression(value, "message_value",
-                                     /*test=*/false,
-                                     /*unknown_path=*/"", options));
+  ASSERT_OK_AND_ASSIGN(CelValue result, RunExpression(value, "message_value",
+                                                      /*test=*/false, options));
 
   ASSERT_TRUE(result.IsError());
   EXPECT_THAT(*result.ErrorOrDie(), StatusIs(absl::StatusCode::kNotFound));
 
   // same for has
   ASSERT_OK_AND_ASSIGN(result, RunExpression(value, "message_value",
-                                             /*test=*/true,
-                                             /*unknown_path=*/"", options));
+                                             /*test=*/true, options));
 
   ASSERT_TRUE(result.IsError());
   EXPECT_THAT(*result.ErrorOrDie(), StatusIs(absl::StatusCode::kNotFound));

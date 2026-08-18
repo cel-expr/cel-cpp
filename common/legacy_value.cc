@@ -352,6 +352,44 @@ CelValue LegacyTrivialMapValue(google::protobuf::Arena* absl_nonnull arena,
                  value.GetRuntimeType().DebugString()))));
 }
 
+bool FieldIsScalar(const google::protobuf::FieldDescriptor* absl_nonnull field) {
+  ABSL_DCHECK(field != nullptr);
+  if (field->is_repeated()) {
+    return false;
+  }
+  if (field->cpp_type() == google::protobuf::FieldDescriptor::CPPTYPE_MESSAGE) {
+    switch (field->message_type()->well_known_type()) {
+      case google::protobuf::Descriptor::WELLKNOWNTYPE_ANY:
+      case google::protobuf::Descriptor::WELLKNOWNTYPE_VALUE:
+      case google::protobuf::Descriptor::WELLKNOWNTYPE_LISTVALUE:
+      case google::protobuf::Descriptor::WELLKNOWNTYPE_STRUCT:
+        return false;
+      default:
+        return true;
+    }
+  }
+  return true;
+}
+
+LegacyStructValue ParsedMessageToLegacyStructValue(
+    const ParsedMessageValue& parsed_message) {
+  return LegacyStructValue(cel::to_address(parsed_message),
+                           &GetGenericProtoTypeInfoInstance());
+}
+
+LegacyStructValue MakeLegacyStructValue(
+    const google::protobuf::Message* absl_nonnull message,
+    const LegacyTypeInfoApis* legacy_type_info) {
+  // Guard against edge cases where a custom implementation of Message
+  // misbehaves.
+  // Modern value handles this with DCHECKs on value creation, legacy value
+  // would allow it and just report an ErrorValue on accesses.
+  if (message->GetReflection() == nullptr || legacy_type_info == nullptr) {
+    legacy_type_info = TrivialTypeInfo::GetInstance();
+  }
+  return LegacyStructValue(message, legacy_type_info);
+}
+
 }  // namespace
 
 google::api::expr::runtime::CelValue UnsafeLegacyValue(
@@ -393,10 +431,6 @@ google::api::expr::runtime::CelValue UnsafeLegacyValue(
                      value->GetRuntimeType().DebugString()))));
   }
 }
-
-}  // namespace common_internal
-
-namespace common_internal {
 
 std::string LegacyListValue::DebugString() const {
   return CelValue::CreateList(impl_).DebugString();
@@ -837,10 +871,8 @@ absl::Status LegacyStructValue::SerializeTo(
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(output != nullptr);
 
-  auto message_wrapper = AsMessageWrapper(message_ptr_, legacy_type_info_);
   if (ABSL_PREDICT_TRUE(
-          message_wrapper.message_ptr()->SerializePartialToZeroCopyStream(
-              output))) {
+          message_ptr_->SerializePartialToZeroCopyStream(output))) {
     return absl::OkStatus();
   }
   return absl::UnknownError("failed to serialize protocol buffer message");
@@ -923,6 +955,29 @@ absl::Status LegacyStructValue::GetFieldByName(
     *result = NoSuchFieldError(name);
     return absl::OkStatus();
   }
+
+  ParsedMessageValue parsed_message = UnsafeParsedMessageValue(message_ptr_);
+  const auto* descriptor = parsed_message.GetDescriptor();
+  const auto* field = descriptor->FindFieldByName(name);
+  if (field == nullptr) {
+    field = descriptor->file()->pool()->FindExtensionByPrintableName(descriptor,
+                                                                     name);
+    if (field == nullptr) {
+      *result = NoSuchFieldError(name);
+      return absl::OkStatus();
+    }
+  }
+
+  if (FieldIsScalar(field)) {
+    CEL_RETURN_IF_ERROR(
+        parsed_message.GetField(field, unboxing_options, descriptor_pool,
+                                message_factory, arena, result));
+    if (result->IsParsedMessage()) {
+      *result = ParsedMessageToLegacyStructValue(result->GetParsedMessage());
+    }
+    return absl::OkStatus();
+  }
+
   CEL_ASSIGN_OR_RETURN(auto cel_value,
                        GetGenericProtoAccessApisInstance().GetField(
                            name, message_wrapper, unboxing_options,
@@ -1035,7 +1090,7 @@ absl::Status ModernValue(google::protobuf::Arena* arena,
       return absl::OkStatus();
     case CelValue::Type::kMessage: {
       auto message_wrapper = legacy_value.MessageWrapperOrDie();
-      result = common_internal::LegacyStructValue(
+      result = common_internal::MakeLegacyStructValue(
           google::protobuf::DownCastMessage<google::protobuf::Message>(
               message_wrapper.message_ptr()),
           message_wrapper.legacy_type_info());
@@ -1153,7 +1208,7 @@ absl::StatusOr<Value> FromLegacyValue(google::protobuf::Arena* arena,
                         legacy_value.BytesOrDie().value());
     case CelValue::Type::kMessage: {
       auto message_wrapper = legacy_value.MessageWrapperOrDie();
-      return common_internal::LegacyStructValue(
+      return common_internal::MakeLegacyStructValue(
           google::protobuf::DownCastMessage<google::protobuf::Message>(
               message_wrapper.message_ptr()),
           message_wrapper.legacy_type_info());

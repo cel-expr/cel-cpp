@@ -192,7 +192,7 @@ class ParsedMessageValue final
 
   explicit ParsedMessageValue(
       const google::protobuf::Message* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : value_(value), arena_(value->GetArena()) {
+      : value_(value), arena_(nullptr) {
     ABSL_DCHECK(value != nullptr);
     ABSL_DCHECK(!value_ || !IsWellKnownMessageType(value_->GetDescriptor()))
         << value_->GetTypeName() << " is a well known type";
@@ -210,9 +210,14 @@ class ParsedMessageValue final
     return absl::OkStatus();
   }
 
+  bool is_unsafe() const { return arena_ == nullptr; }
+
   const google::protobuf::Message* absl_nonnull value_;
-  // Arena that is attributed as owning the value. May be null to indicate that
-  // the value is managed externally.
+
+  // The arena attributed as Owning this value. Null if the value is created by
+  // UnsafeParsedMessageValue() or derived from such a value. This is used to
+  // identify externally managed messages and propagating the unsafe field
+  // access behavior.
   google::protobuf::Arena* absl_nullable arena_;
 };
 

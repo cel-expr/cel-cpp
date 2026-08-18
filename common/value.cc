@@ -1512,6 +1512,13 @@ Value WrapFieldImpl(
   ABSL_DCHECK(!IsWellKnownMessageType(message->GetDescriptor()));
 
   const auto* reflection = message->GetReflection();
+  if (ABSL_PREDICT_FALSE(reflection == nullptr)) {
+    // This only happens for special implementations of Message that
+    // should not normally be used with CEL.
+    return ErrorValue(absl::InvalidArgumentError(
+        absl::StrCat("failed to get reflection for message type: ",
+                     message->GetDescriptor()->full_name())));
+  }
   if (field->is_map()) {
     if (reflection->FieldSize(*message, field) == 0) {
       return MapValue();
@@ -1653,6 +1660,13 @@ Value WrapRepeatedFieldImpl(
   ABSL_DCHECK(arena != nullptr);
 
   const auto* reflection = message->GetReflection();
+  if (ABSL_PREDICT_FALSE(reflection == nullptr)) {
+    // This only happens for special implementations of Message that
+    // should not normally be used with CEL.
+    return ErrorValue(absl::InvalidArgumentError(
+        absl::StrCat("failed to get reflection for message type: ",
+                     message->GetDescriptor()->full_name())));
+  }
   const int size = reflection->FieldSize(*message, field);
   if (ABSL_PREDICT_FALSE(index < 0 || index >= size)) {
     return ErrorValue(absl::InvalidArgumentError(

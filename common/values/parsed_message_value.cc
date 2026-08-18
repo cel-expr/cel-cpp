@@ -382,7 +382,7 @@ absl::Status ParsedMessageValue::GetField(
   ABSL_DCHECK(arena != nullptr);
   ABSL_DCHECK(result != nullptr);
 
-  if (arena_ == nullptr) {
+  if (is_unsafe()) {
     *result = Value::WrapFieldUnsafe(unboxing_options, value_, field,
                                      descriptor_pool, message_factory, arena);
   } else {
