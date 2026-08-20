@@ -46,7 +46,9 @@ class AntlrParserImpl final : public cel::Parser {
                            absl::flat_hash_set<std::string> library_ids)
       : options_(options),
         macro_registry_(std::move(macro_registry)),
-        library_ids_(std::move(library_ids)) {}
+        library_ids_(std::move(library_ids)) {
+    options_.enable_pratt_parser = false;
+  }
 
   ~AntlrParserImpl() override = default;
 
@@ -74,7 +76,9 @@ absl::StatusOr<std::unique_ptr<cel::Ast>> AntlrParseImpl(
 class AntlrParserBuilderImpl final : public cel::ParserBuilder {
  public:
   explicit AntlrParserBuilderImpl(const cel::ParserOptions& options)
-      : options_(options) {}
+      : options_(options) {
+    options_.enable_pratt_parser = false;
+  }
 
   cel::ParserOptions& GetOptions() override { return options_; }
 
