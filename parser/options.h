@@ -84,7 +84,7 @@ struct ParserOptions final {
   // This option is temporary and should not be used by new code outside of the
   // early testing of the Pratt parser.
   // TODO(b/527638023): Remove this option once the ANTLR parser is removed.
-  bool enable_pratt_parser = false;
+  bool enable_pratt_parser = true;
 };
 
 }  // namespace cel
