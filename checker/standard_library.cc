@@ -769,6 +769,9 @@ absl::Status AddTimeFunctions(TypeCheckerBuilder& builder) {
   CEL_RETURN_IF_ERROR(get_seconds.AddOverload(MakeMemberOverloadDecl(
       StandardOverloadIds::kTimestampToSeconds, IntType(), TimestampType())));
   CEL_RETURN_IF_ERROR(get_seconds.AddOverload(
+      MakeMemberOverloadDecl(StandardOverloadIds::kTimestampToSecondsTz,
+                             IntType(), TimestampType(), StringType())));
+  CEL_RETURN_IF_ERROR(get_seconds.AddOverload(
       MakeMemberOverloadDecl(StandardOverloadIds::kTimestampToSecondsWithTz,
                              IntType(), TimestampType(), StringType())));
   CEL_RETURN_IF_ERROR(get_seconds.AddOverload(MakeMemberOverloadDecl(

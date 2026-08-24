@@ -287,8 +287,10 @@ struct StandardOverloadIds {
   static constexpr absl::string_view kDurationToMinutes = "duration_to_minutes";
   static constexpr absl::string_view kTimestampToSeconds =
       "timestamp_to_seconds";
-  static constexpr absl::string_view kTimestampToSecondsWithTz =
+  static constexpr absl::string_view kTimestampToSecondsTz =
       "timestamp_to_seconds_tz";
+  static constexpr absl::string_view kTimestampToSecondsWithTz =
+      "timestamp_to_seconds_with_tz";
   static constexpr absl::string_view kDurationToSeconds = "duration_to_seconds";
   static constexpr absl::string_view kTimestampToMilliseconds =
       "timestamp_to_milliseconds";
