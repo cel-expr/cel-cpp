@@ -29,6 +29,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/strings/substitute.h"
 #include "eval/public/structs/cel_proto_wrap_util.h"
+#include "eval/public/structs/cel_proto_wrap_value_to_message.h"
 #include "internal/casts.h"
 #include "internal/overflow.h"
 #include "google/protobuf/arena.h"

@@ -65,6 +65,10 @@ class MessageFactory;
 
 namespace cel::interop_internal {
 
+inline bool IsUnsafeParsedMessageValue(const cel::ParsedMessageValue& value) {
+  return value.is_unsafe();
+}
+
 // Returns the underlying `google::protobuf::Message` of a `cel::Value` if it is a legacy
 // message with the default type info, or `nullptr` otherwise.
 const google::protobuf::Message* absl_nullable GetLegacyMessage(const Value& value);

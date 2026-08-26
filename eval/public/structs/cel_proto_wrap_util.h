@@ -28,18 +28,6 @@ CelValue UnwrapMessageToValue(const google::protobuf::Message* value,
                               const ProtobufValueFactory& factory,
                               google::protobuf::Arena* arena);
 
-// MaybeWrapValue attempts to wrap the input value in a proto message with
-// the given type_name. If the value can be wrapped, it is returned as a
-// protobuf message. Otherwise, the result will be nullptr.
-//
-// This method is the complement to MaybeUnwrapValue which may unwrap a protobuf
-// message to native CelValue representation during a protobuf field read.
-// Just as CreateMessage should only be used when reading protobuf values,
-// MaybeWrapValue should only be used when assigning protobuf fields.
-const google::protobuf::Message* MaybeWrapValueToMessage(
-    const google::protobuf::Descriptor* descriptor, google::protobuf::MessageFactory* factory,
-    const CelValue& value, google::protobuf::Arena* arena);
-
 }  // namespace google::api::expr::runtime::internal
 
 #endif  // THIRD_PARTY_CEL_CPP_EVAL_PUBLIC_STRUCTS_CEL_PROTO_WRAP_UTIL_H_

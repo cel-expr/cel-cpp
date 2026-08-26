@@ -104,7 +104,7 @@ class CelProtoWrapperTest : public ::testing::Test {
 
     T dyn_value;
     CelValue cel_dyn_value =
-        CelProtoWrapper::CreateMessage(ReflectedCopy(message).get(), arena());
+        CelProtoWrapper::CreateMessage(ReflectedCopy(message), arena());
     EXPECT_THAT(cel_dyn_value.type(), Eq(cel_value.type()));
     EXPECT_TRUE(cel_dyn_value.GetValue(&dyn_value));
     EXPECT_THAT(value, Eq(dyn_value));
@@ -121,10 +121,9 @@ class CelProtoWrapperTest : public ::testing::Test {
     EXPECT_THAT(cel_value.MessageOrDie(), testutil::EqualsProto(*result));
   }
 
-  std::unique_ptr<google::protobuf::Message> ReflectedCopy(
-      const google::protobuf::Message& message) {
-    std::unique_ptr<google::protobuf::Message> dynamic_value(
-        factory_.GetPrototype(message.GetDescriptor())->New());
+  google::protobuf::Message* ReflectedCopy(const google::protobuf::Message& message) {
+    google::protobuf::Message* dynamic_value =
+        factory_.GetPrototype(message.GetDescriptor())->New(&arena_);
     dynamic_value->CopyFrom(message);
     return dynamic_value;
   }
@@ -213,7 +212,7 @@ TEST_F(CelProtoWrapperTest, UnwrapDynamicValueNull) {
   value_msg.set_null_value(protobuf::NULL_VALUE);
 
   CelValue value =
-      CelProtoWrapper::CreateMessage(ReflectedCopy(value_msg).get(), arena());
+      CelProtoWrapper::CreateMessage(ReflectedCopy(value_msg), arena());
   EXPECT_TRUE(value.IsNull());
 }
 
@@ -314,8 +313,8 @@ TEST_F(CelProtoWrapperTest, UnwrapDynamicStruct) {
   const std::string kFieldBool = "field_bool";
   (*struct_msg.mutable_fields())[kFieldInt].set_number_value(1.);
   (*struct_msg.mutable_fields())[kFieldBool].set_bool_value(true);
-  CelValue value =
-      CelProtoWrapper::CreateMessage(ReflectedCopy(struct_msg).get(), arena());
+  auto reflected_copy = ReflectedCopy(struct_msg);
+  CelValue value = CelProtoWrapper::CreateMessage(reflected_copy, arena());
   EXPECT_TRUE(value.IsMap());
   const CelMap* cel_map = value.MapOrDie();
   ASSERT_TRUE(cel_map != nullptr);
@@ -355,7 +354,7 @@ TEST_F(CelProtoWrapperTest, UnwrapDynamicValueStruct) {
       .set_number_value(2);
 
   CelValue value =
-      CelProtoWrapper::CreateMessage(ReflectedCopy(value_msg).get(), arena());
+      CelProtoWrapper::CreateMessage(ReflectedCopy(value_msg), arena());
   EXPECT_TRUE(value.IsMap());
   EXPECT_TRUE(
       (*value.MapOrDie())[CelValue::CreateString(&kField1)].has_value());
@@ -398,7 +397,7 @@ TEST_F(CelProtoWrapperTest, UnwrapDynamicValueListValue) {
   value_msg.mutable_list_value()->add_values()->set_number_value(2.);
 
   CelValue value =
-      CelProtoWrapper::CreateMessage(ReflectedCopy(value_msg).get(), arena());
+      CelProtoWrapper::CreateMessage(ReflectedCopy(value_msg), arena());
   EXPECT_TRUE(value.IsList());
   EXPECT_THAT((*value.ListOrDie())[0].DoubleOrDie(), testing::DoubleEq(1));
   EXPECT_THAT((*value.ListOrDie())[1].DoubleOrDie(), testing::DoubleEq(2));
@@ -424,6 +423,47 @@ TEST_F(CelProtoWrapperTest, UnwrapInvalidAny) {
 
   any.set_type_url("/invalid.proto.name");
   ASSERT_TRUE(CelProtoWrapper::CreateMessage(&any, arena()).IsError());
+}
+
+TEST_F(CelProtoWrapperTest, CreateMessageExplicitPoolAndFactory) {
+  TestMessage test_message;
+  test_message.set_string_value("test");
+
+  CelValue value = CelProtoWrapper::CreateMessage(
+      &test_message, google::protobuf::DescriptorPool::generated_pool(),
+      google::protobuf::MessageFactory::generated_factory(), arena());
+  ASSERT_TRUE(value.IsMessage());
+  EXPECT_THAT(value.MessageOrDie(), testutil::EqualsProto(test_message));
+}
+
+TEST_F(CelProtoWrapperTest, CreateMessageExplicitPoolAndFactoryUnpackAny) {
+  TestMessage test_message;
+  test_message.set_string_value("test");
+
+  Any any;
+  any.PackFrom(test_message);
+
+  google::protobuf::DynamicMessageFactory factory(
+      google::protobuf::DescriptorPool::generated_pool());
+  CelValue value = CelProtoWrapper::CreateMessage(
+      &any, google::protobuf::DescriptorPool::generated_pool(), &factory, arena());
+  ASSERT_TRUE(value.IsMessage());
+  EXPECT_THAT(value.MessageOrDie(), testutil::EqualsProto(test_message));
+}
+
+TEST_F(CelProtoWrapperTest,
+       CreateMessageExplicitPoolAndFactoryUnpackAnyNotFound) {
+  TestMessage test_message;
+  test_message.set_string_value("test");
+
+  Any any;
+  any.PackFrom(test_message);
+
+  google::protobuf::DescriptorPool empty_pool;
+  google::protobuf::DynamicMessageFactory factory(&empty_pool);
+  CelValue value =
+      CelProtoWrapper::CreateMessage(&any, &empty_pool, &factory, arena());
+  EXPECT_TRUE(value.IsError());
 }
 
 // Test support of google.protobuf.<Type>Value wrappers in CelValue.

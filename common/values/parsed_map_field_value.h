@@ -47,6 +47,10 @@ class ValueIterator;
 class ListValue;
 class ParsedJsonMapValue;
 
+namespace common_internal {
+class LegacyParsedMapFieldMapValue;
+}  // namespace common_internal
+
 // ParsedMapFieldValue is a MapValue over a map field of a parsed protocol
 // buffer message.
 class ParsedMapFieldValue final
@@ -192,6 +196,7 @@ class ParsedMapFieldValue final
   friend class ParsedJsonMapValue;
   friend class common_internal::ValueMixin<ParsedMapFieldValue>;
   friend class common_internal::MapValueMixin<ParsedMapFieldValue>;
+  friend class common_internal::LegacyParsedMapFieldMapValue;
   friend ParsedMapFieldValue UnsafeParsedMapFieldValue(
       const google::protobuf::Message* absl_nonnull message,
       const google::protobuf::FieldDescriptor* absl_nonnull field);

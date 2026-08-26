@@ -190,6 +190,18 @@ TEST_F(LegacyStructValueTest, MapFieldKeyTypeValidation) {
   CelValue str_key = CelValue::CreateString(&str_key_val);
   auto invalid_has_res = cel_map->Has(str_key);
   EXPECT_THAT(invalid_has_res, StatusIs(absl::StatusCode::kInvalidArgument));
+
+  auto invalid_get_res = cel_map->Get(arena(), str_key);
+  ASSERT_TRUE(invalid_get_res.has_value());
+  ASSERT_TRUE(invalid_get_res->IsError());
+  EXPECT_THAT(*invalid_get_res->ErrorOrDie(),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+
+  auto invalid_subscript_res = (*cel_map)[str_key];
+  ASSERT_TRUE(invalid_subscript_res.has_value());
+  ASSERT_TRUE(invalid_subscript_res->IsError());
+  EXPECT_THAT(*invalid_subscript_res->ErrorOrDie(),
+              StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
 TEST_F(LegacyStructValueTest, JsonStructAccess) {

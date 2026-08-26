@@ -1,9 +1,11 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_PUBLIC_STRUCTS_CEL_PROTO_WRAPPER_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_PUBLIC_STRUCTS_CEL_PROTO_WRAPPER_H_
 
+#include <optional>
+
 #include "google/protobuf/duration.pb.h"
 #include "google/protobuf/timestamp.pb.h"
-#include "absl/types/optional.h"
+#include "absl/base/nullability.h"
 #include "eval/public/cel_value.h"
 #include "internal/proto_time_encoding.h"
 #include "google/protobuf/arena.h"
@@ -17,8 +19,19 @@ class CelProtoWrapper {
   // CreateMessage creates CelValue from google::protobuf::Message.
   // As some of CEL basic types are subclassing google::protobuf::Message,
   // this method contains type checking and downcasts.
-  static CelValue CreateMessage(const google::protobuf::Message* value,
-                                google::protobuf::Arena* arena);
+  static CelValue CreateMessage(const google::protobuf::Message* absl_nonnull value,
+                                const google::protobuf::DescriptorPool* absl_nonnull pool,
+                                google::protobuf::MessageFactory* absl_nonnull factory,
+                                google::protobuf::Arena* absl_nonnull arena);
+
+  // Prefer using the overload that takes an explicit descriptor pool and
+  // message factory instead. This overload will use the ones associated with
+  // the value.
+  //
+  // For backward compatibility, nullptr message is allowed and will result in
+  // the CEL null_type value.
+  static CelValue CreateMessage(const google::protobuf::Message* absl_nullable value,
+                                google::protobuf::Arena* absl_nullable arena);
 
   // Internal utility for creating a CelValue wrapping a user defined type.
   // Assumes that the message has been properly unpacked.
@@ -43,7 +56,7 @@ class CelProtoWrapper {
   // message to native CelValue representation during a protobuf field read.
   // Just as CreateMessage should only be used when reading protobuf values,
   // MaybeWrapValue should only be used when assigning protobuf fields.
-  static absl::optional<CelValue> MaybeWrapValue(
+  static std::optional<CelValue> MaybeWrapValue(
       const google::protobuf::Descriptor* descriptor, google::protobuf::MessageFactory* factory,
       const CelValue& value, google::protobuf::Arena* arena);
 };

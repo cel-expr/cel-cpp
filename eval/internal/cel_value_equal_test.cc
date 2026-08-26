@@ -18,20 +18,21 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "google/protobuf/any.pb.h"
 #include "google/rpc/context/attribute_context.pb.h"
 #include "google/protobuf/descriptor.pb.h"
-#include "absl/status/statusor.h"
+#include "absl/log/absl_check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
-#include "absl/types/variant.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/containers/container_backed_list_impl.h"
 #include "eval/public/containers/container_backed_map_impl.h"
@@ -131,6 +132,8 @@ const std::vector<CelValue>& ValueExamples1() {
     result->push_back(CelValue::CreateMap(&CelMapExample1()));
     result->push_back(CelValue::CreateCelTypeView("type"));
 
+    ABSL_CHECK_EQ(arena.SpaceUsed(), 0) << "Arena should not be used.";
+
     return result.release();
   }();
   return *examples;
@@ -185,7 +188,7 @@ std::string CelValueEqualTestName(
 }
 
 TEST_P(CelValueEqualImplTypesTest, Basic) {
-  absl::optional<bool> result = CelValueEqualImpl(lhs(), rhs());
+  std::optional<bool> result = CelValueEqualImpl(lhs(), rhs());
 
   if (lhs().IsNull() || rhs().IsNull()) {
     if (lhs().IsNull() && rhs().IsNull()) {
@@ -267,7 +270,7 @@ const std::vector<NumericInequalityTestCase>& NumericValuesNotEqualExample() {
 using NumericInequalityTest = testing::TestWithParam<NumericInequalityTestCase>;
 TEST_P(NumericInequalityTest, NumericValues) {
   NumericInequalityTestCase test_case = GetParam();
-  absl::optional<bool> result = CelValueEqualImpl(test_case.a, test_case.b);
+  std::optional<bool> result = CelValueEqualImpl(test_case.a, test_case.b);
   EXPECT_TRUE(result.has_value());
   EXPECT_EQ(*result, false);
 }
@@ -280,7 +283,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST(CelValueEqualImplTest, LossyNumericEquality) {
-  absl::optional<bool> result = CelValueEqualImpl(
+  std::optional<bool> result = CelValueEqualImpl(
       CelValue::CreateDouble(
           static_cast<double>(std::numeric_limits<int64_t>::max()) - 1),
       CelValue::CreateInt64(std::numeric_limits<int64_t>::max()));

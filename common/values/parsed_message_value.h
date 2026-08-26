@@ -48,6 +48,10 @@
 
 namespace cel {
 
+namespace interop_internal {
+bool IsUnsafeParsedMessageValue(const ParsedMessageValue& value);
+}
+
 class MessageValue;
 class StructValue;
 class Value;
@@ -189,6 +193,8 @@ class ParsedMessageValue final
   friend class common_internal::StructValueMixin<ParsedMessageValue>;
   friend ParsedMessageValue UnsafeParsedMessageValue(
       const google::protobuf::Message* absl_nonnull value);
+  friend bool interop_internal::IsUnsafeParsedMessageValue(
+      const ParsedMessageValue& value);
 
   explicit ParsedMessageValue(
       const google::protobuf::Message* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND)
