@@ -429,8 +429,14 @@ class ProtoToPredicateBuilder final : private ExprFactory {
         Expr field_path = NewSelect(NextId(), base_expr, field->name());
         CEL_RETURN_IF_ERROR(Walk(sub_message, field_path, predicates));
       } else {
-        // Primitive field: base_expr.field == <value>
-        Expr field_path = NewSelect(NextId(), base_expr, field->name());
+        // Primitive field: base_expr.field == <value> or match_path == <value>
+        Expr field_path;
+        std::string match_path_val = GetMatchPath(field);
+        if (!match_path_val.empty()) {
+          field_path = ParseAndBuildPath(match_path_val);
+        } else {
+          field_path = NewSelect(NextId(), base_expr, field->name());
+        }
         predicates.push_back(
             ConstructEquality(std::move(field_path),
                               PrimitiveToExpr(message, reflection, field)));
