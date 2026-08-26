@@ -32,6 +32,7 @@ proto_library(
     name = "test_policy_proto",
     srcs = ["test_policy.proto"],
     visibility = ["//tools:__subpackages__"],
+    deps = ["@com_google_protobuf//:descriptor_proto"],
 )
 
 cc_proto_library(

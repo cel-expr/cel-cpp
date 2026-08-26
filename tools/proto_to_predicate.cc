@@ -103,6 +103,17 @@ class ProtoToPredicateBuilder final : private ExprFactory {
     }
     return e;
   }
+
+  // Returns either the path specified by the "match_path" annotation,
+  // or the default path derived from the field name.
+  Expr GetFieldPath(const Expr& base_expr,
+                    const ::google::protobuf::FieldDescriptor* field) {
+    std::string match_path_val = GetMatchPath(field);
+    if (!match_path_val.empty()) {
+      return ParseAndBuildPath(match_path_val);
+    }
+    return NewSelect(NextId(), base_expr, field->name());
+  }
   ExprId NextId() { return id_++; }
 
   // ---------------------------------------------------------------------------
@@ -246,7 +257,7 @@ class ProtoToPredicateBuilder final : private ExprFactory {
     const FieldDescriptor* const value_field =
         field->message_type()->FindFieldByName("value");
 
-    Expr map_path = NewSelect(NextId(), base_expr, field->name());
+    Expr map_path = GetFieldPath(base_expr, field);
 
     struct MapEntry {
       const Message* message;
@@ -355,7 +366,7 @@ class ProtoToPredicateBuilder final : private ExprFactory {
         const Message& sub_message =
             reflection->GetRepeatedMessage(message, field, i);
         std::vector<Expr> sub_predicates;
-        Expr sub_base = NewSelect(NextId(), base_expr, field->name());
+        Expr sub_base = GetFieldPath(base_expr, field);
         CEL_RETURN_IF_ERROR(Walk(sub_message, sub_base, sub_predicates));
         message_asts.push_back(LogicalAnd(sub_predicates));
       }
@@ -426,11 +437,11 @@ class ProtoToPredicateBuilder final : private ExprFactory {
         }
       } else if (field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE) {
         const Message& sub_message = reflection->GetMessage(message, field);
-        Expr field_path = NewSelect(NextId(), base_expr, field->name());
+        Expr field_path = GetFieldPath(base_expr, field);
         CEL_RETURN_IF_ERROR(Walk(sub_message, field_path, predicates));
       } else {
         // Primitive field: base_expr.field == <value>
-        Expr field_path = NewSelect(NextId(), base_expr, field->name());
+        Expr field_path = GetFieldPath(base_expr, field);
         predicates.push_back(
             ConstructEquality(std::move(field_path),
                               PrimitiveToExpr(message, reflection, field)));

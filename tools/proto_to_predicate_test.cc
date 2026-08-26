@@ -550,6 +550,103 @@ INSTANTIATE_TEST_SUITE_P(
             .expected_unparsed = "true",
         },
         PolicyTestCase{
+            .name = "AnnotatedSingularFieldInMessage",
+            .json_input =
+                R"({ "destinations": [ {
+                     "agent": {
+                       "id": "agent-007",
+                       "location": "us-central1"
+                     }
+                   } ] })",
+            .expected_unparsed = "dest.agent.name == \"agent-007\" && "
+                                 "custom.agent.location == \"us-central1\"",
+        },
+        PolicyTestCase{
+            .name = "AnnotatedOneofPrimitiveField",
+            .json_input =
+                R"({ "destinations": [ {
+                     "ip": "192.168.1.1"
+                   } ] })",
+            .expected_unparsed = "custom.ip == \"192.168.1.1\"",
+        },
+        PolicyTestCase{
+            .name = "AnnotatedMapFieldPrimitive",
+            .json_input =
+                R"({ "destinations": [ {
+                     "tool": {
+                       "annotated_labels": {
+                         "cluster": "us-central1"
+                       }
+                     }
+                   } ] })",
+            .expected_unparsed =
+                "\"cluster\" in custom.labels && "
+                "custom.labels[\"cluster\"] == \"us-central1\"",
+        },
+        PolicyTestCase{
+            .name = "AnnotatedMapFieldMessage",
+            .json_input =
+                R"({ "destinations": [ {
+                     "tool": {
+                       "annotated_role_members": {
+                         "admin": {
+                           "all_users": true,
+                           "principals": ["alice_user"],
+                           "leader": "alice",
+                           "leaders": ["bob"]
+                         }
+                       }
+                     }
+                   } ] })",
+            .expected_unparsed =
+                "\"admin\" in custom.role_members && "
+                "\"alice_user\" in custom.role_members[\"admin\"].principals "
+                "&& "
+                "custom.role_members[\"admin\"].all_users == true && "
+                "custom.member.leader == \"alice\" && "
+                "custom.member.leaders in [\"bob\"]",
+        },
+        PolicyTestCase{
+            .name = "AnnotatedMessageField",
+            .json_input =
+                R"({ "destinations": [ {
+                     "tool": {
+                       "annotated_annotations": {
+                         "read_only_hint": true
+                       }
+                     }
+                   } ] })",
+            .expected_unparsed =
+                "custom.tool_annotations.read_only_hint == true",
+        },
+        PolicyTestCase{
+            .name = "AnnotatedRepeatedMessageFieldSingle",
+            .json_input =
+                R"({ "destinations": [ {
+                     "tool": {
+                       "backup_agents": [
+                         { "id": "agent-007" }
+                       ]
+                     }
+                   } ] })",
+            .expected_unparsed = "custom.backup_agents.name == \"agent-007\"",
+        },
+        PolicyTestCase{
+            .name = "AnnotatedRepeatedMessageFieldMultiple",
+            .json_input =
+                R"({ "destinations": [ {
+                     "tool": {
+                       "backup_agents": [
+                         { "id": "agent-007" },
+                         { "id": "agent-008" }
+                       ]
+                     }
+                   } ] })",
+            .expected_unparsed =
+                "custom.backup_agents.name == \"agent-007\" || "
+                "custom.backup_agents.name == \"agent-008\"",
+        },
+        PolicyTestCase{
             .name = "MapEquality",
             .json_input =
                 R"({ "destinations": [

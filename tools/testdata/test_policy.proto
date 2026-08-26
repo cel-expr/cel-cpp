@@ -19,11 +19,18 @@ edition = "2023";
 
 package cel.cpp.tools;
 
+import "google/protobuf/descriptor.proto";
+
 option cc_enable_arenas = true;
+
+extend google.protobuf.FieldOptions {
+  string match_path = 51074;
+}
 
 // Represents the targeted client agent.
 message Agent {
   string name = 1 [json_name = "id"];
+  string location = 2 [(match_path) = "custom.agent.location"];
 }
 
 // Specifies additional metadata tool annotations.
@@ -40,6 +47,10 @@ message Members {
   bool all_users = 3;
 
   bool all_authenticated_users = 4;
+
+  string leader = 5 [(match_path) = "custom.member.leader"];
+
+  repeated string leaders = 6 [(match_path) = "custom.member.leaders"];
 }
 
 // Represents a metadata tool block.
@@ -56,6 +67,21 @@ message Tool {
 
   // A map with string keys representing roles and Member instances as values.
   map<string, Members> role_members = 4;
+
+  // A map with string keys representing roles and Member instances as values,
+  // annotated with a match_path.
+  map<string, Members> annotated_role_members = 5
+      [(match_path) = "custom.role_members"];
+
+  // A string-to-string map, annotated with a match_path.
+  map<string, string> annotated_labels = 6 [(match_path) = "custom.labels"];
+
+  // A non-repeated message field, annotated with a match_path.
+  ToolAnnotations annotated_annotations = 7
+      [(match_path) = "custom.tool_annotations"];
+
+  // A repeated message field, annotated with a match_path.
+  repeated Agent backup_agents = 8 [(match_path) = "custom.backup_agents"];
 }
 
 // Represents a policy mapping destination block.
@@ -63,6 +89,7 @@ message Target {
   oneof kind {
     Agent agent = 1;
     Tool tool = 2;
+    string ip = 3 [(match_path) = "custom.ip"];
   }
 }
 
