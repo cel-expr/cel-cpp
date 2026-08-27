@@ -793,7 +793,7 @@ cc_library(
         "//eval/internal:cel_value_equal",
         "//eval/public:cel_value",
         "//eval/public:message_wrapper",
-        "//eval/public/structs:cel_proto_wrap_util",
+        "//eval/public/structs:cel_proto_wrap_value_to_message",
         "//eval/public/structs:legacy_type_info_apis",
         "//eval/public/structs:proto_message_type_adapter",
         "//eval/public/structs:trivial_legacy_type_info_internal",

@@ -218,21 +218,33 @@ class LegacyParsedMapFieldMapValue final
     if (arena == nullptr) {
       arena = arena_;
     }
-    if (auto status =
-            google::api::expr::runtime::CelValue::CheckMapKeyType(key);
-        !status.ok()) {
-      status.IgnoreError();
-      return std::nullopt;
-    }
     Value modern_key;
     if (ABSL_PREDICT_FALSE(!ModernValue(arena, key, modern_key).ok())) {
+      // Legacy to modern should succeed for a valid CelValue.
       return std::nullopt;
     }
     Value modern_val;
-    auto status_or_found =
-        Find(modern_key, google::protobuf::DescriptorPool::generated_pool(),
-             google::protobuf::MessageFactory::generated_factory(), arena, &modern_val);
-    if (!status_or_found.ok() || !*status_or_found) {
+    // Call custom map Find directly. MapValue normally handles wrapping
+    // non-ok result to error value types, so emulate that here.
+    //
+    // Use the descriptor pool and message factory from the value. This is not
+    // totally consistent with modern APIs, but this should behave the same as
+    // the legacy map did.
+    const google::protobuf::Message* msg = value_.message_;
+    ABSL_DCHECK(msg->GetDescriptor() != nullptr);
+    ABSL_DCHECK(msg->GetReflection() != nullptr);
+
+    const google::protobuf::DescriptorPool* descriptor_pool =
+        msg->GetDescriptor()->file()->pool();
+    google::protobuf::MessageFactory* message_factory =
+        msg->GetReflection()->GetMessageFactory();
+    auto found =
+        Find(modern_key, descriptor_pool, message_factory, arena, &modern_val);
+    if (!found.ok()) {
+      return google::api::expr::runtime::CreateErrorValue(arena,
+                                                          found.status());
+    }
+    if (!(*found) && !modern_val.IsError()) {
       return std::nullopt;
     }
     return UnsafeLegacyValue(modern_val, /*stable=*/false, arena);
@@ -401,21 +413,25 @@ class LegacyParsedJsonMapValue final
     if (arena == nullptr) {
       arena = arena_;
     }
-    if (auto status =
-            google::api::expr::runtime::CelValue::CheckMapKeyType(key);
-        !status.ok()) {
-      status.IgnoreError();
-      return std::nullopt;
-    }
     Value modern_key;
     if (ABSL_PREDICT_FALSE(!ModernValue(arena, key, modern_key).ok())) {
+      // Legacy to modern should succeed for a valid CelValue.
       return std::nullopt;
     }
     Value modern_val;
-    auto status_or_found = value_.Find(
-        modern_key, google::protobuf::DescriptorPool::generated_pool(),
-        google::protobuf::MessageFactory::generated_factory(), arena, &modern_val);
-    if (!status_or_found.ok() || !*status_or_found) {
+    // Call custom map Find directly. MapValue normally handles wrapping
+    // non-ok result to error value types, so emulate that here.
+    //
+    // We know that the descriptor pool and message factory aren't needed here,
+    // so fine to use generated.
+    auto found =
+        Find(modern_key, google::protobuf::DescriptorPool::generated_pool(),
+             google::protobuf::MessageFactory::generated_factory(), arena, &modern_val);
+    if (!found.ok()) {
+      return google::api::expr::runtime::CreateErrorValue(arena,
+                                                          found.status());
+    }
+    if (!(*found) && !modern_val.IsError()) {
       return std::nullopt;
     }
     return UnsafeLegacyValue(modern_val, /*stable=*/false, arena);
