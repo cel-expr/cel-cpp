@@ -422,15 +422,14 @@ absl::Status ParsedMapFieldValue::ListKeys(
                            field_->message_type()->map_key()));
   auto builder = NewListValueBuilder(arena);
   builder->Reserve(Size());
-  auto begin = extensions::protobuf_internal::ConstMapBegin(*reflection,
-                                                            *message_, *field_);
-  const auto end = extensions::protobuf_internal::ConstMapEnd(
-      *reflection, *message_, *field_);
-  for (; begin != end; ++begin) {
-    Value scratch;
-    (*key_accessor)(begin.GetKey(), message_, arena, &scratch);
-    CEL_RETURN_IF_ERROR(builder->Add(std::move(scratch)));
-  }
+  CEL_RETURN_IF_ERROR(extensions::protobuf_internal::ForEachMapEntry(
+      *reflection, *message_, *field_,
+      [&](auto key_ref, auto value_ref) -> absl::Status {
+        Value scratch;
+        (*key_accessor)(key_ref, message_, arena, &scratch);
+        CEL_RETURN_IF_ERROR(builder->Add(std::move(scratch)));
+        return absl::OkStatus();
+      }));
   *result = std::move(*builder).Build();
   return absl::OkStatus();
 }
@@ -453,12 +452,23 @@ absl::Status ParsedMapFieldValue::ForEach(
     CEL_ASSIGN_OR_RETURN(
         auto value_accessor,
         common_internal::MapFieldValueAccessorFor(value_field));
+    Value key_scratch;
+    Value value_scratch;
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    for (auto entry : reflection->GetMap(*message_, field_)) {
+      (*key_accessor)(entry.key(), message_, arena, &key_scratch);
+      (*value_accessor)(entry.value(), message_, value_field, descriptor_pool,
+                        message_factory, arena, &value_scratch);
+      CEL_ASSIGN_OR_RETURN(auto ok, callback(key_scratch, value_scratch));
+      if (!ok) {
+        break;
+      }
+    }
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     auto begin = extensions::protobuf_internal::ConstMapBegin(
         *reflection, *message_, *field_);
     const auto end = extensions::protobuf_internal::ConstMapEnd(
         *reflection, *message_, *field_);
-    Value key_scratch;
-    Value value_scratch;
     for (; begin != end; ++begin) {
       (*key_accessor)(begin.GetKey(), message_, arena, &key_scratch);
       (*value_accessor)(begin.GetValueRef(), message_, value_field,
@@ -469,6 +479,7 @@ absl::Status ParsedMapFieldValue::ForEach(
         break;
       }
     }
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
   }
   return absl::OkStatus();
 }
@@ -486,10 +497,17 @@ class ParsedMapFieldValueIterator final : public ValueIterator {
         value_field_(field->message_type()->map_value()),
         key_accessor_(key_accessor),
         value_accessor_(value_accessor),
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+        begin_(message->GetReflection()->GetMap(*message, field).begin()),
+        end_(message->GetReflection()->GetMap(*message, field).end())
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
         begin_(extensions::protobuf_internal::ConstMapBegin(
             *message_->GetReflection(), *message_, *field)),
         end_(extensions::protobuf_internal::ConstMapEnd(
-            *message_->GetReflection(), *message_, *field)) {}
+            *message_->GetReflection(), *message_, *field))
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
+  {
+  }
 
   bool HasNext() override { return begin_ != end_; }
 
@@ -502,7 +520,11 @@ class ParsedMapFieldValueIterator final : public ValueIterator {
           "ValueIterator::Next called after ValueIterator::HasNext returned "
           "false");
     }
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    (*key_accessor_)(begin_->key(), message_, arena, result);
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     (*key_accessor_)(begin_.GetKey(), message_, arena, result);
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
     ++begin_;
     return absl::OkStatus();
   }
@@ -520,7 +542,11 @@ class ParsedMapFieldValueIterator final : public ValueIterator {
     if (begin_ == end_) {
       return false;
     }
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    (*key_accessor_)(begin_->key(), message_, arena, key_or_value);
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     (*key_accessor_)(begin_.GetKey(), message_, arena, key_or_value);
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
     ++begin_;
     return true;
   }
@@ -538,11 +564,19 @@ class ParsedMapFieldValueIterator final : public ValueIterator {
     if (begin_ == end_) {
       return false;
     }
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    (*key_accessor_)(begin_->key(), message_, arena, key);
+    if (value != nullptr) {
+      (*value_accessor_)(begin_->value(), message_, value_field_,
+                         descriptor_pool, message_factory, arena, value);
+    }
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
     (*key_accessor_)(begin_.GetKey(), message_, arena, key);
     if (value != nullptr) {
       (*value_accessor_)(begin_.GetValueRef(), message_, value_field_,
                          descriptor_pool, message_factory, arena, value);
     }
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
     ++begin_;
     return true;
   }
@@ -552,8 +586,13 @@ class ParsedMapFieldValueIterator final : public ValueIterator {
   const google::protobuf::FieldDescriptor* absl_nonnull const value_field_;
   const absl_nonnull common_internal::MapFieldKeyAccessor key_accessor_;
   const absl_nonnull common_internal::MapFieldValueAccessor value_accessor_;
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+  proto2::GenericConstMapRef::iterator begin_;
+  const proto2::GenericConstMapRef::iterator end_;
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
   google::protobuf::ConstMapIterator begin_;
   const google::protobuf::ConstMapIterator end_;
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
 };
 
 }  // namespace
