@@ -1510,10 +1510,16 @@ Value WrapFieldImpl(
         ABSL_ATTRIBUTE_LIFETIME_BOUND,
     google::protobuf::Arena* absl_nonnull arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
   ABSL_DCHECK(field != nullptr);
-  ABSL_DCHECK_EQ(message->GetDescriptor(), field->containing_type());
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(!IsWellKnownMessageType(message->GetDescriptor()));
+
+  if (ABSL_PREDICT_FALSE(message->GetDescriptor() !=
+                         field->containing_type())) {
+    return ErrorValue(absl::InvalidArgumentError(
+        absl::StrCat("message ", message->GetDescriptor()->full_name(),
+                     " does not contain field ", field->full_name())));
+  }
 
   const auto* reflection = message->GetReflection();
   if (ABSL_PREDICT_FALSE(reflection == nullptr)) {
@@ -1649,13 +1655,19 @@ Value WrapRepeatedFieldImpl(
         ABSL_ATTRIBUTE_LIFETIME_BOUND,
     google::protobuf::Arena* absl_nonnull arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
   ABSL_DCHECK(field != nullptr);
-  ABSL_DCHECK_EQ(field->containing_type(), message->GetDescriptor());
   ABSL_DCHECK(!field->is_map() && field->is_repeated());
   ABSL_DCHECK_GE(index, 0);
   ABSL_DCHECK(message != nullptr);
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(arena != nullptr);
+
+  if (ABSL_PREDICT_FALSE(message->GetDescriptor() !=
+                         field->containing_type())) {
+    return ErrorValue(absl::InvalidArgumentError(
+        absl::StrCat("message ", message->GetDescriptor()->full_name(),
+                     " does not contain field ", field->full_name())));
+  }
 
   const auto* reflection = message->GetReflection();
   if (ABSL_PREDICT_FALSE(reflection == nullptr)) {
@@ -1774,14 +1786,19 @@ Value WrapMapFieldValueImpl(
         ABSL_ATTRIBUTE_LIFETIME_BOUND,
     google::protobuf::Arena* absl_nonnull arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
   ABSL_DCHECK(field != nullptr);
-  ABSL_DCHECK_EQ(field->containing_type()->containing_type(),
-                 message->GetDescriptor());
   ABSL_DCHECK(!field->is_map() && !field->is_repeated());
   ABSL_DCHECK_EQ(value.type(), field->cpp_type());
   ABSL_DCHECK(message != nullptr);
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(arena != nullptr);
+
+  if (ABSL_PREDICT_FALSE(field->containing_type()->containing_type() !=
+                         message->GetDescriptor())) {
+    return ErrorValue(absl::InvalidArgumentError(
+        absl::StrCat("message ", message->GetDescriptor()->full_name(),
+                     " does not contain field ", field->full_name())));
+  }
 
   switch (field->type()) {
     case google::protobuf::FieldDescriptor::TYPE_DOUBLE:

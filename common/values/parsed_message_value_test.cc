@@ -16,8 +16,8 @@
 
 #include "google/protobuf/field_mask.pb.h"
 #include "google/protobuf/struct.pb.h"
+#include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
-#include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
 #include "common/memory.h"
 #include "common/type.h"
@@ -25,7 +25,9 @@
 #include "common/value_kind.h"
 #include "common/value_testing.h"
 #include "internal/testing.h"
+#include "runtime/runtime_options.h"
 #include "cel/expr/conformance/proto3/test_all_types.pb.h"
+#include "google/protobuf/descriptor.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 
 namespace cel {
@@ -120,6 +122,26 @@ TEST_F(ParsedMessageValueTest, GetFieldByNumber) {
   EXPECT_THAT(
       value.GetFieldByNumber(13, descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(BoolValueIs(false)));
+}
+
+TEST_F(ParsedMessageValueTest, GetFieldMismatchedContainingType) {
+  ParsedMessageValue value = MakeParsedMessage<TestAllTypesProto3>();
+  const google::protobuf::FieldDescriptor* struct_field =
+      google::protobuf::Struct::descriptor()->field(0);
+  Value result;
+  ASSERT_THAT(
+      value.GetField(struct_field, ProtoWrapperTypeOptions::kUnsetNull,
+                     descriptor_pool(), message_factory(), arena(), &result),
+      IsOk());
+  EXPECT_THAT(result, test::ErrorValueIs(absl_testing::StatusIs(
+                          absl::StatusCode::kInvalidArgument)));
+}
+
+TEST_F(ParsedMessageValueTest, HasFieldMismatchedContainingType) {
+  ParsedMessageValue value = MakeParsedMessage<TestAllTypesProto3>();
+  const google::protobuf::FieldDescriptor* struct_field =
+      google::protobuf::Struct::descriptor()->field(0);
+  EXPECT_FALSE(value.HasField(struct_field));
 }
 
 }  // namespace
