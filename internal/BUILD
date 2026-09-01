@@ -136,7 +136,6 @@ cc_test(
 cc_library(
     name = "number",
     hdrs = ["number.h"],
-    deps = ["@com_google_absl//absl/types:variant"],
 )
 
 cc_test(
@@ -747,7 +746,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:cord",
         "@com_google_absl//absl/strings:string_view",
-        "@com_google_absl//absl/types:variant",
         "@com_google_protobuf//:duration_cc_proto",
         "@com_google_protobuf//:protobuf",
         "@com_google_protobuf//:struct_cc_proto",

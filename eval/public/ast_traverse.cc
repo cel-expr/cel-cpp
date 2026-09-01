@@ -16,10 +16,10 @@
 
 #include <memory>
 #include <stack>
+#include <variant>
 
 #include "cel/expr/syntax.pb.h"
 #include "absl/log/absl_log.h"
-#include "absl/types/variant.h"
 #include "eval/public/ast_visitor.h"
 #include "eval/public/source_position.h"
 
@@ -167,7 +167,7 @@ struct PreVisitor {
 };
 
 void PreVisit(const StackRecord& record, AstVisitor* visitor) {
-  absl::visit(PreVisitor{visitor}, record.record_variant);
+  std::visit(PreVisitor{visitor}, record.record_variant);
 }
 
 struct PostVisitor {
@@ -225,7 +225,7 @@ struct PostVisitor {
 };
 
 void PostVisit(const StackRecord& record, AstVisitor* visitor) {
-  absl::visit(PostVisitor{visitor}, record.record_variant);
+  std::visit(PostVisitor{visitor}, record.record_variant);
 }
 
 void PushSelectDeps(const Select* select_expr, const SourceInfo* source_info,
@@ -340,7 +340,7 @@ struct PushDepsVisitor {
 
 void PushDependencies(const StackRecord& record, std::stack<StackRecord>& stack,
                       const TraversalOptions& options) {
-  absl::visit(PushDepsVisitor{stack, options}, record.record_variant);
+  std::visit(PushDepsVisitor{stack, options}, record.record_variant);
 }
 
 }  // namespace

@@ -552,7 +552,6 @@ cc_library(
         ":ast_visitor",
         ":source_position",
         "@com_google_absl//absl/log:absl_log",
-        "@com_google_absl//absl/types:variant",
         "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
     ],
 )
