@@ -1261,11 +1261,30 @@ cc_test(
 
 cc_library(
     name = "standard_definitions",
+    srcs = [
+        "standard_definitions.cc",
+    ],
     hdrs = [
         "standard_definitions.h",
     ],
     deps = [
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "standard_definitions_test",
+    srcs = [
+        "standard_definitions_test.cc",
+    ],
+    deps = [
+        ":standard_definitions",
+        "//internal:testing",
+        "@com_google_absl//absl/container:flat_hash_set",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
     ],
 )
 
