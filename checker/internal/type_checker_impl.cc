@@ -610,9 +610,11 @@ void ResolveVisitor::PostVisitMap(const Expr& expr, const MapExpr& map) {
   for (const auto& entry : map.entries()) {
     const Expr* value = &entry.value();
     Type value_type = GetDeducedType(value);
+    OptionalType opt_value_type;
     if (entry.optional()) {
       if (value_type.IsOptional()) {
-        value_type = value_type.GetOptional().GetParameter();
+        opt_value_type = value_type.GetOptional();
+        value_type = opt_value_type.GetParameter();
       } else {
         ReportTypeMismatch(entry.value().id(), OptionalType(arena_, value_type),
                            value_type);
@@ -648,9 +650,11 @@ void ResolveVisitor::PostVisitList(const Expr& expr, const ListExpr& list) {
   for (const auto& element : list.elements()) {
     const Expr* value = &element.expr();
     Type value_type = GetDeducedType(value);
+    OptionalType opt_value_type;
     if (element.optional()) {
       if (value_type.IsOptional()) {
-        value_type = value_type.GetOptional().GetParameter();
+        opt_value_type = value_type.GetOptional();
+        value_type = opt_value_type.GetParameter();
       } else {
         ReportTypeMismatch(element.expr().id(),
                            OptionalType(arena_, value_type), value_type);
@@ -1203,8 +1207,10 @@ void ResolveVisitor::HandleOptSelect(const Expr& expr) {
   }
 
   Type operand_type = GetDeducedType(operand);
+  OptionalType opt_operand_type;
   if (operand_type.IsOptional()) {
-    operand_type = operand_type.GetOptional().GetParameter();
+    opt_operand_type = operand_type.GetOptional();
+    operand_type = opt_operand_type.GetParameter();
   }
 
   std::optional<Type> field_type = CheckFieldType(
