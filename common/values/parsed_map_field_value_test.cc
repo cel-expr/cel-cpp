@@ -121,7 +121,7 @@ TEST_F(ParsedMapFieldValueTest, SerializeTo) {
   EXPECT_THAT(value.SerializeTo(descriptor_pool(), message_factory(), &output),
               IsOk());
   google::protobuf::Struct actual;
-  EXPECT_TRUE(actual.ParsePartialFromCord(std::move(output).Consume()));
+  EXPECT_TRUE(actual.ParsePartialFromString(std::move(output).Consume()));
   EXPECT_THAT(actual, EqualsTextProto<google::protobuf::Struct>(
                           R"pb(fields {
                                  key: "foo"
