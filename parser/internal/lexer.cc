@@ -163,8 +163,6 @@ std::string_view TokenTypeToString(TokenType type) {
 Token Lexer::Lex() {
   int32_t start = GetPosition();
   if (ABSL_PREDICT_FALSE(position_ >= content_.size())) {
-    at_end_ = true;
-    done_ = true;
     return MakeToken(TokenType::kEnd, start, start);
   }
   char32_t c = content_.at(position_);

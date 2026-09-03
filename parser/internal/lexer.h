@@ -140,13 +140,6 @@ class Lexer final {
                                         std::numeric_limits<int32_t>::max()));
   }
 
-  struct Position final {
-    int32_t position = 0;
-    bool at_end = false;
-    bool done = false;
-    LexerError error;
-  };
-
   Lexer(const Lexer&) = delete;
   Lexer(Lexer&&) = delete;
   Lexer& operator=(const Lexer&) = delete;
@@ -165,15 +158,13 @@ class Lexer final {
 
   [[nodiscard]] int32_t GetPosition() const { return position_; }
 
-  [[nodiscard]] Position SavePosition() const {
-    return Position{position_, at_end_, done_, error_};
-  }
+  [[nodiscard]] int32_t SavePosition() const { return position_; }
 
-  void RestorePosition(const Position& position) {
-    position_ = position.position;
-    at_end_ = position.at_end;
-    done_ = position.done;
-    error_ = position.error;
+  void RestorePosition(int32_t position) {
+    ABSL_DCHECK_GE(position, 0);
+    ABSL_DCHECK_LE(position, static_cast<int32_t>(content_.size()));
+    position_ = position;
+    error_ = LexerError{};
   }
 
  private:
@@ -201,9 +192,6 @@ class Lexer final {
   }
 
   [[nodiscard]] Token MakeToken(TokenType type, int32_t start, int32_t end) {
-    if (ABSL_PREDICT_FALSE(at_end_)) {
-      AtEndTokenCreated();
-    }
     return Token{.type = type, .start = start, .end = end};
   }
 
@@ -213,8 +201,6 @@ class Lexer final {
         LexerError{.start = start, .end = end, .message = std::move(message)};
     return Token{.type = TokenType::kError, .start = start, .end = end};
   }
-
-  void AtEndTokenCreated() { done_ = true; }
 
   // Consumes characters up to and including the first occurrence of character
   // `c` without interpreting backslashes as escapes. Returns true if `c` was
@@ -294,8 +280,6 @@ class Lexer final {
 
   cel::SourceContentView content_;
   int32_t position_ = 0;
-  bool at_end_ = false;
-  bool done_ = false;
   LexerError error_;
 };
 
