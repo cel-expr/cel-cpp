@@ -1222,7 +1222,7 @@ int PrattParserWorker<ExprNode>::CountGroupingParentheses() {
   }
 
   // Save lexer position to restore after scanning ahead.
-  const Lexer::Position saved_pos = lexer_.SavePosition();
+  const int32_t saved_pos = lexer_.SavePosition();
   auto restore_lexer = absl::MakeCleanup(
       [this, saved_pos] { lexer_.RestorePosition(saved_pos); });
 

@@ -14,6 +14,7 @@
 
 #include "parser/internal/lexer.h"
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -506,7 +507,7 @@ TEST(LexerPositionTest, SaveAndRestorePosition) {
   EXPECT_EQ(tok2.type, TokenType::kWhitespace);
 
   // Save position before '+'
-  Lexer::Position saved = lexer.SavePosition();
+  int32_t saved = lexer.SavePosition();
 
   Token tok3 = lexer.Lex();
   EXPECT_EQ(tok3.type, TokenType::kPlus);
