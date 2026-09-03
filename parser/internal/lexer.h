@@ -217,20 +217,16 @@ class Lexer final {
   void AtEndTokenCreated() { done_ = true; }
 
   // Consumes characters up to and including the first occurrence of character
-  // `c` without interpreting backslashes as escapes. Returns true if `c` was
-  // found and consumed; false if end of input was reached.
-  [[nodiscard]] bool ConsumeUntilAfter(char32_t c);
+  // `c`. If `is_raw` is false, backslashes are interpreted as escapes. Returns
+  // true if `c` was found and consumed; false if end of input or an unescaped
+  // newline was reached.
+  [[nodiscard]] bool ConsumeUntilAfter(char32_t c, bool is_raw);
 
   // Consumes characters up to and including the first occurrence of substring
   // `s` without interpreting backslashes as escapes (`s` must not contain
   // newlines). Returns true if `s` was found and consumed; false if end of
   // input was reached.
   [[nodiscard]] bool ConsumeUntilAfterString(std::u32string_view s);
-
-  // Consumes characters up to and including the first occurrence of `c` that is
-  // not preceded by an odd number of backslash ('\') escape characters. Returns
-  // true if an unescaped `c` was found and consumed; false if reached EOF.
-  [[nodiscard]] bool ConsumeUntilAfterUnescaped(char32_t c);
 
   // Consumes characters up to and including the first occurrence of substring
   // `s` where the first character of `s` is not preceded by an odd number of

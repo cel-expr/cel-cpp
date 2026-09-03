@@ -362,6 +362,36 @@ std::vector<TestCase> GetParserTestCases() {
             )",
       },
       TestCase{
+          .source = "'''hello\nworld'''",
+          .expected_ast = R"(
+              "hello\nworld"^#1:string#
+            )",
+      },
+      TestCase{
+          .source = "\"\"\"hello\nworld\"\"\"",
+          .expected_ast = R"(
+              "hello\nworld"^#1:string#
+            )",
+      },
+      TestCase{
+          .source = "r\"\"\"hello\nworld\"\"\"",
+          .expected_ast = R"(
+              "hello\nworld"^#1:string#
+            )",
+      },
+      TestCase{
+          .source = "\"\"\"hello\\\"\"\"world\"\"\"",
+          .expected_ast = R"(
+              "hello\"\"\"world"^#1:string#
+            )",
+      },
+      TestCase{
+          .source = "'''hello\\'''world'''",
+          .expected_ast = R"(
+              "hello'''world"^#1:string#
+            )",
+      },
+      TestCase{
           .source = "a",
           .expected_ast = R"(
               a^#1:Expr.Ident#
@@ -1393,6 +1423,84 @@ std::vector<ErrorTestCase> GetErrorTestCases() {
               "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
               " | \"unterminated\n"
               " | ^",
+      },
+      ErrorTestCase{
+          .source = "\"\"\"hello\nworld",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+              " | \"\"\"hello\n"
+              " | ^",
+      },
+      ErrorTestCase{
+          .source = "'''hello\nworld",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+              " | '''hello\n"
+              " | ^",
+      },
+      ErrorTestCase{
+          .source = "r\"\"\"hello\nworld",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+              " | r\"\"\"hello\n"
+              " | ^",
+      },
+      ErrorTestCase{
+          .source = "\"hello\nworld\"",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+              " | \"hello\n"
+              " | ^\n"
+              "ERROR: <input>:2:1: Syntax error: unexpected token after "
+              "expression\n"
+              " | world\"\n"
+              " | ^",
+      },
+      ErrorTestCase{
+          .source = "'hello\nworld'",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+              " | 'hello\n"
+              " | ^\n"
+              "ERROR: <input>:2:1: Syntax error: unexpected token after "
+              "expression\n"
+              " | world'\n"
+              " | ^",
+      },
+      ErrorTestCase{
+          .source = "r\"hello\nworld\"",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+              " | r\"hello\n"
+              " | ^\n"
+              "ERROR: <input>:2:1: Syntax error: unexpected token after "
+              "expression\n"
+              " | world\"\n"
+              " | ^",
+      },
+      ErrorTestCase{
+          .source = "`hello\nworld`",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated quoted "
+              "identifier\n"
+              " | `hello\n"
+              " | ^\n"
+              "ERROR: <input>:2:1: Syntax error: unexpected token after "
+              "expression\n"
+              " | world`\n"
+              " | ^",
+          .enable_quoted_identifiers = true,
+      },
+      ErrorTestCase{
+          .source = "\"hello\rworld\"",
+          .expected_error =
+              "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+              " | \"hello\rworld\"\n"
+              " | ^\n"
+              "ERROR: <input>:1:8: Syntax error: unexpected token after "
+              "expression\n"
+              " | \"hello\rworld\"\n"
+              " | .......^",
       },
       ErrorTestCase{
           .source = "b\"unterminated",
