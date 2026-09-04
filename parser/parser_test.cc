@@ -1517,7 +1517,132 @@ std::vector<TestInfo> test_cases = {
      "m^#5:Expr.Ident#.value()^#8:Expr.Call#,\n    // LoopCondition\n    "
      "false^#9:bool#,\n    // LoopStep\n    v^#3:Expr.Ident#,\n    // Result\n "
      "   f^#4:Expr.Ident#)^#10:Expr.Comprehension#,\n  "
-     "optional.none()^#11:Expr.Call#\n)^#12:Expr.Call#"}};
+     "optional.none()^#11:Expr.Call#\n)^#12:Expr.Call#"},
+
+    // Multiline and string literal tests
+    {"'''hello\nworld'''", "\"hello\\nworld\"^#1:string#"},
+    {"\"\"\"hello\nworld\"\"\"", "\"hello\\nworld\"^#1:string#"},
+    {"r\"\"\"hello\nworld\"\"\"", "\"hello\\nworld\"^#1:string#"},
+    {"\"\"\"hello\\\"\"\"world\"\"\"", "\"hello\\\"\\\"\\\"world\"^#1:string#"},
+    {"'''hello\\'''world'''", "\"hello'''world\"^#1:string#"},
+    {"\"\"\"hello\nworld", "",
+     "ERROR: <input>:1:3: Syntax error: token recognition error at: "
+     "'\"hello\\n'\n"
+     " | \"\"\"hello\n"
+     " | ..^\n"
+     "ERROR: <input>:2:1: Syntax error: extraneous input 'world' expecting "
+     "<EOF>\n"
+     " | world\n"
+     " | ^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+     " | \"\"\"hello\n"
+     " | ^"},
+    {"'''hello\nworld", "",
+     "ERROR: <input>:1:3: Syntax error: token recognition error at: "
+     "''hello\\n'\n"
+     " | '''hello\n"
+     " | ..^\n"
+     "ERROR: <input>:2:1: Syntax error: extraneous input 'world' expecting "
+     "<EOF>\n"
+     " | world\n"
+     " | ^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+     " | '''hello\n"
+     " | ^"},
+    {"r\"\"\"hello\nworld", "",
+     "ERROR: <input>:1:4: Syntax error: token recognition error at: "
+     "'\"hello\\n'\n"
+     " | r\"\"\"hello\n"
+     " | ...^\n"
+     "ERROR: <input>:2:1: Syntax error: extraneous input 'world' expecting "
+     "<EOF>\n"
+     " | world\n"
+     " | ^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+     " | r\"\"\"hello\n"
+     " | ^"},
+    {"\"hello\nworld\"", "",
+     "ERROR: <input>:1:1: Syntax error: token recognition error at: "
+     "'\"hello\\n'\n"
+     " | \"hello\n"
+     " | ^\n"
+     "ERROR: <input>:2:6: Syntax error: token recognition error at: '\"'\n"
+     " | world\"\n"
+     " | .....^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+     " | \"hello\n"
+     " | ^\n"
+     "ERROR: <input>:2:1: Syntax error: unexpected token after expression\n"
+     " | world\"\n"
+     " | ^"},
+    {"'hello\nworld'", "",
+     "ERROR: <input>:1:1: Syntax error: token recognition error at: "
+     "''hello\\n'\n"
+     " | 'hello\n"
+     " | ^\n"
+     "ERROR: <input>:2:6: Syntax error: token recognition error at: '''\n"
+     " | world'\n"
+     " | .....^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+     " | 'hello\n"
+     " | ^\n"
+     "ERROR: <input>:2:1: Syntax error: unexpected token after expression\n"
+     " | world'\n"
+     " | ^"},
+    {"r\"hello\nworld\"", "",
+     "ERROR: <input>:1:2: Syntax error: token recognition error at: "
+     "'\"hello\\n'\n"
+     " | r\"hello\n"
+     " | .^\n"
+     "ERROR: <input>:2:1: Syntax error: extraneous input 'world' expecting "
+     "<EOF>\n"
+     " | world\"\n"
+     " | ^\n"
+     "ERROR: <input>:2:6: Syntax error: token recognition error at: '\"'\n"
+     " | world\"\n"
+     " | .....^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+     " | r\"hello\n"
+     " | ^\n"
+     "ERROR: <input>:2:1: Syntax error: unexpected token after expression\n"
+     " | world\"\n"
+     " | ^"},
+    {"`hello\nworld`", "",
+     "ERROR: <input>:1:1: Syntax error: token recognition error at: "
+     "'`hello\\n'\n"
+     " | `hello\n"
+     " | ^\n"
+     "ERROR: <input>:2:6: Syntax error: token recognition error at: '`'\n"
+     " | world`\n"
+     " | .....^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated quoted identifier\n"
+     " | `hello\n"
+     " | ^\n"
+     "ERROR: <input>:2:1: Syntax error: unexpected token after expression\n"
+     " | world`\n"
+     " | ^"},
+    {"\"hello\rworld\"", "",
+     "ERROR: <input>:1:1: Syntax error: token recognition error at: "
+     "'\"hello\\r'\n"
+     " | \"hello\rworld\"\n"
+     " | ^\n"
+     "ERROR: <input>:1:13: Syntax error: token recognition error at: '\"'\n"
+     " | \"hello\rworld\"\n"
+     " | ............^",
+     "", "", "",
+     "ERROR: <input>:1:1: Syntax error: unterminated string literal\n"
+     " | \"hello\rworld\"\n"
+     " | ^\n"
+     "ERROR: <input>:1:8: Syntax error: unexpected token after expression\n"
+     " | \"hello\rworld\"\n"
+     " | .......^"}};
 
 absl::string_view ConstantKind(const cel::Constant& c) {
   switch (c.kind_case()) {
