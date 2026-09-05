@@ -48,8 +48,14 @@ namespace cel {
 // - google.protobuf.Duration
 // - google.protobuf.Timestamp
 //
-// This is provided for environments that only use a subset of the CEL standard
-// builtins. Most users should prefer CreateStandardRuntimeBuilder.
+// Warning: It is best to use a hermetic descriptor pool (i.e. not created with
+// the "underlay" constructor). There is not an efficient way to consistently
+// detect whether a given message definitely has no dependency on an overlaid
+// descriptor pool and associated message factory. This can hide use-after-free
+// type bugs. These issues are mitigated by using a hermetic descriptor pool.
+//
+// This function is provided for environments that only use a subset of the CEL
+// standard builtins. Most users should prefer CreateStandardRuntimeBuilder.
 //
 // Callers must register appropriate builtins.
 absl::StatusOr<RuntimeBuilder> CreateRuntimeBuilder(

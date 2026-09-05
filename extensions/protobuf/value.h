@@ -40,6 +40,70 @@
 
 namespace cel::extensions {
 
+namespace extensions_internal {
+template <typename SkipCopyCheck>
+absl::Status ProtoMessageFromValue(const cel::Value& value,
+                                   google::protobuf::Message& dest_message) {
+  const auto* dest_descriptor = dest_message.GetDescriptor();
+  const google::protobuf::Message* src_message = nullptr;
+  if (auto legacy_struct_value =
+          cel::common_internal::AsLegacyStructValue(value);
+      legacy_struct_value) {
+    src_message = legacy_struct_value->message_ptr();
+  }
+  if (auto parsed_message_value = value.AsParsedMessage();
+      parsed_message_value) {
+    src_message = cel::to_address(*parsed_message_value);
+  }
+
+  if (src_message == nullptr) {
+    return TypeConversionError(value.GetRuntimeType(),
+                               MessageType(dest_descriptor))
+        .NativeValue();
+  }
+
+  const auto* src_descriptor = src_message->GetDescriptor();
+  if (dest_descriptor != src_descriptor) {
+    goto slow_path;
+  }
+
+  if constexpr (!SkipCopyCheck::value) {
+    // Try to catch cases where we'll take an implicit dependency on a
+    // dynamic message factory.
+    //
+    // This isn't exhaustive, but correctly checking requires fully
+    // traversing the source message which will approach the cost of the
+    // serialization round trip.
+    if (dest_message.GetReflection()->GetMessageFactory() !=
+        src_message->GetReflection()->GetMessageFactory()) {
+      goto slow_path;
+    }
+  }
+
+  dest_message.CopyFrom(*src_message);
+  return absl::OkStatus();
+
+slow_path:
+  if (dest_descriptor->full_name() != src_descriptor->full_name()) {
+    return TypeConversionError(value.GetRuntimeType(),
+                               MessageType(dest_descriptor))
+        .NativeValue();
+  }
+
+  absl::Cord serialized;
+  if (!src_message->SerializePartialToCord(&serialized)) {
+    return absl::UnknownError(absl::StrCat("failed to serialize message: ",
+                                           src_descriptor->full_name()));
+  }
+  if (!dest_message.ParsePartialFromCord(serialized)) {
+    return absl::UnknownError(absl::StrCat("failed to parse message: ",
+                                           dest_descriptor->full_name()));
+  }
+  return absl::OkStatus();
+}
+
+}  // namespace extensions_internal
+
 // Adapt a protobuf message to a cel::Value.
 //
 // Handles unwrapping message types with special meanings in CEL (WKTs).
@@ -56,41 +120,23 @@ ProtoMessageToValue(T&& value,
                             message_factory, arena);
 }
 
+// Unwraps a protobuf message from a cel::Value.
 inline absl::Status ProtoMessageFromValue(const Value& value,
                                           google::protobuf::Message& dest_message) {
-  const auto* dest_descriptor = dest_message.GetDescriptor();
-  const google::protobuf::Message* src_message = nullptr;
-  if (auto legacy_struct_value =
-          cel::common_internal::AsLegacyStructValue(value);
-      legacy_struct_value) {
-    src_message = legacy_struct_value->message_ptr();
-  }
-  if (auto parsed_message_value = value.AsParsedMessage();
-      parsed_message_value) {
-    src_message = cel::to_address(*parsed_message_value);
-  }
-  if (src_message != nullptr) {
-    const auto* src_descriptor = src_message->GetDescriptor();
-    if (dest_descriptor == src_descriptor) {
-      dest_message.CopyFrom(*src_message);
-      return absl::OkStatus();
-    }
-    if (dest_descriptor->full_name() == src_descriptor->full_name()) {
-      absl::Cord serialized;
-      if (!src_message->SerializePartialToCord(&serialized)) {
-        return absl::UnknownError(absl::StrCat("failed to serialize message: ",
-                                               src_descriptor->full_name()));
-      }
-      if (!dest_message.ParsePartialFromCord(serialized)) {
-        return absl::UnknownError(absl::StrCat("failed to parse message: ",
-                                               dest_descriptor->full_name()));
-      }
-      return absl::OkStatus();
-    }
-  }
-  return TypeConversionError(value.GetRuntimeType(),
-                             MessageType(dest_descriptor))
-      .NativeValue();
+  return extensions_internal::ProtoMessageFromValue<std::false_type>(
+      value, dest_message);
+}
+
+// Unwraps a protobuf message from a cel::Value without checking for the
+// presence of extensions.
+//
+// Warning: This function can lead to subtle use after free bugs if the caller
+// is not careful to ensure that the source and destination message were created
+// in a compatible way and do not outlive any implicit dependencies.
+inline absl::Status ProtoMessageFromValueUnsafe(const Value& value,
+                                                google::protobuf::Message& dest_message) {
+  return extensions_internal::ProtoMessageFromValue<std::true_type>(
+      value, dest_message);
 }
 
 }  // namespace cel::extensions
