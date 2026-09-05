@@ -76,11 +76,20 @@ class Program {
   // Activation manages instances of variables available in the cel expression's
   // environment.
   //
-  // The arena will be used to as necessary to allocate values and must outlive
-  // the returned value, as must this program.
+  // Notes on lifetimes:
   //
-  //  For consistency, users should use the same arena to create values
-  //  in the activation and for Program evaluation.
+  // The provided arena will be used as necessary to allocate complex values
+  // and must outlive any returned value. Values created by the program may
+  // depend on internal state in the runtime. In particular protobuf messages
+  // may depend on the descriptor pool and message factory managed by the
+  // runtime or program.
+  //
+  // Programs implicitly keep shared state in the runtime object alive so it
+  // is sufficient to ensure that any cel::Value result is destroyed before the
+  // cel::Program that created it.
+  //
+  // For consistency, users should use the same arena to create values placed in
+  // the activation for calls to Program::Evaluate.
   absl::StatusOr<Value> Evaluate(
       google::protobuf::Arena* absl_nonnull arena ABSL_ATTRIBUTE_LIFETIME_BOUND,
       const ActivationInterface& activation,

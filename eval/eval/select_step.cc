@@ -36,11 +36,9 @@ namespace {
 
 using ::cel::BoolValue;
 using ::cel::ErrorValue;
-using ::cel::MapValue;
 using ::cel::OptionalValue;
 using ::cel::ProtoWrapperTypeOptions;
 using ::cel::StringValue;
-using ::cel::StructValue;
 using ::cel::Value;
 using ::cel::ValueKind;
 
@@ -424,6 +422,42 @@ class DirectSelectStep : public DirectExpressionStep {
   bool enable_optional_types_;
 };
 
+bool CheckAttributeTrail(const std::string& field, ExecutionFrame* frame) {
+  if (!frame->attribute_tracking_enabled()) {
+    return false;
+  }
+  AttributeTrail& attr = frame->value_stack().PeekAttribute();
+  attr = attr.Step(&field);
+
+  absl::optional<Value> marked_attribute_check =
+      CheckForMarkedAttributes(attr, *frame);
+  if (marked_attribute_check.has_value()) {
+    frame->value_stack().Peek() = std::move(marked_attribute_check).value();
+    return true;
+  }
+
+  return false;
+}
+
+bool SupportsCachedFieldDescriptor(
+    const cel::ParsedMessageValue& parsed_message,
+    const google::protobuf::Descriptor* descriptor,
+    const google::protobuf::FieldDescriptor* field_descriptor) {
+  ABSL_DCHECK_EQ(field_descriptor->containing_type(), descriptor);
+  const google::protobuf::Descriptor* rt_descriptor = parsed_message.GetDescriptor();
+
+  if (rt_descriptor != descriptor) {
+    return false;
+  }
+
+  // Caller should have already checked this. Crash here if not instead of
+  // making proto crash.
+  ABSL_DCHECK_EQ(rt_descriptor->file()->pool(),
+                 field_descriptor->file()->pool());
+
+  return true;
+}
+
 class ProtoSelectStep : public SelectStep {
  public:
   ProtoSelectStep(StringValue value, int64_t expr_id,
@@ -447,15 +481,21 @@ class ProtoSelectStep : public SelectStep {
 
     const Value& arg = frame->value_stack().Peek();
     if (auto unwrapped = arg.AsParsedMessage();
-        unwrapped.has_value() && unwrapped->GetDescriptor() == descriptor_) {
-      return EvaluateModernMessageGetField(frame, *unwrapped);
+        unwrapped.has_value() &&
+        SupportsCachedFieldDescriptor(*unwrapped, descriptor_,
+                                      field_descriptor_)) {
+      return EvaluateMessageFieldGet(frame, *unwrapped);
     } else if (const google::protobuf::Message* legacy_message =
                    cel::interop_internal::GetLegacyMessage(arg);
-               legacy_message != nullptr &&
-               legacy_message->GetDescriptor() == descriptor_) {
+               frame->options().enable_use_new_field_select_implementation &&
+               legacy_message != nullptr) {
+      auto parsed_message = cel::UnsafeParsedMessageValue(legacy_message);
       // A little unfortunate, but need to special case for legacy values so we
       // can minimize back and forth interop conversions.
-      return EvaluateLegacyMessageGetField(frame, legacy_message);
+      if (SupportsCachedFieldDescriptor(parsed_message, descriptor_,
+                                        field_descriptor_)) {
+        return EvaluateMessageFieldGet(frame, legacy_message);
+      }
     }
     // If we get an unexpected value type, fall back to the generic
     // implementation.
@@ -463,34 +503,18 @@ class ProtoSelectStep : public SelectStep {
   }
 
  private:
-  absl::Status EvaluateModernMessageGetField(
+  absl::Status EvaluateMessageFieldGet(
       ExecutionFrame* frame,
       const cel::ParsedMessageValue& parsed_message) const;
-  absl::Status EvaluateLegacyMessageGetField(
-      ExecutionFrame* frame, const google::protobuf::Message* legacy_message) const;
+  absl::Status EvaluateMessageFieldGet(
+      ExecutionFrame* frame,
+      const google::protobuf::Message* absl_nonnull legacy_message) const;
 
   const google::protobuf::Descriptor* descriptor_;
   const google::protobuf::FieldDescriptor* field_descriptor_;
 };
 
-bool CheckAttributeTrail(const std::string& field, ExecutionFrame* frame) {
-  if (!frame->attribute_tracking_enabled()) {
-    return false;
-  }
-  AttributeTrail& attr = frame->value_stack().PeekAttribute();
-  attr = attr.Step(&field);
-
-  absl::optional<Value> marked_attribute_check =
-      CheckForMarkedAttributes(attr, *frame);
-  if (marked_attribute_check.has_value()) {
-    frame->value_stack().Peek() = std::move(marked_attribute_check).value();
-    return true;
-  }
-
-  return false;
-}
-
-absl::Status ProtoSelectStep::EvaluateModernMessageGetField(
+absl::Status ProtoSelectStep::EvaluateMessageFieldGet(
     ExecutionFrame* frame,
     const cel::ParsedMessageValue& parsed_message) const {
   if (CheckAttributeTrail(field_, frame)) {
@@ -501,8 +525,10 @@ absl::Status ProtoSelectStep::EvaluateModernMessageGetField(
       frame->message_factory(), frame->arena(), &frame->value_stack().Peek());
 }
 
-absl::Status ProtoSelectStep::EvaluateLegacyMessageGetField(
-    ExecutionFrame* frame, const google::protobuf::Message* legacy_message) const {
+absl::Status ProtoSelectStep::EvaluateMessageFieldGet(
+    ExecutionFrame* frame,
+    const google::protobuf::Message* absl_nonnull legacy_message) const {
+  ABSL_DCHECK(legacy_message != nullptr);
   if (CheckAttributeTrail(field_, frame)) {
     return absl::OkStatus();
   }
@@ -534,15 +560,19 @@ class ProtoHasStep : public SelectStep {
 
     const Value& arg = frame->value_stack().Peek();
     if (auto unwrapped = arg.AsParsedMessage();
-        unwrapped.has_value() && unwrapped->GetDescriptor() == descriptor_) {
+        unwrapped.has_value() &&
+        SupportsCachedFieldDescriptor(*unwrapped, descriptor_,
+                                      field_descriptor_)) {
       return EvaluateHas(frame, *unwrapped);
     } else if (const google::protobuf::Message* legacy_message =
                    cel::interop_internal::GetLegacyMessage(arg);
-               legacy_message != nullptr &&
-               legacy_message->GetDescriptor() == descriptor_) {
+               legacy_message != nullptr) {
       cel::ParsedMessageValue parsed_message =
           cel::UnsafeParsedMessageValue(legacy_message);
-      return EvaluateHas(frame, parsed_message);
+      if (SupportsCachedFieldDescriptor(parsed_message, descriptor_,
+                                        field_descriptor_)) {
+        return EvaluateHas(frame, parsed_message);
+      }
     }
     // If we get an unexpected value type, fall back to the generic
     // implementation.
@@ -607,6 +637,20 @@ absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateTypedSelectStep(
   ABSL_DCHECK(resolved_field.IsMessage());
   const google::protobuf::FieldDescriptor* field_descriptor =
       resolved_field.GetMessage().descriptor();
+
+  if (field_descriptor->file()->pool() != descriptor->file()->pool()) {
+    // The field descriptor is not in the same pool as the operand type.
+    // (this should only happen if an overlay extends the type).
+    //
+    // We don't have a way to determine if a runtime message is compatible
+    // with the resolved extension and proto's reflection implementation may
+    // crash.
+    //
+    // Fallback to the generic implementation.
+    return CreateSelectStep(std::move(field), test_only, expr_id,
+                            enable_wrapper_type_null_unboxing,
+                            enable_optional_types);
+  }
 
   if (test_only) {
     return std::make_unique<ProtoHasStep>(
