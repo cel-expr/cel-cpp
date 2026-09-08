@@ -946,7 +946,10 @@ void ByteString::SetSmall(google::protobuf::Arena* absl_nullable arena,
   rep_.header.kind = ByteStringKind::kSmall;
   rep_.small.size = string.size();
   rep_.small.arena = arena;
-  std::memcpy(rep_.small.data, string.data(), rep_.small.size);
+  // Some libc declarations require non-null pointers even for zero-byte copies.
+  if (!string.empty()) {
+    std::memcpy(rep_.small.data, string.data(), rep_.small.size);
+  }
 }
 
 void ByteString::SetSmall(google::protobuf::Arena* absl_nullable arena,

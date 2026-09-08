@@ -124,6 +124,12 @@ TEST_P(ByteStringTest, Default) {
   EXPECT_EQ(GetKind(byte_string), ByteStringKind::kSmall);
 }
 
+TEST_P(ByteStringTest, ConstructNullDataStringView) {
+  ByteString byte_string(GetAllocator(), absl::string_view());
+  EXPECT_THAT(byte_string, IsEmpty());
+  EXPECT_EQ(byte_string.GetArena(), GetAllocator().arena());
+}
+
 TEST_P(ByteStringTest, ConstructSmallCString) {
   ByteString byte_string = ByteString(GetAllocator(), GetSmallString().c_str());
   EXPECT_THAT(byte_string, SizeIs(GetSmallStringView().size()));
