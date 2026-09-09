@@ -10,9 +10,9 @@
 #include "policy/test_util.h"
 
 #include <cstdint>
+#include <exception>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "cel/expr/eval.pb.h"
 #include "cel/expr/value.pb.h"
@@ -131,6 +131,73 @@ absl::Status ParseTestOutput(const YAML::Node& node,
   return YamlToExprValue(node, output->mutable_result_value());
 }
 
+absl::Status ParseTestCaseNode(
+    const YAML::Node& test_node,
+    cel::expr::conformance::test::TestCase* test_case) {
+  if (test_node.IsNull()) {
+    return absl::OkStatus();
+  }
+  if (!test_node.IsMap()) {
+    return absl::InvalidArgumentError("Test case must be a YAML mapping");
+  }
+  if (test_node["name"].IsDefined()) {
+    test_case->set_name(test_node["name"].as<std::string>());
+  }
+  if (test_node["description"].IsDefined()) {
+    test_case->set_description(test_node["description"].as<std::string>());
+  }
+  if (test_node["expr"].IsDefined()) {
+    test_case->set_expr(test_node["expr"].as<std::string>());
+  }
+  if (test_node["context_expr"].IsDefined()) {
+    test_case->mutable_input_context()->set_context_expr(
+        test_node["context_expr"].as<std::string>());
+  } else if (test_node["input_context"].IsDefined() &&
+             test_node["input_context"].IsMap() &&
+             test_node["input_context"]["context_expr"].IsDefined()) {
+    test_case->mutable_input_context()->set_context_expr(
+        test_node["input_context"]["context_expr"].as<std::string>());
+  }
+  if (test_node["disable_check"].IsDefined()) {
+    test_case->set_disable_check(test_node["disable_check"].as<bool>());
+  }
+
+  YAML::Node input_node = test_node["input"];
+  if (input_node.IsDefined() && input_node.IsMap()) {
+    auto* input_map = test_case->mutable_input();
+    for (auto it = input_node.begin(); it != input_node.end(); ++it) {
+      std::string var_name = it->first.as<std::string>();
+      cel::expr::conformance::test::InputValue input_val;
+      CEL_RETURN_IF_ERROR(ParseInputValue(it->second, &input_val));
+      (*input_map)[var_name] = std::move(input_val);
+    }
+  }
+
+  YAML::Node output_node = test_node["output"];
+  if (output_node.IsDefined()) {
+    CEL_RETURN_IF_ERROR(
+        ParseTestOutput(output_node, test_case->mutable_output()));
+  }
+  return absl::OkStatus();
+}
+
+absl::StatusOr<cel::expr::conformance::test::TestCase> ParseTestCaseYamlImpl(
+    absl::string_view yaml_content) {
+  if (yaml_content.empty()) {
+    return cel::expr::conformance::test::TestCase();
+  }
+  YAML::Node test_node;
+  try {
+    test_node = YAML::Load(std::string(yaml_content));
+  } catch (const std::exception& e) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Failed to parse YAML: ", e.what()));
+  }
+  cel::expr::conformance::test::TestCase test_case;
+  CEL_RETURN_IF_ERROR(ParseTestCaseNode(test_node, &test_case));
+  return test_case;
+}
+
 absl::StatusOr<cel::expr::conformance::test::TestSuite>
 ParsePolicyTestSuiteYamlImpl(absl::string_view yaml_content) {
   YAML::Node tests_node;
@@ -174,33 +241,7 @@ ParsePolicyTestSuiteYamlImpl(absl::string_view yaml_content) {
 
     for (const auto& test_node : tests) {
       auto* test_case = section->add_tests();
-      if (test_node["name"].IsDefined()) {
-        test_case->set_name(test_node["name"].as<std::string>());
-      }
-      if (test_node["description"].IsDefined()) {
-        test_case->set_description(test_node["description"].as<std::string>());
-      }
-      if (test_node["context_expr"].IsDefined()) {
-        test_case->mutable_input_context()->set_context_expr(
-            test_node["context_expr"].as<std::string>());
-      }
-
-      YAML::Node input_node = test_node["input"];
-      if (input_node.IsDefined() && input_node.IsMap()) {
-        auto* input_map = test_case->mutable_input();
-        for (auto it = input_node.begin(); it != input_node.end(); ++it) {
-          std::string var_name = it->first.as<std::string>();
-          cel::expr::conformance::test::InputValue input_val;
-          CEL_RETURN_IF_ERROR(ParseInputValue(it->second, &input_val));
-          (*input_map)[var_name] = std::move(input_val);
-        }
-      }
-
-      YAML::Node output_node = test_node["output"];
-      if (output_node.IsDefined()) {
-        CEL_RETURN_IF_ERROR(
-            ParseTestOutput(output_node, test_case->mutable_output()));
-      }
+      CEL_RETURN_IF_ERROR(ParseTestCaseNode(test_node, test_case));
     }
   }
 
@@ -213,6 +254,18 @@ absl::StatusOr<cel::expr::conformance::test::TestSuite>
 ParsePolicyTestSuiteYaml(absl::string_view yaml_content) {
   try {
     return ParsePolicyTestSuiteYamlImpl(yaml_content);
+  } catch (...) {
+    return absl::InvalidArgumentError("Failed to parse YAML");
+  }
+}
+
+absl::StatusOr<cel::expr::conformance::test::TestCase> ParseTestCaseYaml(
+    absl::string_view yaml_content) {
+  try {
+    return ParseTestCaseYamlImpl(yaml_content);
+  } catch (const std::exception& e) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Failed to parse YAML: ", e.what()));
   } catch (...) {
     return absl::InvalidArgumentError("Failed to parse YAML");
   }
