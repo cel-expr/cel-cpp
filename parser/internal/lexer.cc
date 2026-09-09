@@ -335,17 +335,31 @@ Token Lexer::Lex() {
   return SetError(start, GetPosition(), "unexpected character");
 }
 
-// Consumes characters up to and including the first occurrence of character `c`
-// without interpreting backslashes as escapes.
-// Returns true if `c` was found and consumed; false if end of input was
-// reached.
-bool Lexer::ConsumeUntilAfter(char32_t c) {
+// Consumes characters up to and including the first occurrence of character
+// `c`. If `is_raw` is false, backslashes are interpreted as escapes. Returns
+// true if `c` was found and consumed; false if end of input or an unescaped
+// newline was reached.
+bool Lexer::ConsumeUntilAfter(char32_t c, bool is_raw) {
   ABSL_DCHECK_NE(c, '\n');
-  for (int32_t pos = position_; pos < content_.size(); ++pos) {
-    if (content_.at(pos) == c) {
-      AdvanceProcessingNewLines(pos + 1);
-      return true;
+  ABSL_DCHECK_NE(c, '\r');
+  int32_t pos = position_;
+  bool escaped = false;
+  while (pos < content_.size()) {
+    char32_t cc = content_.at(pos);
+    if (cc == '\n' || cc == '\r') {
+      AdvanceProcessingNewLines(pos);
+      return false;
     }
+    if (!is_raw && cc == '\\') {
+      escaped = !escaped;
+    } else {
+      if (cc == c && (is_raw || !escaped)) {
+        AdvanceProcessingNewLines(pos + 1);
+        return true;
+      }
+      escaped = false;
+    }
+    ++pos;
   }
   AdvanceProcessingNewLines(content_.size());
   return false;
@@ -369,31 +383,6 @@ bool Lexer::ConsumeUntilAfterString(std::u32string_view s) {
     if (match) {
       AdvanceProcessingNewLines(pos + static_cast<int32_t>(s.size()));
       return true;
-    }
-    ++pos;
-  }
-  AdvanceProcessingNewLines(content_.size());
-  return false;
-}
-
-// Consumes characters up to and including the first occurrence of `c` that is
-// not preceded by an odd number of backslash ('\') escape characters. Returns
-// true if an unescaped `c` was found and consumed; false if reached EOF.
-bool Lexer::ConsumeUntilAfterUnescaped(char32_t c) {
-  ABSL_DCHECK_NE(c, '\n');
-  ABSL_DCHECK_NE(c, '\\');
-  int32_t pos = position_;
-  bool escaped = false;
-  while (pos < content_.size()) {
-    char32_t cc = content_.at(pos);
-    if (cc == '\\') {
-      escaped = !escaped;
-    } else {
-      if (cc == c && !escaped) {
-        AdvanceProcessingNewLines(pos + 1);
-        return true;
-      }
-      escaped = false;
     }
     ++pos;
   }
@@ -564,7 +553,7 @@ TokenType Lexer::ConsumeIntegralSuffix() {
 Token Lexer::ConsumeQuotedIdent() {
   int32_t start = GetPosition();
   Advance(1);
-  if (!ConsumeUntilAfter('`')) {
+  if (!ConsumeUntilAfter('`', /*is_raw=*/true)) {
     return SetError(start, GetPosition(), "unterminated quoted identifier");
   }
   return MakeToken(TokenType::kIdent, start, GetPosition());
@@ -584,7 +573,7 @@ Token Lexer::ConsumeStringLiteral(int32_t start, char32_t quote, bool is_bytes,
     return MakeToken(is_bytes ? TokenType::kBytes : TokenType::kString, start,
                      GetPosition());
   }
-  if (is_raw ? !ConsumeUntilAfter(quote) : !ConsumeUntilAfterUnescaped(quote)) {
+  if (!ConsumeUntilAfter(quote, is_raw)) {
     return SetError(start, GetPosition(),
                     is_bytes ? "unterminated bytes literal"
                              : "unterminated string literal");
