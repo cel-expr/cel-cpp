@@ -130,6 +130,13 @@ class TraceableProgram : public Program {
   // to an AST expression node. The value provided is the top of the value
   // stack, corresponding to the result of evaluating the given sub expression.
   //
+  // Expression IDs outside of the range [0, INT32_MAX] are not supported and
+  // will not invoke the listener. While the AST allows any int64, supported
+  // parser implementations should use a dense range starting at 1. In practice,
+  // no AST should contain more than ~ 1e9 nodes.
+  //
+  // ID 0 should not be considered valid, but is supported for legacy reasons.
+  //
   // A returning a non-ok status stops evaluation and forwards the error.
   using EvaluationListener = absl::AnyInvocable<absl::Status(
       int64_t expr_id, const Value&, const google::protobuf::DescriptorPool* absl_nonnull,
