@@ -15,6 +15,8 @@
 #include "eval/eval/evaluator_core.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -132,7 +134,12 @@ absl::StatusOr<cel::Value> ExecutionFrame::Evaluate(
                            "Try to disable short-circuiting.";
         continue;
       }
-      if (EvaluationStatus status(listener(expr->id(), value_stack().Peek(),
+      const int64_t id = expr->id();
+      // Experimental: DO NOT SUBMIT
+      if (id <= 0 || id >= std::numeric_limits<int32_t>::max()) {
+        continue;
+      }
+      if (EvaluationStatus status(listener(id, value_stack().Peek(),
                                            descriptor_pool(), message_factory(),
                                            arena()));
           !status.ok()) {
