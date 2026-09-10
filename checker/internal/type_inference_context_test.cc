@@ -1049,6 +1049,32 @@ TEST(TypeInferenceContextTest,
 }
 
 TEST(TypeInferenceContextTest,
+     TypeTypeAssignability_OccursCheck_MapTypeParamToTypeParam_ReturnsFalse) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  Type param_t =
+      context.InstantiateTypeParams(TypeType(&arena, TypeParamType("T")));
+  Type t_var = param_t.AsType()->GetType();
+  Type map_type = TypeType(&arena, MapType(&arena, StringType(), t_var));
+
+  EXPECT_FALSE(context.IsAssignable(map_type, param_t));
+}
+
+TEST(TypeInferenceContextTest,
+     TypeTypeAssignability_OccursCheck_TypeParamToMapTypeParam_ReturnsFalse) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  Type param_t =
+      context.InstantiateTypeParams(TypeType(&arena, TypeParamType("T")));
+  Type t_var = param_t.AsType()->GetType();
+  Type map_type = TypeType(&arena, MapType(&arena, StringType(), t_var));
+
+  EXPECT_FALSE(context.IsAssignable(param_t, map_type));
+}
+
+TEST(TypeInferenceContextTest,
      TypeTypeOverloadResolution_TypeParamInTypeType_ResolvesReturnTypeInt) {
   google::protobuf::Arena arena;
   TypeInferenceContext context(&arena);
