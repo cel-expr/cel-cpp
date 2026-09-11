@@ -51,7 +51,7 @@ const FunctionResultSet& EmptyFunctionResultSet();
 
 struct UnknownSetAccess;
 
-class UnknownSet final {
+class ABSL_ATTRIBUTE_TRIVIAL_ABI UnknownSet final {
  private:
   using Rep = UnknownSetRep;
 

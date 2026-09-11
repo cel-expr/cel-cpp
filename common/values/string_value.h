@@ -57,7 +57,8 @@ absl::string_view LegacyStringValue(const StringValue& value, bool stable,
 }  // namespace common_internal
 
 // `StringValue` represents values of the primitive `string` type.
-class StringValue final : private common_internal::ValueMixin<StringValue> {
+class CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI StringValue final
+    : private common_internal::ValueMixin<StringValue> {
  public:
   static constexpr ValueKind kKind = ValueKind::kString;
 

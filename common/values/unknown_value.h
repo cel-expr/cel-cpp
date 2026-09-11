@@ -41,7 +41,8 @@ class Value;
 class UnknownValue;
 
 // `UnknownValue` represents values of the primitive `duration` type.
-class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
+class ABSL_ATTRIBUTE_TRIVIAL_ABI UnknownValue final
+    : private common_internal::ValueMixin<UnknownValue> {
  public:
   static constexpr ValueKind kKind = ValueKind::kUnknown;
 

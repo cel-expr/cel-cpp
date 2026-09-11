@@ -96,7 +96,8 @@ namespace cel {
 // a known but invalid state. Any attempt to use it from then on, without
 // assigning another type, is undefined behavior. In debug builds, we do our
 // best to fail.
-class Value final : private common_internal::ValueMixin<Value> {
+class CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI Value final
+    : private common_internal::ValueMixin<Value> {
  public:
   // Returns an appropriate `Value` for the dynamic protobuf enum. For open
   // enums, returns `cel::IntValue`. For closed enums, returns `cel::ErrorValue`

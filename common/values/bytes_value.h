@@ -56,7 +56,8 @@ absl::string_view LegacyBytesValue(const BytesValue& value, bool stable,
 }  // namespace common_internal
 
 // `BytesValue` represents values of the primitive `bytes` type.
-class BytesValue final : private common_internal::ValueMixin<BytesValue> {
+class CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI BytesValue final
+    : private common_internal::ValueMixin<BytesValue> {
  public:
   static constexpr ValueKind kKind = ValueKind::kBytes;
 
