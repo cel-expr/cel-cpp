@@ -50,9 +50,9 @@ class ValueInterface;
 class ListValueInterface;
 class StructValueInterface;
 
-class Value;
+class CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI Value;
 class BoolValue;
-class BytesValue;
+class CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI BytesValue;
 class DoubleValue;
 class DurationValue;
 class ABSL_ATTRIBUTE_TRIVIAL_ABI ErrorValue;
@@ -62,12 +62,12 @@ class MapValue;
 class NullValue;
 class OpaqueValue;
 class OptionalValue;
-class StringValue;
+class CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI StringValue;
 class StructValue;
 class TimestampValue;
 class TypeValue;
 class UintValue;
-class UnknownValue;
+class ABSL_ATTRIBUTE_TRIVIAL_ABI UnknownValue;
 class ParsedMessageValue;
 class ParsedMapFieldValue;
 class ParsedRepeatedFieldValue;
@@ -203,7 +203,7 @@ using ListValueForEach2Callback =
     absl::FunctionRef<absl::StatusOr<bool>(size_t, const Value&)>;
 
 template <typename Base>
-class ValueMixin {
+class ABSL_ATTRIBUTE_TRIVIAL_ABI ValueMixin {
  public:
   absl::StatusOr<Value> Equal(
       const Value& other,
