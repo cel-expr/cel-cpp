@@ -23,26 +23,24 @@ std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
     bool shortcircuiting);
 
 // Factory method for "And" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateAndStep(size_t num_args,
-                                                              int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateAndStep(size_t num_args);
 
 // Factory method for "Or" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateOrStep(size_t num_args,
-                                                             int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateOrStep(size_t num_args);
 
 // Factory method for recursive logical not "!" Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectNotStep(
     std::unique_ptr<DirectExpressionStep> operand, int64_t expr_id);
 
 // Factory method for iterative logical not "!" Execution step
-std::unique_ptr<ExpressionStep> CreateNotStep(int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateNotStep();
 
 // Factory method for recursive logical "@not_strictly_false" Execution step.
 std::unique_ptr<DirectExpressionStep> CreateDirectNotStrictlyFalseStep(
     std::unique_ptr<DirectExpressionStep> operand, int64_t expr_id);
 
 // Factory method for iterative logical "@not_strictly_false" Execution step.
-std::unique_ptr<ExpressionStep> CreateNotStrictlyFalseStep(int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateNotStrictlyFalseStep();
 
 }  // namespace google::api::expr::runtime
 

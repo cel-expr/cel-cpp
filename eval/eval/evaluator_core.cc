@@ -15,9 +15,6 @@
 #include "eval/eval/evaluator_core.h"
 
 #include <cstddef>
-#include <cstdint>
-#include <limits>
-#include <memory>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -46,7 +43,7 @@ const ExpressionStep* ExecutionFrame::Next() {
     const size_t end_pos = execution_path_.size();
 
     if (ABSL_PREDICT_TRUE(pc_ < end_pos)) {
-      const auto* step = execution_path_[pc_++].get();
+      const auto* step = &execution_path_[pc_++];
       ABSL_ASSUME(step != nullptr);
       return step;
     }
@@ -134,13 +131,7 @@ absl::StatusOr<cel::Value> ExecutionFrame::Evaluate(
                            "Try to disable short-circuiting.";
         continue;
       }
-      const int64_t id = expr->id();
-      // Skip if the id is out of range.
-      // Will take advantage of this in a follow up to bit pack the id.
-      if (id < 0 || id > std::numeric_limits<int32_t>::max()) {
-        continue;
-      }
-      if (EvaluationStatus status(listener(id, value_stack().Peek(),
+      if (EvaluationStatus status(listener(expr->id(), value_stack().Peek(),
                                            descriptor_pool(), message_factory(),
                                            arena()));
           !status.ok()) {

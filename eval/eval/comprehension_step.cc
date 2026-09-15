@@ -60,8 +60,8 @@ AttributeQualifier AttributeQualifierFromValue(const Value& v) {
 
 class ComprehensionFinishStep final : public ExpressionStepBase {
  public:
-  ComprehensionFinishStep(size_t accu_slot, int64_t expr_id)
-      : ExpressionStepBase(expr_id), accu_slot_(accu_slot) {}
+  explicit ComprehensionFinishStep(size_t accu_slot)
+      : ExpressionStepBase(), accu_slot_(accu_slot) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     if (!frame->value_stack().HasEnough(2)) {
@@ -677,9 +677,9 @@ std::unique_ptr<DirectExpressionStep> CreateDirectComprehensionStep(
       shortcircuiting, expr_id);
 }
 
-std::unique_ptr<ExpressionStep> CreateComprehensionFinishStep(size_t accu_slot,
-                                                              int64_t expr_id) {
-  return std::make_unique<ComprehensionFinishStep>(accu_slot, expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateComprehensionFinishStep(
+    size_t accu_slot) {
+  return std::make_unique<ComprehensionFinishStep>(accu_slot);
 }
 
 }  // namespace google::api::expr::runtime

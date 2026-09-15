@@ -189,9 +189,8 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
 class LogicalOpStep : public ExpressionStepBase {
  public:
   // Constructs FunctionStep that uses overloads specified.
-  LogicalOpStep(OpType op_type, size_t count, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
-        shortcircuit_(op_type == OpType::kOr),
+  LogicalOpStep(OpType op_type, size_t count)
+      : shortcircuit_(op_type == OpType::kOr),
         op_type_(op_type),
         count_(count) {}
 
@@ -324,7 +323,7 @@ absl::Status DirectNotStep::Evaluate(ExecutionFrameBase& frame, Value& result,
 
 class IterativeNotStep : public ExpressionStepBase {
  public:
-  explicit IterativeNotStep(int64_t expr_id) : ExpressionStepBase(expr_id) {}
+  IterativeNotStep() = default;
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 };
@@ -400,8 +399,7 @@ absl::Status DirectNotStrictlyFalseStep::Evaluate(
 
 class IterativeNotStrictlyFalseStep : public ExpressionStepBase {
  public:
-  explicit IterativeNotStrictlyFalseStep(int64_t expr_id)
-      : ExpressionStepBase(expr_id) {}
+  IterativeNotStrictlyFalseStep() = default;
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 };
@@ -432,7 +430,6 @@ absl::Status IterativeNotStrictlyFalseStep::Evaluate(
 
 }  // namespace
 
-// Factory method for "And" Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectAndStep(
     std::unique_ptr<DirectExpressionStep> lhs,
     std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id,
@@ -441,7 +438,6 @@ std::unique_ptr<DirectExpressionStep> CreateDirectAndStep(
                                OpType::kAnd, shortcircuiting);
 }
 
-// Factory method for "Or" Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
     std::unique_ptr<DirectExpressionStep> lhs,
     std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id,
@@ -451,15 +447,13 @@ std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
 }
 
 // Factory method for "And" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateAndStep(size_t num_args,
-                                                              int64_t expr_id) {
-  return std::make_unique<LogicalOpStep>(OpType::kAnd, num_args, expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateAndStep(size_t num_args) {
+  return std::make_unique<LogicalOpStep>(OpType::kAnd, num_args);
 }
 
 // Factory method for "Or" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateOrStep(size_t num_args,
-                                                             int64_t expr_id) {
-  return std::make_unique<LogicalOpStep>(OpType::kOr, num_args, expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateOrStep(size_t num_args) {
+  return std::make_unique<LogicalOpStep>(OpType::kOr, num_args);
 }
 
 // Factory method for recursive logical not "!" Execution step
@@ -469,8 +463,8 @@ std::unique_ptr<DirectExpressionStep> CreateDirectNotStep(
 }
 
 // Factory method for iterative logical not "!" Execution step
-std::unique_ptr<ExpressionStep> CreateNotStep(int64_t expr_id) {
-  return std::make_unique<IterativeNotStep>(expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateNotStep() {
+  return std::make_unique<IterativeNotStep>();
 }
 
 // Factory method for recursive logical "@not_strictly_false" Execution step.
@@ -481,8 +475,8 @@ std::unique_ptr<DirectExpressionStep> CreateDirectNotStrictlyFalseStep(
 }
 
 // Factory method for iterative logical "@not_strictly_false" Execution step.
-std::unique_ptr<ExpressionStep> CreateNotStrictlyFalseStep(int64_t expr_id) {
-  return std::make_unique<IterativeNotStrictlyFalseStep>(expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateNotStrictlyFalseStep() {
+  return std::make_unique<IterativeNotStrictlyFalseStep>();
 }
 
 }  // namespace google::api::expr::runtime

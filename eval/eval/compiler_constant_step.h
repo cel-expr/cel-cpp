@@ -56,8 +56,7 @@ class DirectCompilerConstantStep : public DirectExpressionStep {
 // inspect the underlying value.
 class CompilerConstantStep : public ExpressionStepBase {
  public:
-  CompilerConstantStep(cel::Value value, int64_t expr_id, bool comes_from_ast)
-      : ExpressionStepBase(expr_id, comes_from_ast), value_(std::move(value)) {}
+  explicit CompilerConstantStep(cel::Value value) : value_(std::move(value)) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 
