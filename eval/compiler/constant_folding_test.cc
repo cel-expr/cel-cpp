@@ -62,6 +62,7 @@ using ::google::api::expr::runtime::CreateConstValueStep;
 using ::google::api::expr::runtime::CreateCreateListStep;
 using ::google::api::expr::runtime::CreateCreateStructStepForMap;
 using ::google::api::expr::runtime::ExecutionPath;
+using ::google::api::expr::runtime::ExpressionStep;
 using ::google::api::expr::runtime::PlannerContext;
 using ::google::api::expr::runtime::ProgramBuilder;
 using ::google::api::expr::runtime::ProgramOptimizer;
@@ -115,26 +116,25 @@ TEST_F(UpdatedConstantFoldingTest, SkipsTernary) {
   program_builder.EnterSubexpression(&call);
   // condition
   program_builder.EnterSubexpression(&condition);
-  ASSERT_OK_AND_ASSIGN(auto step,
-                       CreateConstValueStep(cel::BoolValue(true), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(true)), condition.id()));
   program_builder.ExitSubexpression(&condition);
 
   // true
   program_builder.EnterSubexpression(&true_branch);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::BoolValue(true), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(true)), true_branch.id()));
   program_builder.ExitSubexpression(&true_branch);
 
   // false
   program_builder.EnterSubexpression(&false_branch);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::BoolValue(true), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(true)), false_branch.id()));
   program_builder.ExitSubexpression(&false_branch);
 
   // ternary.
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::NullValue(), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::NullValue()), call.id()));
   program_builder.ExitSubexpression(&call);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -179,21 +179,20 @@ TEST_F(UpdatedConstantFoldingTest, SkipsOr) {
 
   // left
   program_builder.EnterSubexpression(&left_condition);
-  ASSERT_OK_AND_ASSIGN(auto step,
-                       CreateConstValueStep(cel::BoolValue(false), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(false)), left_condition.id()));
   program_builder.ExitSubexpression(&left_condition);
 
   // right
   program_builder.EnterSubexpression(&right_condition);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::BoolValue(true), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(true)), right_condition.id()));
   program_builder.ExitSubexpression(&right_condition);
 
   // op
   // Just a placeholder.
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::NullValue(), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::NullValue()), call.id()));
   program_builder.ExitSubexpression(&call);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -235,21 +234,20 @@ TEST_F(UpdatedConstantFoldingTest, SkipsAnd) {
 
   // left
   program_builder.EnterSubexpression(&left_condition);
-  ASSERT_OK_AND_ASSIGN(auto step,
-                       CreateConstValueStep(cel::BoolValue(true), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(true)), left_condition.id()));
   program_builder.ExitSubexpression(&left_condition);
 
   // right
   program_builder.EnterSubexpression(&right_condition);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::BoolValue(false), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(false)), right_condition.id()));
   program_builder.ExitSubexpression(&right_condition);
 
   // op
   // Just a placeholder.
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::NullValue(), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::NullValue()), call.id()));
   program_builder.ExitSubexpression(&call);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -291,19 +289,21 @@ TEST_F(UpdatedConstantFoldingTest, CreatesList) {
 
   // elem one
   program_builder.EnterSubexpression(&elem_one);
-  ASSERT_OK_AND_ASSIGN(auto step, CreateConstValueStep(cel::IntValue(1L), 1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(1L)), elem_one.id()));
   program_builder.ExitSubexpression(&elem_one);
 
   // elem two
   program_builder.EnterSubexpression(&elem_two);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::IntValue(2L), 2));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(2L)), elem_two.id()));
   program_builder.ExitSubexpression(&elem_two);
 
   // createlist
-  ASSERT_OK_AND_ASSIGN(step, CreateCreateListStep(create_list.list_expr(), 3));
-  program_builder.AddStep(std::move(step));
+  ASSERT_OK_AND_ASSIGN(auto step,
+                       CreateCreateListStep(create_list.list_expr()));
+  program_builder.AddStep(
+      ExpressionStep::MakeGenericStep(std::move(step), create_list.id()));
   program_builder.ExitSubexpression(&create_list);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -349,37 +349,39 @@ TEST_F(UpdatedConstantFoldingTest, CreatesLargeList) {
 
   // 0
   ASSERT_TRUE(program_builder.EnterSubexpression(&elem0) != nullptr);
-  ASSERT_OK_AND_ASSIGN(auto step, CreateConstValueStep(cel::IntValue(1L), 1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(1L)), elem0.id()));
   program_builder.ExitSubexpression(&elem0);
 
   // 1
   ASSERT_TRUE(program_builder.EnterSubexpression(&elem1));
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::IntValue(2L), 2));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(2L)), elem1.id()));
   program_builder.ExitSubexpression(&elem1);
 
   // 2
   ASSERT_TRUE(program_builder.EnterSubexpression(&elem2) != nullptr);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::IntValue(3L), 3));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(3L)), elem2.id()));
   program_builder.ExitSubexpression(&elem2);
 
   // 3
   ASSERT_TRUE(program_builder.EnterSubexpression(&elem3) != nullptr);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::IntValue(4L), 4));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(4L)), elem3.id()));
   program_builder.ExitSubexpression(&elem3);
 
   // 4
   ASSERT_TRUE(program_builder.EnterSubexpression(&elem4) != nullptr);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::IntValue(5L), 5));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(5L)), elem4.id()));
   program_builder.ExitSubexpression(&elem4);
 
   // createlist
-  ASSERT_OK_AND_ASSIGN(step, CreateCreateListStep(create_list.list_expr(), 6));
-  program_builder.AddStep(std::move(step));
+  ASSERT_OK_AND_ASSIGN(auto step_large,
+                       CreateCreateListStep(create_list.list_expr()));
+  program_builder.AddStep(
+      ExpressionStep::MakeGenericStep(std::move(step_large), create_list.id()));
   program_builder.ExitSubexpression(&create_list);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -426,21 +428,22 @@ TEST_F(UpdatedConstantFoldingTest, CreatesMap) {
 
   // key
   program_builder.EnterSubexpression(&key);
-  ASSERT_OK_AND_ASSIGN(auto step, CreateConstValueStep(cel::IntValue(1L), 1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(1L)), key.id()));
   program_builder.ExitSubexpression(&key);
 
   // value
   program_builder.EnterSubexpression(&value);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::IntValue(2L), 2));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(2L)), value.id()));
   program_builder.ExitSubexpression(&value);
 
   // create map
   ASSERT_OK_AND_ASSIGN(
-      step, CreateCreateStructStepForMap(create_map.map_expr().entries().size(),
-                                         {}, 3));
-  program_builder.AddStep(std::move(step));
+      auto step_map,
+      CreateCreateStructStepForMap(create_map.map_expr().entries().size(), {}));
+  program_builder.AddStep(
+      ExpressionStep::MakeGenericStep(std::move(step_map), create_map.id()));
   program_builder.ExitSubexpression(&create_map);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -481,22 +484,22 @@ TEST_F(UpdatedConstantFoldingTest, CreatesInvalidMap) {
 
   // key
   program_builder.EnterSubexpression(&key);
-  ASSERT_OK_AND_ASSIGN(auto step,
-                       CreateConstValueStep(cel::DoubleValue(1.0), 1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::DoubleValue(1.0)), key.id()));
   program_builder.ExitSubexpression(&key);
 
   // value
   program_builder.EnterSubexpression(&value);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::IntValue(2L), 2));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::IntValue(2L)), value.id()));
   program_builder.ExitSubexpression(&value);
 
   // create map
   ASSERT_OK_AND_ASSIGN(
-      step, CreateCreateStructStepForMap(create_map.map_expr().entries().size(),
-                                         {}, 3));
-  program_builder.AddStep(std::move(step));
+      auto step_invalid_map,
+      CreateCreateStructStepForMap(create_map.map_expr().entries().size(), {}));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      std::move(step_invalid_map), create_map.id()));
   program_builder.ExitSubexpression(&create_map);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -536,21 +539,20 @@ TEST_F(UpdatedConstantFoldingTest, ErrorsOnUnexpectedOrder) {
   program_builder.EnterSubexpression(&call);
   // left
   program_builder.EnterSubexpression(&left_condition);
-  ASSERT_OK_AND_ASSIGN(auto step,
-                       CreateConstValueStep(cel::BoolValue(true), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(true)), left_condition.id()));
   program_builder.ExitSubexpression(&left_condition);
 
   // right
   program_builder.EnterSubexpression(&right_condition);
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::BoolValue(false), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::BoolValue(false)), right_condition.id()));
   program_builder.ExitSubexpression(&right_condition);
 
   // op
   // Just a placeholder.
-  ASSERT_OK_AND_ASSIGN(step, CreateConstValueStep(cel::NullValue(), -1));
-  program_builder.AddStep(std::move(step));
+  program_builder.AddStep(ExpressionStep::MakeGenericStep(
+      CreateConstValueStep(cel::NullValue()), call.id()));
   program_builder.ExitSubexpression(&call);
 
   std::shared_ptr<google::protobuf::Arena> arena;

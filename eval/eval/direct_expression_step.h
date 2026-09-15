@@ -77,10 +77,11 @@ class DirectExpressionStep {
 };
 
 // Wrapper for direct steps to work with the stack machine impl.
-class WrappedDirectStep : public ExpressionStep {
+class WrappedDirectStep : public ExpressionStepLogic {
  public:
-  WrappedDirectStep(std::unique_ptr<DirectExpressionStep> impl, int64_t expr_id)
-      : ExpressionStep(expr_id, false), impl_(std::move(impl)) {}
+  explicit WrappedDirectStep(std::unique_ptr<DirectExpressionStep> impl,
+                             int64_t expr_id = -1)
+      : impl_(std::move(impl)) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 

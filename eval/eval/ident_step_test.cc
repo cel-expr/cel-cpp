@@ -29,6 +29,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::Cast;
 using ::cel::ErrorValue;
@@ -46,10 +47,10 @@ using ::testing::HasSubstr;
 using ::testing::SizeIs;
 
 TEST(IdentStepTest, TestIdentStep) {
-  ASSERT_OK_AND_ASSIGN(auto step, CreateIdentStep("name0", /*id=*/-1));
+  auto step = CreateIdentStep("name0");
 
   ExecutionPath path;
-  path.push_back(std::move(step));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
@@ -63,7 +64,7 @@ TEST(IdentStepTest, TestIdentStep) {
 
   activation.InsertValue("name0", CelValue::CreateString(&value));
   auto status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
 
@@ -72,10 +73,10 @@ TEST(IdentStepTest, TestIdentStep) {
 }
 
 TEST(IdentStepTest, TestIdentStepNameNotFound) {
-  ASSERT_OK_AND_ASSIGN(auto step, CreateIdentStep("name0", /*id=*/-1));
+  auto step = CreateIdentStep("name0");
 
   ExecutionPath path;
-  path.push_back(std::move(step));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
@@ -88,17 +89,17 @@ TEST(IdentStepTest, TestIdentStepNameNotFound) {
   std::string value("test");
 
   auto status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
   ASSERT_TRUE(result.IsError());
 }
 
 TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
-  ASSERT_OK_AND_ASSIGN(auto step, CreateIdentStep("name0", /*id=*/-1));
+  auto step = CreateIdentStep("name0");
 
   ExecutionPath path;
-  path.push_back(std::move(step));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
   auto env = NewTestingRuntimeEnv();
@@ -114,7 +115,7 @@ TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
 
   activation.InsertValue("name0", CelValue::CreateString(&value));
   auto status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
 
@@ -125,16 +126,16 @@ TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
   activation.set_missing_attribute_patterns({pattern});
 
   status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   EXPECT_THAT(status0->StringOrDie().value(), Eq("test"));
 }
 
 TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
-  ASSERT_OK_AND_ASSIGN(auto step, CreateIdentStep("name0", /*expr_id=*/1));
+  auto step = CreateIdentStep("name0");
 
   ExecutionPath path;
-  path.push_back(std::move(step));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
@@ -153,7 +154,7 @@ TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
 
   activation.InsertValue("name0", CelValue::CreateString(&value));
   auto status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
 
@@ -164,17 +165,17 @@ TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
   activation.set_missing_attribute_patterns({pattern});
 
   status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   EXPECT_EQ(status0->ErrorOrDie()->code(), absl::StatusCode::kInvalidArgument);
   EXPECT_EQ(status0->ErrorOrDie()->message(), "MissingAttributeError: name0");
 }
 
 TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
-  ASSERT_OK_AND_ASSIGN(auto step, CreateIdentStep("name0", /*expr_id=*/1));
+  auto step = CreateIdentStep("name0");
 
   ExecutionPath path;
-  path.push_back(std::move(step));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
 
   // Expression with unknowns enabled.
   cel::RuntimeOptions options;
@@ -196,7 +197,7 @@ TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
 
   activation.set_unknown_attribute_patterns(unknown_patterns);
   auto status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
 
@@ -207,7 +208,7 @@ TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
 
   activation.set_unknown_attribute_patterns(unknown_patterns);
   status0 = impl.Evaluate(activation, &arena);
-  ASSERT_OK(status0);
+  ASSERT_THAT(status0, IsOk());
 
   result = status0.value();
 
@@ -231,7 +232,7 @@ TEST(DirectIdentStepTest, Basic) {
 
   auto step = CreateDirectIdentStep("var1", -1);
 
-  ASSERT_OK(step->Evaluate(frame, result, trail));
+  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
   ASSERT_TRUE(InstanceOf<IntValue>(result));
   EXPECT_THAT(Cast<IntValue>(result).NativeValue(), Eq(42));
@@ -256,7 +257,7 @@ TEST(DirectIdentStepTest, UnknownAttribute) {
 
   auto step = CreateDirectIdentStep("var1", -1);
 
-  ASSERT_OK(step->Evaluate(frame, result, trail));
+  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
   ASSERT_TRUE(InstanceOf<UnknownValue>(result));
   EXPECT_THAT(Cast<UnknownValue>(result).attribute_set(), SizeIs(1));
@@ -281,7 +282,7 @@ TEST(DirectIdentStepTest, MissingAttribute) {
 
   auto step = CreateDirectIdentStep("var1", -1);
 
-  ASSERT_OK(step->Evaluate(frame, result, trail));
+  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
   ASSERT_TRUE(InstanceOf<ErrorValue>(result));
   EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
@@ -303,7 +304,7 @@ TEST(DirectIdentStepTest, NotFound) {
 
   auto step = CreateDirectIdentStep("var1", -1);
 
-  ASSERT_OK(step->Evaluate(frame, result, trail));
+  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
   ASSERT_TRUE(InstanceOf<ErrorValue>(result));
   EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),

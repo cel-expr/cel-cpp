@@ -15,7 +15,6 @@
 #include "eval/eval/evaluator_core.h"
 
 #include <cstddef>
-#include <memory>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -44,7 +43,7 @@ const ExpressionStep* ExecutionFrame::Next() {
     const size_t end_pos = execution_path_.size();
 
     if (ABSL_PREDICT_TRUE(pc_ < end_pos)) {
-      const auto* step = execution_path_[pc_++].get();
+      const auto* step = &execution_path_[pc_++];
       ABSL_ASSUME(step != nullptr);
       return step;
     }

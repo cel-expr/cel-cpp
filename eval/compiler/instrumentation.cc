@@ -69,7 +69,8 @@ class InstrumentOptimizer : public ProgramOptimizer {
     }
 
     return context.AddSubplanStep(
-        node, std::make_unique<InstrumentStep>(node.id(), instrumentation_));
+        node, std::make_unique<InstrumentStep>(node.id(), instrumentation_),
+        node.id());
   }
 
  private:

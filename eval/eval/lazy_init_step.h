@@ -65,22 +65,20 @@ std::unique_ptr<DirectExpressionStep> CreateDirectLazyInitStep(
 
 // Creates a step representing accessing a lazily evaluated alias from
 // a bind or block.
-std::unique_ptr<ExpressionStep> CreateLazyInitStep(size_t slot_index,
-                                                   size_t subexpression_index,
-                                                   int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateLazyInitStep(
+    size_t slot_index, size_t subexpression_index);
 
 // Helper step to assign a slot value from the top of stack on initialization.
-std::unique_ptr<ExpressionStep> CreateAssignSlotAndPopStep(size_t slot_index);
+std::unique_ptr<ExpressionStepLogic> CreateAssignSlotAndPopStep(
+    size_t slot_index);
 
 // Helper step to clear a slot.
 // Slots may be reused in different contexts so need to be cleared after a
 // context is done.
-std::unique_ptr<ExpressionStep> CreateClearSlotStep(size_t slot_index,
-                                                    int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateClearSlotStep(size_t slot_index);
 
-std::unique_ptr<ExpressionStep> CreateClearSlotsStep(size_t slot_index,
-                                                     size_t slot_count,
-                                                     int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateClearSlotsStep(size_t slot_index,
+                                                          size_t slot_count);
 
 }  // namespace google::api::expr::runtime
 
