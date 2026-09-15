@@ -1105,8 +1105,8 @@ INSTANTIATE_TEST_SUITE_P(
             {},  // not set
             [](google::protobuf::Arena* arena, Activation& act) -> absl::Status {
               auto builder = cel::NewMapValueBuilder(arena);
-              CEL_RETURN_IF_ERROR(
-                  builder->Put(cel::StringValue("child"), cel::NullValue()));
+              CEL_RETURN_IF_ERROR(builder->Put(
+                  cel::StringValue::WrapUnsafe("child"), cel::NullValue()));
 
               auto value = std::move(*builder).Build();
 

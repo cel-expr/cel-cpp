@@ -25,6 +25,7 @@
 namespace cel::test {
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::testing::_;
 using ::testing::ElementsAre;
@@ -124,11 +125,12 @@ TEST(TimestampValueIs, NonMatchMessage) {
 }
 
 TEST(StringValueIs, Match) {
-  EXPECT_THAT(StringValue("hello!"), StringValueIs("hello!"));
+  EXPECT_THAT(StringValue::WrapUnsafe("hello!"), StringValueIs("hello!"));
 }
 
 TEST(StringValueIs, NoMatch) {
-  EXPECT_THAT(StringValue("hello!"), Not(StringValueIs("goodbye!")));
+  EXPECT_THAT(StringValue::WrapUnsafe("hello!"),
+              Not(StringValueIs("goodbye!")));
   EXPECT_THAT(IntValue(2), Not(StringValueIs("goodbye!")));
 }
 
@@ -139,11 +141,11 @@ TEST(StringValueIs, NonMatchMessage) {
 }
 
 TEST(BytesValueIs, Match) {
-  EXPECT_THAT(BytesValue("hello!"), BytesValueIs("hello!"));
+  EXPECT_THAT(BytesValue::WrapUnsafe("hello!"), BytesValueIs("hello!"));
 }
 
 TEST(BytesValueIs, NoMatch) {
-  EXPECT_THAT(BytesValue("hello!"), Not(BytesValueIs("goodbye!")));
+  EXPECT_THAT(BytesValue::WrapUnsafe("hello!"), Not(BytesValueIs("goodbye!")));
   EXPECT_THAT(IntValue(2), Not(BytesValueIs("goodbye!")));
 }
 
@@ -265,8 +267,10 @@ TEST_F(ValueMatcherTest, MapMatcherBasic) {
 TEST_F(ValueMatcherTest, MapMatcherMatchesElements) {
   auto builder = NewMapValueBuilder(arena());
 
-  ASSERT_OK(builder->Put(IntValue(42), StringValue("answer")));
-  ASSERT_OK(builder->Put(IntValue(1337), StringValue("leet")));
+  ASSERT_THAT(builder->Put(IntValue(42), StringValue::WrapUnsafe("answer")),
+              IsOk());
+  ASSERT_THAT(builder->Put(IntValue(1337), StringValue::WrapUnsafe("leet")),
+              IsOk());
   EXPECT_THAT(
       std::move(*builder).Build(),
       MapValueIs(MapValueElements(

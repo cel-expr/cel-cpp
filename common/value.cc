@@ -52,6 +52,7 @@
 #include "internal/number.h"
 #include "internal/protobuf_runtime_version.h"
 #include "internal/status_macros.h"
+#include "internal/utf8.h"
 #include "internal/well_known_types.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
@@ -422,10 +423,14 @@ void StringMapFieldKeyAccessor(const google::protobuf::MapKey& key,
   ABSL_DCHECK(result != nullptr);
 
 #if CEL_INTERNAL_PROTOBUF_OSS_VERSION_PREREQ(5, 30, 0)
-  *result = StringValue(Borrower::Arena(MessageArenaOr(message, arena)),
-                        key.GetStringValue());
+  if (google::protobuf::Arena* message_arena = message->GetArena();
+      message_arena != nullptr) {
+    *result = StringValue::Wrap(key.GetStringValue(), message_arena);
+  } else {
+    *result = StringValue::From(key.GetStringValue(), arena);
+  }
 #else
-  *result = StringValue(arena, key.GetStringValue());
+  *result = StringValue::From(key.GetStringValue(), arena);
 #endif
 }
 
@@ -604,9 +609,9 @@ void StringMapFieldValueAccessor(
   ABSL_DCHECK_EQ(field->type(), google::protobuf::FieldDescriptor::TYPE_STRING);
 
   if (message->GetArena() == nullptr) {
-    *result = StringValue(arena, value.GetStringValue());
+    *result = StringValue::From(value.GetStringValue(), arena);
   } else {
-    *result = StringValue(Borrower::Arena(arena), value.GetStringValue());
+    *result = StringValue::Wrap(value.GetStringValue(), message->GetArena());
   }
 }
 
@@ -647,9 +652,9 @@ void BytesMapFieldValueAccessor(
   ABSL_DCHECK_EQ(field->type(), google::protobuf::FieldDescriptor::TYPE_BYTES);
 
   if (message->GetArena() == nullptr) {
-    *result = BytesValue(arena, value.GetStringValue());
+    *result = BytesValue::From(value.GetStringValue(), arena);
   } else {
-    *result = BytesValue(Borrower::Arena(arena), value.GetStringValue());
+    *result = BytesValue::Wrap(value.GetStringValue(), message->GetArena());
   }
 }
 
@@ -940,16 +945,18 @@ void StringRepeatedFieldAccessor(
           [&](absl::string_view string) {
             if (string.data() == scratch.data() &&
                 string.size() == scratch.size()) {
-              *result = StringValue(arena, std::move(scratch));
+              *result = StringValue::From(std::move(scratch), arena);
             } else {
               if (message->GetArena() == nullptr) {
-                *result = StringValue(arena, string);
+                *result = StringValue::From(string, arena);
               } else {
-                *result = StringValue(Borrower::Arena(arena), string);
+                *result = StringValue::Wrap(string, message->GetArena());
               }
             }
           },
-          [&](absl::Cord&& cord) { *result = StringValue(std::move(cord)); }),
+          [&](absl::Cord&& cord) {
+            *result = StringValue::From(std::move(cord), arena);
+          }),
       well_known_types::AsVariant(well_known_types::GetRepeatedStringField(
           *message, field, index, scratch)));
 }
@@ -1007,16 +1014,18 @@ void BytesRepeatedFieldAccessor(
           [&](absl::string_view string) {
             if (string.data() == scratch.data() &&
                 string.size() == scratch.size()) {
-              *result = BytesValue(arena, std::move(scratch));
+              *result = BytesValue::From(std::move(scratch), arena);
             } else {
               if (message->GetArena() == nullptr) {
-                *result = BytesValue(arena, string);
+                *result = BytesValue::From(string, arena);
               } else {
-                *result = BytesValue(Borrower::Arena(arena), string);
+                *result = BytesValue::Wrap(string, message->GetArena());
               }
             }
           },
-          [&](absl::Cord&& cord) { *result = BytesValue(std::move(cord)); }),
+          [&](absl::Cord&& cord) {
+            *result = BytesValue::From(std::move(cord), arena);
+          }),
       well_known_types::AsVariant(well_known_types::GetRepeatedBytesField(
           *message, field, index, scratch)));
 }
@@ -1166,15 +1175,16 @@ struct OwningWellKnownTypesValueVisitor {
                              }
                              if (scratch->data() == string.data() &&
                                  scratch->size() == string.size()) {
-                               return BytesValue(arena, std::move(*scratch));
+                               return BytesValue::From(std::move(*scratch),
+                                                       arena);
                              }
-                             return BytesValue(arena, string);
+                             return BytesValue::From(string, arena);
                            },
                            [&](absl::Cord&& cord) -> BytesValue {
                              if (cord.empty()) {
                                return BytesValue();
                              }
-                             return BytesValue(arena, cord);
+                             return BytesValue::From(cord, arena);
                            }),
                        well_known_types::AsVariant(std::move(value)));
   }
@@ -1187,15 +1197,16 @@ struct OwningWellKnownTypesValueVisitor {
                              }
                              if (scratch->data() == string.data() &&
                                  scratch->size() == string.size()) {
-                               return StringValue(arena, std::move(*scratch));
+                               return StringValue::From(std::move(*scratch),
+                                                        arena);
                              }
-                             return StringValue(arena, string);
+                             return StringValue::From(string, arena);
                            },
                            [&](absl::Cord&& cord) -> StringValue {
                              if (cord.empty()) {
                                return StringValue();
                              }
-                             return StringValue(arena, cord);
+                             return StringValue::From(cord, arena);
                            }),
                        well_known_types::AsVariant(std::move(value)));
   }
@@ -1264,14 +1275,17 @@ struct BorrowingWellKnownTypesValueVisitor {
             [&](absl::string_view string) -> BytesValue {
               if (string.data() == scratch->data() &&
                   string.size() == scratch->size()) {
-                return BytesValue(arena, std::move(*scratch));
+                return BytesValue::From(std::move(*scratch), arena);
               } else {
-                return BytesValue(
-                    Borrower::Arena(MessageArenaOr(message, arena)), string);
+                if (google::protobuf::Arena* message_arena = message->GetArena();
+                    message_arena != nullptr) {
+                  return BytesValue::Wrap(string, message_arena);
+                }
+                return BytesValue::From(string, arena);
               }
             },
             [&](absl::Cord&& cord) -> BytesValue {
-              return BytesValue(std::move(cord));
+              return BytesValue::From(std::move(cord), arena);
             }),
         well_known_types::AsVariant(std::move(value)));
   }
@@ -1282,14 +1296,17 @@ struct BorrowingWellKnownTypesValueVisitor {
             [&](absl::string_view string) -> StringValue {
               if (string.data() == scratch->data() &&
                   string.size() == scratch->size()) {
-                return StringValue(arena, std::move(*scratch));
+                return StringValue::From(std::move(*scratch), arena);
               } else {
-                return StringValue(
-                    Borrower::Arena(MessageArenaOr(message, arena)), string);
+                if (google::protobuf::Arena* message_arena = message->GetArena();
+                    message_arena != nullptr) {
+                  return StringValue::Wrap(string, message_arena);
+                }
+                return StringValue::From(string, arena);
               }
             },
             [&](absl::Cord&& cord) -> StringValue {
-              return StringValue(std::move(cord));
+              return StringValue::From(std::move(cord), arena);
             }),
         well_known_types::AsVariant(std::move(value)));
   }
@@ -1563,17 +1580,20 @@ Value WrapFieldImpl(
               [&](absl::string_view string) -> StringValue {
                 if (string.data() == scratch.data() &&
                     string.size() == scratch.size()) {
-                  return StringValue(arena, std::move(scratch));
+                  return StringValue::From(std::move(scratch), arena);
                 }
                 if constexpr (Unsafe::value) {
                   return StringValue::WrapUnsafe(string);
                 } else {
-                  return StringValue(
-                      Borrower::Arena(MessageArenaOr(message, arena)), string);
+                  if (google::protobuf::Arena* message_arena = message->GetArena();
+                      message_arena != nullptr) {
+                    return StringValue::Wrap(string, message_arena);
+                  }
+                  return StringValue::From(string, arena);
                 }
               },
               [&](absl::Cord&& cord) -> StringValue {
-                return StringValue(std::move(cord));
+                return StringValue::From(std::move(cord), arena);
               }),
           well_known_types::AsVariant(
               well_known_types::GetStringField(*message, field, scratch)));
@@ -1602,17 +1622,20 @@ Value WrapFieldImpl(
               [&](absl::string_view string) -> BytesValue {
                 if (string.data() == scratch.data() &&
                     string.size() == scratch.size()) {
-                  return BytesValue(arena, std::move(scratch));
+                  return BytesValue::From(std::move(scratch), arena);
                 }
                 if constexpr (Unsafe::value) {
                   return BytesValue::WrapUnsafe(string);
                 } else {
-                  return BytesValue(
-                      Borrower::Arena(MessageArenaOr(message, arena)), string);
+                  if (google::protobuf::Arena* message_arena = message->GetArena();
+                      message_arena != nullptr) {
+                    return BytesValue::Wrap(string, message_arena);
+                  }
+                  return BytesValue::From(string, arena);
                 }
               },
               [&](absl::Cord&& cord) -> BytesValue {
-                return BytesValue(std::move(cord));
+                return BytesValue::From(std::move(cord), arena);
               }),
           well_known_types::AsVariant(
               well_known_types::GetBytesField(*message, field, scratch)));
@@ -1700,17 +1723,20 @@ Value WrapRepeatedFieldImpl(
               [&](absl::string_view string) -> StringValue {
                 if (string.data() == scratch.data() &&
                     string.size() == scratch.size()) {
-                  return StringValue(arena, std::move(scratch));
+                  return StringValue::From(std::move(scratch), arena);
                 }
                 if constexpr (Unsafe::value) {
                   return StringValue::WrapUnsafe(string);
                 } else {
-                  return StringValue(
-                      Borrower::Arena(MessageArenaOr(message, arena)), string);
+                  if (google::protobuf::Arena* message_arena = message->GetArena();
+                      message_arena != nullptr) {
+                    return StringValue::Wrap(string, message_arena);
+                  }
+                  return StringValue::From(string, arena);
                 }
               },
               [&](absl::Cord&& cord) -> StringValue {
-                return StringValue(std::move(cord));
+                return StringValue::From(std::move(cord), arena);
               }),
           well_known_types::AsVariant(well_known_types::GetRepeatedStringField(
               reflection, *message, field, index, scratch)));
@@ -1734,17 +1760,20 @@ Value WrapRepeatedFieldImpl(
               [&](absl::string_view string) -> BytesValue {
                 if (string.data() == scratch.data() &&
                     string.size() == scratch.size()) {
-                  return BytesValue(arena, std::move(scratch));
+                  return BytesValue::From(std::move(scratch), arena);
                 }
                 if constexpr (Unsafe::value) {
                   return BytesValue::WrapUnsafe(string);
                 } else {
-                  return BytesValue(
-                      Borrower::Arena(MessageArenaOr(message, arena)), string);
+                  if (google::protobuf::Arena* message_arena = message->GetArena();
+                      message_arena != nullptr) {
+                    return BytesValue::Wrap(string, message_arena);
+                  }
+                  return BytesValue::From(string, arena);
                 }
               },
               [&](absl::Cord&& cord) -> BytesValue {
-                return BytesValue(std::move(cord));
+                return BytesValue::From(std::move(cord), arena);
               }),
           well_known_types::AsVariant(well_known_types::GetRepeatedBytesField(
               reflection, *message, field, index, scratch)));
@@ -1810,8 +1839,7 @@ Value WrapMapFieldValueImpl(
       if constexpr (Unsafe::value) {
         return StringValue::WrapUnsafe(value.GetStringValue());
       } else {
-        return StringValue(Borrower::Arena(MessageArenaOr(message, arena)),
-                           value.GetStringValue());
+        return StringValue::From(value.GetStringValue(), arena);
       }
     case google::protobuf::FieldDescriptor::TYPE_GROUP:
       ABSL_FALLTHROUGH_INTENDED;
@@ -1827,8 +1855,7 @@ Value WrapMapFieldValueImpl(
       if constexpr (Unsafe::value) {
         return BytesValue::WrapUnsafe(value.GetStringValue());
       } else {
-        return BytesValue(Borrower::Arena(MessageArenaOr(message, arena)),
-                          value.GetStringValue());
+        return BytesValue::From(value.GetStringValue(), arena);
       }
     case google::protobuf::FieldDescriptor::TYPE_FIXED32:
       ABSL_FALLTHROUGH_INTENDED;
@@ -1913,11 +1940,12 @@ StringValue Value::WrapMapFieldKeyString(
   ABSL_DCHECK_EQ(key.type(), google::protobuf::FieldDescriptor::CPPTYPE_STRING);
 
 #if CEL_INTERNAL_PROTOBUF_OSS_VERSION_PREREQ(5, 30, 0)
-  return StringValue(Borrower::Arena(MessageArenaOr(message, arena)),
-                     key.GetStringValue());
-#else
-  return StringValue(arena, key.GetStringValue());
+  if (google::protobuf::Arena* message_arena = message->GetArena();
+      message_arena != nullptr) {
+    return StringValue::Wrap(key.GetStringValue(), message_arena);
+  }
 #endif
+  return StringValue::From(key.GetStringValue(), arena);
 }
 
 Value Value::WrapMapFieldValue(
@@ -2799,6 +2827,16 @@ absl::StatusOr<bool> ValueIterator::Next1(
     return true;
   }
   return false;
+}
+
+StringValue::StringValue(const BytesValue& other) : StringValue(other.value_) {
+  ABSL_DCHECK(value_.Visit(absl::Overload(
+      [](absl::string_view string) -> bool {
+        return internal::Utf8IsValid(string);
+      },
+      [](const absl::Cord& cord) -> bool {
+        return internal::Utf8IsValid(cord);
+      })));
 }
 
 }  // namespace cel

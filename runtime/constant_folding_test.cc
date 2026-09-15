@@ -87,9 +87,11 @@ TEST_P(ConstantFoldingExtTest, Runner) {
                                       const StringValue&>::
       RegisterGlobalOverload(
           "prepend",
-          [](const StringValue& value, const StringValue& prefix) {
-            return StringValue(
-                absl::StrCat(prefix.ToString(), value.ToString()));
+          [](const StringValue& value, const StringValue& prefix,
+             const Function::InvokeContext& context) {
+            return StringValue::From(
+                absl::StrCat(prefix.ToString(), value.ToString()),
+                context.arena());
           },
           builder.function_registry());
   ASSERT_THAT(status, IsOk());
@@ -150,9 +152,11 @@ TEST(ConstantFoldingExtTest, LazyFunctionNotFolded) {
       BinaryFunctionAdapter<absl::StatusOr<Value>, const StringValue&,
                             const StringValue&>;
   auto fn = FunctionAdapter::WrapFunction(
-      [&call_count](const StringValue& value, const StringValue& prefix) {
+      [&call_count](const StringValue& value, const StringValue& prefix,
+                    const Function::InvokeContext& context) {
         call_count++;
-        return StringValue(absl::StrCat(prefix.ToString(), value.ToString()));
+        return StringValue::From(
+            absl::StrCat(prefix.ToString(), value.ToString()), context.arena());
       });
   FunctionDescriptor descriptor = FunctionAdapter::CreateDescriptor(
       "lazy_prepend", /*receiver_style=*/false);
@@ -189,19 +193,21 @@ TEST(ConstantFoldingExtTest, ContextualFunctionNotFolded) {
                            internal::GetTestingDescriptorPool(), options));
   int call_count = 0;
 
-  auto status = BinaryFunctionAdapter<
-      absl::StatusOr<Value>, const StringValue&,
-      const StringValue&>::Register("contextual_prepend",
-                                    /*receiver_style=*/false,
-                                    [&call_count](const StringValue& value,
-                                                  const StringValue& prefix) {
-                                      call_count++;
-                                      return StringValue(absl::StrCat(
-                                          prefix.ToString(), value.ToString()));
-                                    },
-                                    builder.function_registry(),
-                                    {/*.is_strict=*/true,
-                                     /*is_contextual=*/true});
+  auto status = BinaryFunctionAdapter<absl::StatusOr<Value>, const StringValue&,
+                                      const StringValue&>::
+      Register(
+          "contextual_prepend",
+          /*receiver_style=*/false,
+          [&call_count](const StringValue& value, const StringValue& prefix,
+                        const Function::InvokeContext& context) {
+            call_count++;
+            return StringValue::From(
+                absl::StrCat(prefix.ToString(), value.ToString()),
+                context.arena());
+          },
+          builder.function_registry(),
+          {/*.is_strict=*/true,
+           /*is_contextual=*/true});
   ASSERT_THAT(status, IsOk());
 
   ASSERT_THAT(EnableConstantFolding(builder), IsOk());

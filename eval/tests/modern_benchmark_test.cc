@@ -383,9 +383,9 @@ void BM_PolicySymbolic(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
 
   Activation activation;
-  activation.InsertOrAssignValue("ip", StringValue(&arena, kIP));
-  activation.InsertOrAssignValue("path", StringValue(&arena, kPath));
-  activation.InsertOrAssignValue("token", StringValue(&arena, kToken));
+  activation.InsertOrAssignValue("ip", StringValue::WrapUnsafe(kIP));
+  activation.InsertOrAssignValue("path", StringValue::WrapUnsafe(kPath));
+  activation.InsertOrAssignValue("token", StringValue::WrapUnsafe(kToken));
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
@@ -439,11 +439,11 @@ class RequestMapImpl : public CustomMapValueInterface {
       return false;
     }
     if (string_value->Equals("ip")) {
-      *result = StringValue(kIP);
+      *result = StringValue::WrapUnsafe(kIP);
     } else if (string_value->Equals("path")) {
-      *result = StringValue(kPath);
+      *result = StringValue::WrapUnsafe(kPath);
     } else if (string_value->Equals("token")) {
-      *result = StringValue(kToken);
+      *result = StringValue::WrapUnsafe(kToken);
     } else {
       return false;
     }
@@ -684,9 +684,9 @@ void BM_HasMap(benchmark::State& state) {
 
   auto map_builder = cel::NewMapValueBuilder(&arena);
 
-  ASSERT_THAT(
-      map_builder->Put(cel::StringValue("path"), cel::StringValue("path")),
-      IsOk());
+  ASSERT_THAT(map_builder->Put(cel::StringValue::WrapUnsafe("path"),
+                               cel::StringValue::WrapUnsafe("path")),
+              IsOk());
 
   activation.InsertOrAssignValue("request", std::move(*map_builder).Build());
 

@@ -144,15 +144,15 @@ TEST_F(ParsedJsonMapValueTest, Get_Dynamic) {
       valid_value.Get(BoolValue(), descriptor_pool(), message_factory(),
                       arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound))));
-  EXPECT_THAT(valid_value.Get(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(valid_value.Get(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                               message_factory(), arena()),
               IsOkAndHolds(IsNullValue()));
-  EXPECT_THAT(valid_value.Get(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(valid_value.Get(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                               message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
   EXPECT_THAT(
-      valid_value.Get(StringValue("baz"), descriptor_pool(), message_factory(),
-                      arena()),
+      valid_value.Get(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+                      message_factory(), arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound))));
 }
 
@@ -171,14 +171,14 @@ TEST_F(ParsedJsonMapValueTest, Find_Dynamic) {
   EXPECT_THAT(valid_value.Find(BoolValue(), descriptor_pool(),
                                message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
-  EXPECT_THAT(valid_value.Find(StringValue("foo"), descriptor_pool(),
-                               message_factory(), arena()),
+  EXPECT_THAT(valid_value.Find(StringValue::WrapUnsafe("foo"),
+                               descriptor_pool(), message_factory(), arena()),
               IsOkAndHolds(Optional(IsNullValue())));
-  EXPECT_THAT(valid_value.Find(StringValue("bar"), descriptor_pool(),
-                               message_factory(), arena()),
+  EXPECT_THAT(valid_value.Find(StringValue::WrapUnsafe("bar"),
+                               descriptor_pool(), message_factory(), arena()),
               IsOkAndHolds(Optional(BoolValueIs(true))));
-  EXPECT_THAT(valid_value.Find(StringValue("baz"), descriptor_pool(),
-                               message_factory(), arena()),
+  EXPECT_THAT(valid_value.Find(StringValue::WrapUnsafe("baz"),
+                               descriptor_pool(), message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
 }
 
@@ -197,13 +197,13 @@ TEST_F(ParsedJsonMapValueTest, Has_Dynamic) {
   EXPECT_THAT(valid_value.Has(BoolValue(), descriptor_pool(), message_factory(),
                               arena()),
               IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(valid_value.Has(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(valid_value.Has(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                               message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  EXPECT_THAT(valid_value.Has(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(valid_value.Has(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                               message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  EXPECT_THAT(valid_value.Has(StringValue("baz"), descriptor_pool(),
+  EXPECT_THAT(valid_value.Has(StringValue::WrapUnsafe("baz"), descriptor_pool(),
                               message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
 }
@@ -229,7 +229,7 @@ TEST_F(ParsedJsonMapValueTest, ListKeys_Dynamic) {
   EXPECT_THAT(
       keys.Contains(BoolValue(), descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(keys.Contains(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(keys.Contains(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                             message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
   EXPECT_THAT(keys.Get(0, descriptor_pool(), message_factory(), arena()),
@@ -379,10 +379,10 @@ TEST_F(ParsedJsonMapValueTest, CloneDifferentArena) {
       cloned.Equal(value, descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(BoolValueIs(true)));
   EXPECT_EQ(cloned.Size(), 2);
-  EXPECT_THAT(cloned.Get(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(cloned.Get(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                          message_factory(), arena()),
               IsOkAndHolds(IsNullValue()));
-  EXPECT_THAT(cloned.Get(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(cloned.Get(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                          message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
 }

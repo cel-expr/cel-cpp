@@ -162,13 +162,14 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterWrapFunctionDuration) {
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterWrapFunctionString) {
   using FunctionAdapter = UnaryFunctionAdapter<StringValue, StringValue>;
-  std::unique_ptr<Function> wrapped =
-      FunctionAdapter::WrapFunction([](const StringValue& x) -> StringValue {
-        return StringValue("pre_" + x.ToString());
+  std::unique_ptr<Function> wrapped = FunctionAdapter::WrapFunction(
+      [](const StringValue& x,
+         const Function::InvokeContext& context) -> StringValue {
+        return StringValue::From("pre_" + x.ToString(), context.arena());
       });
 
   std::vector<Value> args;
-  args.emplace_back() = StringValue("string");
+  args.emplace_back() = StringValue::WrapUnsafe("string");
   ASSERT_OK_AND_ASSIGN(auto result,
                        wrapped->Invoke(args, test_invoke_context()));
 
@@ -178,13 +179,14 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterWrapFunctionString) {
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterWrapFunctionBytes) {
   using FunctionAdapter = UnaryFunctionAdapter<BytesValue, BytesValue>;
-  std::unique_ptr<Function> wrapped =
-      FunctionAdapter::WrapFunction([](const BytesValue& x) -> BytesValue {
-        return BytesValue("pre_" + x.ToString());
+  std::unique_ptr<Function> wrapped = FunctionAdapter::WrapFunction(
+      [](const BytesValue& x,
+         const Function::InvokeContext& context) -> BytesValue {
+        return BytesValue::From("pre_" + x.ToString(), context.arena());
       });
 
   std::vector<Value> args;
-  args.emplace_back() = BytesValue("bytes");
+  args.emplace_back() = BytesValue::WrapUnsafe("bytes");
   ASSERT_OK_AND_ASSIGN(auto result,
                        wrapped->Invoke(args, test_invoke_context()));
 
@@ -480,14 +482,15 @@ TEST_F(FunctionAdapterTest, BinaryFunctionAdapterWrapFunctionString) {
       BinaryFunctionAdapter<absl::StatusOr<StringValue>, const StringValue&,
                             const StringValue&>;
   std::unique_ptr<Function> wrapped = FunctionAdapter::WrapFunction(
-      [](const StringValue& x,
-         const StringValue& y) -> absl::StatusOr<StringValue> {
-        return StringValue(x.ToString() + y.ToString());
+      [](const StringValue& x, const StringValue& y,
+         const Function::InvokeContext& context)
+          -> absl::StatusOr<StringValue> {
+        return StringValue::From(x.ToString() + y.ToString(), context.arena());
       });
 
   std::vector<Value> args;
-  args.emplace_back() = StringValue("abc");
-  args.emplace_back() = StringValue("def");
+  args.emplace_back() = StringValue::WrapUnsafe("abc");
+  args.emplace_back() = StringValue::WrapUnsafe("def");
 
   ASSERT_OK_AND_ASSIGN(auto result,
                        wrapped->Invoke(args, test_invoke_context()));
@@ -501,14 +504,14 @@ TEST_F(FunctionAdapterTest, BinaryFunctionAdapterWrapFunctionBytes) {
       BinaryFunctionAdapter<absl::StatusOr<BytesValue>, const BytesValue&,
                             const BytesValue&>;
   std::unique_ptr<Function> wrapped = FunctionAdapter::WrapFunction(
-      [](const BytesValue& x,
-         const BytesValue& y) -> absl::StatusOr<BytesValue> {
-        return BytesValue(x.ToString() + y.ToString());
+      [](const BytesValue& x, const BytesValue& y,
+         const Function::InvokeContext& context) -> absl::StatusOr<BytesValue> {
+        return BytesValue::From(x.ToString() + y.ToString(), context.arena());
       });
 
   std::vector<Value> args;
-  args.emplace_back() = BytesValue("abc");
-  args.emplace_back() = BytesValue("def");
+  args.emplace_back() = BytesValue::WrapUnsafe("abc");
+  args.emplace_back() = BytesValue::WrapUnsafe("def");
 
   ASSERT_OK_AND_ASSIGN(auto result,
                        wrapped->Invoke(args, test_invoke_context()));
@@ -712,7 +715,7 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterCreateDescriptor0Args) {
 TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction0Args) {
   std::unique_ptr<Function> fn =
       NullaryFunctionAdapter<absl::StatusOr<Value>>::WrapFunction(
-          []() { return StringValue("abc"); });
+          []() { return StringValue::WrapUnsafe("abc"); });
 
   ASSERT_OK_AND_ASSIGN(auto result, fn->Invoke({}, descriptor_pool(),
                                                message_factory(), arena()));
@@ -734,16 +737,18 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterCreateDescriptor3Args) {
 
 TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction3Args) {
   std::unique_ptr<Function> fn = NaryFunctionAdapter<
-      absl::StatusOr<Value>, int64_t, bool,
-      const StringValue&>::WrapFunction([](int64_t int_val, bool bool_val,
-                                           const StringValue& string_val)
-                                            -> absl::StatusOr<Value> {
-    return StringValue(absl::StrCat(int_val, "_", (bool_val ? "true" : "false"),
-                                    "_", string_val.ToString()));
-  });
+      absl::StatusOr<Value>, int64_t, bool, const StringValue&>::
+      WrapFunction(
+          [](int64_t int_val, bool bool_val, const StringValue& string_val,
+             const Function::InvokeContext& context) -> absl::StatusOr<Value> {
+            return StringValue::From(
+                absl::StrCat(int_val, "_", (bool_val ? "true" : "false"), "_",
+                             string_val.ToString()),
+                context.arena());
+          });
 
   std::vector<Value> args{IntValue(42), BoolValue(false)};
-  args.emplace_back() = StringValue("abcd");
+  args.emplace_back() = StringValue::WrapUnsafe("abcd");
   ASSERT_OK_AND_ASSIGN(auto result, fn->Invoke(args, descriptor_pool(),
                                                message_factory(), arena()));
   ASSERT_TRUE(result->Is<StringValue>());
@@ -752,13 +757,15 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction3Args) {
 
 TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction3ArgsBadArgType) {
   std::unique_ptr<Function> fn = NaryFunctionAdapter<
-      absl::StatusOr<Value>, int64_t, bool,
-      const StringValue&>::WrapFunction([](int64_t int_val, bool bool_val,
-                                           const StringValue& string_val)
-                                            -> absl::StatusOr<Value> {
-    return StringValue(absl::StrCat(int_val, "_", (bool_val ? "true" : "false"),
-                                    "_", string_val.ToString()));
-  });
+      absl::StatusOr<Value>, int64_t, bool, const StringValue&>::
+      WrapFunction(
+          [](int64_t int_val, bool bool_val, const StringValue& string_val,
+             const Function::InvokeContext& context) -> absl::StatusOr<Value> {
+            return StringValue::From(
+                absl::StrCat(int_val, "_", (bool_val ? "true" : "false"), "_",
+                             string_val.ToString()),
+                context.arena());
+          });
 
   std::vector<Value> args{IntValue(42), BoolValue(false)};
   args.emplace_back() = TimestampValue(absl::UnixEpoch());
@@ -769,13 +776,15 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction3ArgsBadArgType) {
 
 TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction3ArgsBadArgCount) {
   std::unique_ptr<Function> fn = NaryFunctionAdapter<
-      absl::StatusOr<Value>, int64_t, bool,
-      const StringValue&>::WrapFunction([](int64_t int_val, bool bool_val,
-                                           const StringValue& string_val)
-                                            -> absl::StatusOr<Value> {
-    return StringValue(absl::StrCat(int_val, "_", (bool_val ? "true" : "false"),
-                                    "_", string_val.ToString()));
-  });
+      absl::StatusOr<Value>, int64_t, bool, const StringValue&>::
+      WrapFunction(
+          [](int64_t int_val, bool bool_val, const StringValue& string_val,
+             const Function::InvokeContext& context) -> absl::StatusOr<Value> {
+            return StringValue::From(
+                absl::StrCat(int_val, "_", (bool_val ? "true" : "false"), "_",
+                             string_val.ToString()),
+                context.arena());
+          });
 
   std::vector<Value> args{IntValue(42), BoolValue(false)};
   EXPECT_THAT(fn->Invoke(args, test_invoke_context()),
@@ -802,15 +811,17 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction5Args) {
       absl::StatusOr<Value>, int64_t, bool, const StringValue&, int64_t,
       int64_t>::WrapFunction([](int64_t int_val, bool bool_val,
                                 const StringValue& string_val,
-                                int64_t extra_arg,
-                                int64_t extra_arg2) -> absl::StatusOr<Value> {
-    return StringValue(absl::StrCat(int_val, "_", (bool_val ? "true" : "false"),
-                                    "_", string_val.ToString(), "_", extra_arg,
-                                    "_", extra_arg2));
+                                int64_t extra_arg, int64_t extra_arg2,
+                                const Function::InvokeContext& context)
+                                 -> absl::StatusOr<Value> {
+    return StringValue::From(
+        absl::StrCat(int_val, "_", (bool_val ? "true" : "false"), "_",
+                     string_val.ToString(), "_", extra_arg, "_", extra_arg2),
+        context.arena());
   });
 
   std::vector<Value> args{IntValue(42), BoolValue(false)};
-  args.emplace_back() = StringValue("abcd");
+  args.emplace_back() = StringValue::WrapUnsafe("abcd");
   args.push_back(IntValue(123));
   args.push_back(IntValue(456));
   ASSERT_OK_AND_ASSIGN(auto result, fn->Invoke(args, descriptor_pool(),
@@ -824,12 +835,15 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction5ArgsBadArgType) {
       absl::StatusOr<Value>, int64_t, bool, const StringValue&, int64_t,
       int64_t>::WrapFunction([](int64_t int_val, bool bool_val,
                                 const StringValue& string_val,
-                                int64_t extra_arg,
-                                int64_t extra_arg2) -> absl::StatusOr<Value> {
+                                int64_t extra_arg, int64_t extra_arg2,
+                                const Function::InvokeContext& context)
+                                 -> absl::StatusOr<Value> {
     static_cast<void>(extra_arg);
     static_cast<void>(extra_arg2);
-    return StringValue(absl::StrCat(int_val, "_", (bool_val ? "true" : "false"),
-                                    "_", string_val.ToString()));
+    return StringValue::From(
+        absl::StrCat(int_val, "_", (bool_val ? "true" : "false"), "_",
+                     string_val.ToString()),
+        context.arena());
   });
 
   std::vector<Value> args{IntValue(42), BoolValue(false)};
@@ -846,12 +860,15 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction5ArgsBadArgCount) {
       absl::StatusOr<Value>, int64_t, bool, const StringValue&, int64_t,
       int64_t>::WrapFunction([](int64_t int_val, bool bool_val,
                                 const StringValue& string_val,
-                                int64_t extra_arg,
-                                int64_t extra_arg2) -> absl::StatusOr<Value> {
+                                int64_t extra_arg, int64_t extra_arg2,
+                                const Function::InvokeContext& context)
+                                 -> absl::StatusOr<Value> {
     static_cast<void>(extra_arg);
     static_cast<void>(extra_arg2);
-    return StringValue(absl::StrCat(int_val, "_", (bool_val ? "true" : "false"),
-                                    "_", string_val.ToString()));
+    return StringValue::From(
+        absl::StrCat(int_val, "_", (bool_val ? "true" : "false"), "_",
+                     string_val.ToString()),
+        context.arena());
   });
 
   std::vector<Value> args{IntValue(42), BoolValue(false)};

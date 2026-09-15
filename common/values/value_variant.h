@@ -86,10 +86,9 @@ enum class ValueIndex : uint8_t {
   kParsedMessage,
   kCustomStruct,
   kOpaque,
-
-  // Keep non-trivial alternatives together to aid in compiling optimizations.
   kBytes,
   kString,
+  // Keep non-trivial alternatives together to aid in compiling optimizations.
   kError,
   kUnknown,
 };
@@ -355,9 +354,7 @@ struct ValueAlternative<BytesValue> {
   static constexpr bool kAlwaysTrivial = false;
 
   static ValueFlags Flags(const BytesValue* absl_nonnull alternative) {
-    return ArenaTraits<BytesValue>::trivially_destructible(*alternative)
-               ? ValueFlags::kNone
-               : ValueFlags::kNonTrivial;
+    return ValueFlags::kNone;
   }
 };
 
@@ -368,9 +365,7 @@ struct ValueAlternative<StringValue> {
   static constexpr bool kAlwaysTrivial = false;
 
   static ValueFlags Flags(const StringValue* absl_nonnull alternative) {
-    return ArenaTraits<StringValue>::trivially_destructible(*alternative)
-               ? ValueFlags::kNone
-               : ValueFlags::kNonTrivial;
+    return ValueFlags::kNone;
   }
 };
 

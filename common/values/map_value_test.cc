@@ -270,9 +270,10 @@ TEST_F(MapValueTest, NewIterator) {
 TEST_F(MapValueTest, ConvertToJson) {
   ASSERT_OK_AND_ASSIGN(
       auto value,
-      NewJsonMapValue(std::pair{StringValue("0"), DoubleValue(3.0)},
-                      std::pair{StringValue("1"), DoubleValue(4.0)},
-                      std::pair{StringValue("2"), DoubleValue(5.0)}));
+      NewJsonMapValue(
+          std::pair{StringValue::WrapUnsafe("0"), DoubleValue(3.0)},
+          std::pair{StringValue::WrapUnsafe("1"), DoubleValue(4.0)},
+          std::pair{StringValue::WrapUnsafe("2"), DoubleValue(5.0)}));
   auto* message = NewArenaValueMessage();
   EXPECT_THAT(
       value.ConvertToJson(descriptor_pool(), message_factory(), message),

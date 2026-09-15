@@ -325,7 +325,7 @@ absl::Status ParsedJsonMapValue::ForEach(
   const auto map_end = reflection.EndFields(*value_);
   for (; map_begin != map_end; ++map_begin) {
     // We have to copy until `google::protobuf::MapKey` is just a view.
-    key_scratch = StringValue(arena, map_begin.GetKey().GetStringValue());
+    key_scratch = StringValue::From(map_begin.GetKey().GetStringValue(), arena);
     value_scratch = common_internal::ParsedJsonValue(
         &map_begin.GetValueRef().GetMessageValue(), arena);
     CEL_ASSIGN_OR_RETURN(auto ok, callback(key_scratch, value_scratch));

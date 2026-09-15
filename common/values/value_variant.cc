@@ -21,9 +21,7 @@
 
 #include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
-#include "common/values/bytes_value.h"
 #include "common/values/error_value.h"
-#include "common/values/string_value.h"
 #include "common/values/unknown_value.h"
 #include "common/values/values.h"
 
@@ -33,13 +31,6 @@ void ValueVariant::SlowCopyConstruct(const ValueVariant& other) noexcept {
   ABSL_DCHECK((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNonTrivial);
 
   switch (index_) {
-    case ValueIndex::kBytes:
-      ::new (static_cast<void*>(&raw_[0])) BytesValue(*other.At<BytesValue>());
-      break;
-    case ValueIndex::kString:
-      ::new (static_cast<void*>(&raw_[0]))
-          StringValue(*other.At<StringValue>());
-      break;
     case ValueIndex::kError:
       ::new (static_cast<void*>(&raw_[0])) ErrorValue(*other.At<ErrorValue>());
       break;
@@ -56,14 +47,6 @@ void ValueVariant::SlowMoveConstruct(ValueVariant& other) noexcept {
   ABSL_DCHECK((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNonTrivial);
 
   switch (index_) {
-    case ValueIndex::kBytes:
-      ::new (static_cast<void*>(&raw_[0]))
-          BytesValue(std::move(*other.At<BytesValue>()));
-      break;
-    case ValueIndex::kString:
-      ::new (static_cast<void*>(&raw_[0]))
-          StringValue(std::move(*other.At<StringValue>()));
-      break;
     case ValueIndex::kError:
       ::new (static_cast<void*>(&raw_[0]))
           ErrorValue(std::move(*other.At<ErrorValue>()));
@@ -81,12 +64,6 @@ void ValueVariant::SlowDestruct() noexcept {
   ABSL_DCHECK((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNonTrivial);
 
   switch (index_) {
-    case ValueIndex::kBytes:
-      At<BytesValue>()->~BytesValue();
-      break;
-    case ValueIndex::kString:
-      At<StringValue>()->~StringValue();
-      break;
     case ValueIndex::kError:
       At<ErrorValue>()->~ErrorValue();
       break;
@@ -104,14 +81,6 @@ void ValueVariant::SlowCopyAssign(const ValueVariant& other, bool trivial,
 
   if (trivial) {
     switch (other.index_) {
-      case ValueIndex::kBytes:
-        ::new (static_cast<void*>(&raw_[0]))
-            BytesValue(*other.At<BytesValue>());
-        break;
-      case ValueIndex::kString:
-        ::new (static_cast<void*>(&raw_[0]))
-            StringValue(*other.At<StringValue>());
-        break;
       case ValueIndex::kError:
         ::new (static_cast<void*>(&raw_[0]))
             ErrorValue(*other.At<ErrorValue>());
@@ -128,12 +97,6 @@ void ValueVariant::SlowCopyAssign(const ValueVariant& other, bool trivial,
     flags_ = other.flags_;
   } else if (other_trivial) {
     switch (index_) {
-      case ValueIndex::kBytes:
-        At<BytesValue>()->~BytesValue();
-        break;
-      case ValueIndex::kString:
-        At<StringValue>()->~StringValue();
-        break;
       case ValueIndex::kError:
         At<ErrorValue>()->~ErrorValue();
         break;
@@ -146,82 +109,8 @@ void ValueVariant::SlowCopyAssign(const ValueVariant& other, bool trivial,
     FastCopyAssign(other);
   } else {
     switch (index_) {
-      case ValueIndex::kBytes:
-        switch (other.index_) {
-          case ValueIndex::kBytes:
-            *At<BytesValue>() = *other.At<BytesValue>();
-            break;
-          case ValueIndex::kString:
-            At<BytesValue>()->~BytesValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                StringValue(*other.At<StringValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kError:
-            At<BytesValue>()->~BytesValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                ErrorValue(*other.At<ErrorValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kUnknown:
-            At<BytesValue>()->~BytesValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                UnknownValue(*other.At<UnknownValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          default:
-            ABSL_UNREACHABLE();
-        }
-        break;
-      case ValueIndex::kString:
-        switch (other.index_) {
-          case ValueIndex::kBytes:
-            At<StringValue>()->~StringValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                BytesValue(*other.At<BytesValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kString:
-            *At<StringValue>() = *other.At<StringValue>();
-            break;
-          case ValueIndex::kError:
-            At<StringValue>()->~StringValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                ErrorValue(*other.At<ErrorValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kUnknown:
-            At<StringValue>()->~StringValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                UnknownValue(*other.At<UnknownValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          default:
-            ABSL_UNREACHABLE();
-        }
-        break;
       case ValueIndex::kError:
         switch (other.index_) {
-          case ValueIndex::kBytes:
-            At<ErrorValue>()->~ErrorValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                BytesValue(*other.At<BytesValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kString:
-            At<ErrorValue>()->~ErrorValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                StringValue(*other.At<StringValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
           case ValueIndex::kError:
             *At<ErrorValue>() = *other.At<ErrorValue>();
             break;
@@ -238,20 +127,6 @@ void ValueVariant::SlowCopyAssign(const ValueVariant& other, bool trivial,
         break;
       case ValueIndex::kUnknown:
         switch (other.index_) {
-          case ValueIndex::kBytes:
-            At<UnknownValue>()->~UnknownValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                BytesValue(*other.At<BytesValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kString:
-            At<UnknownValue>()->~UnknownValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                StringValue(*other.At<StringValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
           case ValueIndex::kError:
             At<UnknownValue>()->~UnknownValue();
             ::new (static_cast<void*>(&raw_[0]))
@@ -283,14 +158,6 @@ void ValueVariant::SlowMoveAssign(ValueVariant& other, bool trivial,
 
   if (trivial) {
     switch (other.index_) {
-      case ValueIndex::kBytes:
-        ::new (static_cast<void*>(&raw_[0]))
-            BytesValue(std::move(*other.At<BytesValue>()));
-        break;
-      case ValueIndex::kString:
-        ::new (static_cast<void*>(&raw_[0]))
-            StringValue(std::move(*other.At<StringValue>()));
-        break;
       case ValueIndex::kError:
         ::new (static_cast<void*>(&raw_[0]))
             ErrorValue(std::move(*other.At<ErrorValue>()));
@@ -307,12 +174,6 @@ void ValueVariant::SlowMoveAssign(ValueVariant& other, bool trivial,
     flags_ = other.flags_;
   } else if (other_trivial) {
     switch (index_) {
-      case ValueIndex::kBytes:
-        At<BytesValue>()->~BytesValue();
-        break;
-      case ValueIndex::kString:
-        At<StringValue>()->~StringValue();
-        break;
       case ValueIndex::kError:
         At<ErrorValue>()->~ErrorValue();
         break;
@@ -325,82 +186,8 @@ void ValueVariant::SlowMoveAssign(ValueVariant& other, bool trivial,
     FastMoveAssign(other);
   } else {
     switch (index_) {
-      case ValueIndex::kBytes:
-        switch (other.index_) {
-          case ValueIndex::kBytes:
-            *At<BytesValue>() = std::move(*other.At<BytesValue>());
-            break;
-          case ValueIndex::kString:
-            At<BytesValue>()->~BytesValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                StringValue(std::move(*other.At<StringValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kError:
-            At<BytesValue>()->~BytesValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                ErrorValue(std::move(*other.At<ErrorValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kUnknown:
-            At<BytesValue>()->~BytesValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                UnknownValue(std::move(*other.At<UnknownValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          default:
-            ABSL_UNREACHABLE();
-        }
-        break;
-      case ValueIndex::kString:
-        switch (other.index_) {
-          case ValueIndex::kBytes:
-            At<StringValue>()->~StringValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                BytesValue(std::move(*other.At<BytesValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kString:
-            *At<StringValue>() = std::move(*other.At<StringValue>());
-            break;
-          case ValueIndex::kError:
-            At<StringValue>()->~StringValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                ErrorValue(std::move(*other.At<ErrorValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kUnknown:
-            At<StringValue>()->~StringValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                UnknownValue(std::move(*other.At<UnknownValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          default:
-            ABSL_UNREACHABLE();
-        }
-        break;
       case ValueIndex::kError:
         switch (other.index_) {
-          case ValueIndex::kBytes:
-            At<ErrorValue>()->~ErrorValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                BytesValue(std::move(*other.At<BytesValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kString:
-            At<ErrorValue>()->~ErrorValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                StringValue(std::move(*other.At<StringValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
           case ValueIndex::kError:
             *At<ErrorValue>() = std::move(*other.At<ErrorValue>());
             break;
@@ -417,20 +204,6 @@ void ValueVariant::SlowMoveAssign(ValueVariant& other, bool trivial,
         break;
       case ValueIndex::kUnknown:
         switch (other.index_) {
-          case ValueIndex::kBytes:
-            At<UnknownValue>()->~UnknownValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                BytesValue(std::move(*other.At<BytesValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          case ValueIndex::kString:
-            At<UnknownValue>()->~UnknownValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                StringValue(std::move(*other.At<StringValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
           case ValueIndex::kError:
             At<UnknownValue>()->~UnknownValue();
             ::new (static_cast<void*>(&raw_[0]))
@@ -463,16 +236,6 @@ void ValueVariant::SlowSwap(ValueVariant& lhs, ValueVariant& rhs,
     // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
     std::memcpy(tmp, std::addressof(lhs), sizeof(ValueVariant));
     switch (rhs.index_) {
-      case ValueIndex::kBytes:
-        ::new (static_cast<void*>(&lhs.raw_[0]))
-            BytesValue(*rhs.At<BytesValue>());
-        rhs.At<BytesValue>()->~BytesValue();
-        break;
-      case ValueIndex::kString:
-        ::new (static_cast<void*>(&lhs.raw_[0]))
-            StringValue(*rhs.At<StringValue>());
-        rhs.At<StringValue>()->~StringValue();
-        break;
       case ValueIndex::kError:
         ::new (static_cast<void*>(&lhs.raw_[0]))
             ErrorValue(*rhs.At<ErrorValue>());
@@ -498,16 +261,6 @@ void ValueVariant::SlowSwap(ValueVariant& lhs, ValueVariant& rhs,
     // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
     std::memcpy(tmp, std::addressof(rhs), sizeof(ValueVariant));
     switch (lhs.index_) {
-      case ValueIndex::kBytes:
-        ::new (static_cast<void*>(&rhs.raw_[0]))
-            BytesValue(*lhs.At<BytesValue>());
-        lhs.At<BytesValue>()->~BytesValue();
-        break;
-      case ValueIndex::kString:
-        ::new (static_cast<void*>(&rhs.raw_[0]))
-            StringValue(*lhs.At<StringValue>());
-        lhs.At<StringValue>()->~StringValue();
-        break;
       case ValueIndex::kError:
         ::new (static_cast<void*>(&rhs.raw_[0]))
             ErrorValue(*lhs.At<ErrorValue>());

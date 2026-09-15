@@ -224,9 +224,9 @@ absl::StatusOr<Value> FromExprValue(
     case ExprValueKind::kDoubleValue:
       return cel::DoubleValue(value.double_value());
     case ExprValueKind::kStringValue:
-      return cel::StringValue(value.string_value());
+      return cel::StringValue::From(value.string_value(), arena);
     case ExprValueKind::kBytesValue:
-      return cel::BytesValue(value.bytes_value());
+      return cel::BytesValue::From(value.bytes_value(), arena);
     case ExprValueKind::kNullValue:
       return cel::NullValue();
     case ExprValueKind::kObjectValue:

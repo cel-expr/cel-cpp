@@ -251,12 +251,14 @@ TEST_F(ParsedJsonListValueTest, Contains_Dynamic) {
   EXPECT_THAT(valid_value.Contains(DoubleValue(1.0), descriptor_pool(),
                                    message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  EXPECT_THAT(valid_value.Contains(StringValue("bar"), descriptor_pool(),
-                                   message_factory(), arena()),
-              IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(valid_value.Contains(StringValue("foo"), descriptor_pool(),
-                                   message_factory(), arena()),
-              IsOkAndHolds(BoolValueIs(true)));
+  EXPECT_THAT(
+      valid_value.Contains(StringValue::WrapUnsafe("bar"), descriptor_pool(),
+                           message_factory(), arena()),
+      IsOkAndHolds(BoolValueIs(false)));
+  EXPECT_THAT(
+      valid_value.Contains(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                           message_factory(), arena()),
+      IsOkAndHolds(BoolValueIs(true)));
   EXPECT_THAT(valid_value.Contains(
                   ParsedJsonListValue(
                       DynamicParseTextProto<google::protobuf::ListValue>(

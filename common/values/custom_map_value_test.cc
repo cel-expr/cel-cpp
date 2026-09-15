@@ -109,8 +109,8 @@ class CustomMapValueInterfaceTest final : public CustomMapValueInterface {
       ListValue* absl_nonnull result) const override {
     auto builder = common_internal::NewListValueBuilder(arena);
     builder->Reserve(2);
-    CEL_RETURN_IF_ERROR(builder->Add(StringValue("foo")));
-    CEL_RETURN_IF_ERROR(builder->Add(StringValue("bar")));
+    CEL_RETURN_IF_ERROR(builder->Add(StringValue::WrapUnsafe("foo")));
+    CEL_RETURN_IF_ERROR(builder->Add(StringValue::WrapUnsafe("bar")));
     *result = std::move(*builder).Build();
     return absl::OkStatus();
   }
@@ -293,8 +293,8 @@ class CustomMapValueTest : public common_internal::ValueTest<> {
              ListValue* absl_nonnull result) -> absl::Status {
         auto builder = common_internal::NewListValueBuilder(arena);
         builder->Reserve(2);
-        CEL_RETURN_IF_ERROR(builder->Add(StringValue("foo")));
-        CEL_RETURN_IF_ERROR(builder->Add(StringValue("bar")));
+        CEL_RETURN_IF_ERROR(builder->Add(StringValue::WrapUnsafe("foo")));
+        CEL_RETURN_IF_ERROR(builder->Add(StringValue::WrapUnsafe("bar")));
         *result = std::move(*builder).Build();
         return absl::OkStatus();
       },
@@ -456,76 +456,76 @@ TEST_F(CustomMapValueTest, Interface_Size) {
 
 TEST_F(CustomMapValueTest, Dispatcher_Get) {
   CustomMapValue map = MakeDispatcher();
-  ASSERT_THAT(map.Get(StringValue("foo"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Get(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  ASSERT_THAT(map.Get(StringValue("bar"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Get(StringValue::WrapUnsafe("bar"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(IntValueIs(1)));
   ASSERT_THAT(
-      map.Get(StringValue("baz"), descriptor_pool(), message_factory(),
-              arena()),
+      map.Get(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+              message_factory(), arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound))));
 }
 
 TEST_F(CustomMapValueTest, Interface_Get) {
   CustomMapValue map = MakeInterface();
-  ASSERT_THAT(map.Get(StringValue("foo"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Get(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  ASSERT_THAT(map.Get(StringValue("bar"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Get(StringValue::WrapUnsafe("bar"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(IntValueIs(1)));
   ASSERT_THAT(
-      map.Get(StringValue("baz"), descriptor_pool(), message_factory(),
-              arena()),
+      map.Get(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+              message_factory(), arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound))));
 }
 
 TEST_F(CustomMapValueTest, Dispatcher_Find) {
   CustomMapValue map = MakeDispatcher();
-  ASSERT_THAT(map.Find(StringValue("foo"), descriptor_pool(), message_factory(),
-                       arena()),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                       message_factory(), arena()),
               IsOkAndHolds(Optional(BoolValueIs(true))));
-  ASSERT_THAT(map.Find(StringValue("bar"), descriptor_pool(), message_factory(),
-                       arena()),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("bar"), descriptor_pool(),
+                       message_factory(), arena()),
               IsOkAndHolds(Optional(IntValueIs(1))));
-  ASSERT_THAT(map.Find(StringValue("baz"), descriptor_pool(), message_factory(),
-                       arena()),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+                       message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
 }
 
 TEST_F(CustomMapValueTest, Interface_Find) {
   CustomMapValue map = MakeInterface();
-  ASSERT_THAT(map.Find(StringValue("foo"), descriptor_pool(), message_factory(),
-                       arena()),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                       message_factory(), arena()),
               IsOkAndHolds(Optional(BoolValueIs(true))));
-  ASSERT_THAT(map.Find(StringValue("bar"), descriptor_pool(), message_factory(),
-                       arena()),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("bar"), descriptor_pool(),
+                       message_factory(), arena()),
               IsOkAndHolds(Optional(IntValueIs(1))));
-  ASSERT_THAT(map.Find(StringValue("baz"), descriptor_pool(), message_factory(),
-                       arena()),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+                       message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
 }
 
 TEST_F(CustomMapValueTest, Dispatcher_Find_Error) {
   CustomMapValue map = MakeDispatcher();
   Value result;
-  ASSERT_THAT(map.Find(StringValue("error"), descriptor_pool(),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("error"), descriptor_pool(),
                        message_factory(), arena(), &result),
               IsOkAndHolds(false));
   EXPECT_THAT(result, ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument,
                                             "custom error")));
-  ASSERT_THAT(map.Get(StringValue("error"), descriptor_pool(),
+  ASSERT_THAT(map.Get(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena(), &result),
               IsOk());
   EXPECT_THAT(result, ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument,
                                             "custom error")));
-  EXPECT_THAT(map.Get(StringValue("error"), descriptor_pool(),
+  EXPECT_THAT(map.Get(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena()),
               IsOkAndHolds(ErrorValueIs(StatusIs(
                   absl::StatusCode::kInvalidArgument, "custom error"))));
-  EXPECT_THAT(map.Find(StringValue("error"), descriptor_pool(),
+  EXPECT_THAT(map.Find(StringValue::WrapUnsafe("error"), descriptor_pool(),
                        message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
 }
@@ -533,21 +533,21 @@ TEST_F(CustomMapValueTest, Dispatcher_Find_Error) {
 TEST_F(CustomMapValueTest, Interface_Find_Error) {
   CustomMapValue map = MakeInterface();
   Value result;
-  ASSERT_THAT(map.Find(StringValue("error"), descriptor_pool(),
+  ASSERT_THAT(map.Find(StringValue::WrapUnsafe("error"), descriptor_pool(),
                        message_factory(), arena(), &result),
               IsOkAndHolds(false));
   EXPECT_THAT(result, ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument,
                                             "custom error")));
-  ASSERT_THAT(map.Get(StringValue("error"), descriptor_pool(),
+  ASSERT_THAT(map.Get(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena(), &result),
               IsOk());
   EXPECT_THAT(result, ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument,
                                             "custom error")));
-  EXPECT_THAT(map.Get(StringValue("error"), descriptor_pool(),
+  EXPECT_THAT(map.Get(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena()),
               IsOkAndHolds(ErrorValueIs(StatusIs(
                   absl::StatusCode::kInvalidArgument, "custom error"))));
-  EXPECT_THAT(map.Find(StringValue("error"), descriptor_pool(),
+  EXPECT_THAT(map.Find(StringValue::WrapUnsafe("error"), descriptor_pool(),
                        message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
 }
@@ -654,39 +654,39 @@ TEST_F(CustomMapValueTest, Interface_Find_SpecialKeys) {
 
 TEST_F(CustomMapValueTest, Dispatcher_Has) {
   CustomMapValue map = MakeDispatcher();
-  ASSERT_THAT(map.Has(StringValue("foo"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  ASSERT_THAT(map.Has(StringValue("bar"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("bar"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  ASSERT_THAT(map.Has(StringValue("baz"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
 }
 
 TEST_F(CustomMapValueTest, Interface_Has) {
   CustomMapValue map = MakeInterface();
-  ASSERT_THAT(map.Has(StringValue("foo"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  ASSERT_THAT(map.Has(StringValue("bar"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("bar"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  ASSERT_THAT(map.Has(StringValue("baz"), descriptor_pool(), message_factory(),
-                      arena()),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+                      message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
 }
 
 TEST_F(CustomMapValueTest, Dispatcher_Has_Error) {
   CustomMapValue map = MakeDispatcher();
   Value result;
-  ASSERT_THAT(map.Has(StringValue("error"), descriptor_pool(),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena(), &result),
               IsOk());
   EXPECT_THAT(result, ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument,
                                             "custom error")));
-  EXPECT_THAT(map.Has(StringValue("error"), descriptor_pool(),
+  EXPECT_THAT(map.Has(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena()),
               IsOkAndHolds(ErrorValueIs(StatusIs(
                   absl::StatusCode::kInvalidArgument, "custom error"))));
@@ -695,12 +695,12 @@ TEST_F(CustomMapValueTest, Dispatcher_Has_Error) {
 TEST_F(CustomMapValueTest, Interface_Has_Error) {
   CustomMapValue map = MakeInterface();
   Value result;
-  ASSERT_THAT(map.Has(StringValue("error"), descriptor_pool(),
+  ASSERT_THAT(map.Has(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena(), &result),
               IsOk());
   EXPECT_THAT(result, ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument,
                                             "custom error")));
-  EXPECT_THAT(map.Has(StringValue("error"), descriptor_pool(),
+  EXPECT_THAT(map.Has(StringValue::WrapUnsafe("error"), descriptor_pool(),
                       message_factory(), arena()),
               IsOkAndHolds(ErrorValueIs(StatusIs(
                   absl::StatusCode::kInvalidArgument, "custom error"))));

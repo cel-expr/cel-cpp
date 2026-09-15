@@ -63,16 +63,16 @@ struct DefaultValue {
 template <>
 struct DefaultValue<BytesValue> {
   BytesValue operator()() const {
-    return BytesValue(
-        absl::Cord("Some somewhat large string that is not storable inline!"));
+    return BytesValue::WrapUnsafe(
+        "Some somewhat large string that is not storable inline!");
   }
 };
 
 template <>
 struct DefaultValue<StringValue> {
   StringValue operator()() const {
-    return StringValue(
-        absl::Cord("Some somewhat large string that is not storable inline!"));
+    return StringValue::WrapUnsafe(
+        "Some somewhat large string that is not storable inline!");
   }
 };
 

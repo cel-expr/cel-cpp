@@ -26,6 +26,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/functional/overload.h"
+#include "absl/log/absl_check.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/variant.h"
@@ -40,13 +41,7 @@ namespace cel {
 
 class BytesValueOutputStream final : public google::protobuf::io::ZeroCopyOutputStream {
  public:
-  explicit BytesValueOutputStream(const BytesValue& value)
-      : BytesValueOutputStream(value, /*arena=*/nullptr) {}
-
-  BytesValueOutputStream(const BytesValue& value,
-                         google::protobuf::Arena* absl_nullable arena) {
-    Construct(value, arena);
-  }
+  explicit BytesValueOutputStream(const BytesValue& value) { Construct(value); }
 
   bool Next(void** data, int* size) override {
     return absl::visit(absl::Overload(
@@ -54,7 +49,7 @@ class BytesValueOutputStream final : public google::protobuf::io::ZeroCopyOutput
                              return string.stream.Next(data, size);
                            },
                            [&data, &size](Cord& cord) -> bool {
-                             return cord.Next(data, size);
+                             return cord.stream.Next(data, size);
                            }),
                        AsVariant());
   }
@@ -63,18 +58,19 @@ class BytesValueOutputStream final : public google::protobuf::io::ZeroCopyOutput
     absl::visit(
         absl::Overload(
             [&count](String& string) -> void { string.stream.BackUp(count); },
-            [&count](Cord& cord) -> void { cord.BackUp(count); }),
+            [&count](Cord& cord) -> void { cord.stream.BackUp(count); }),
         AsVariant());
   }
 
   int64_t ByteCount() const override {
-    return absl::visit(
-        absl::Overload(
-            [](const String& string) -> int64_t {
-              return string.stream.ByteCount();
-            },
-            [](const Cord& cord) -> int64_t { return cord.ByteCount(); }),
-        AsVariant());
+    return absl::visit(absl::Overload(
+                           [](const String& string) -> int64_t {
+                             return string.stream.ByteCount();
+                           },
+                           [](const Cord& cord) -> int64_t {
+                             return cord.stream.ByteCount();
+                           }),
+                       AsVariant());
   }
 
   bool WriteAliasedRaw(const void* data, int size) override {
@@ -83,19 +79,20 @@ class BytesValueOutputStream final : public google::protobuf::io::ZeroCopyOutput
                              return string.stream.WriteAliasedRaw(data, size);
                            },
                            [&data, &size](Cord& cord) -> bool {
-                             return cord.WriteAliasedRaw(data, size);
+                             return cord.stream.WriteAliasedRaw(data, size);
                            }),
                        AsVariant());
   }
 
   bool AllowsAliasing() const override {
-    return absl::visit(
-        absl::Overload(
-            [](const String& string) -> bool {
-              return string.stream.AllowsAliasing();
-            },
-            [](const Cord& cord) -> bool { return cord.AllowsAliasing(); }),
-        AsVariant());
+    return absl::visit(absl::Overload(
+                           [](const String& string) -> bool {
+                             return string.stream.AllowsAliasing();
+                           },
+                           [](const Cord& cord) -> bool {
+                             return cord.stream.AllowsAliasing();
+                           }),
+                       AsVariant());
   }
 
   bool WriteCord(const absl::Cord& out) override {
@@ -104,43 +101,47 @@ class BytesValueOutputStream final : public google::protobuf::io::ZeroCopyOutput
             [&out](String& string) -> bool {
               return string.stream.WriteCord(out);
             },
-            [&out](Cord& cord) -> bool { return cord.WriteCord(out); }),
+            [&out](Cord& cord) -> bool { return cord.stream.WriteCord(out); }),
         AsVariant());
   }
 
-  BytesValue Consume() && {
-    return absl::visit(absl::Overload(
-                           [](String& string) -> BytesValue {
-                             return BytesValue(string.arena,
-                                               std::move(string.target));
-                           },
-                           [](Cord& cord) -> BytesValue {
-                             return BytesValue(cord.Consume());
-                           }),
-                       AsVariant());
+  BytesValue Consume(google::protobuf::Arena* absl_nonnull arena) && {
+    ABSL_DCHECK(arena != nullptr);
+    return absl::visit(
+        absl::Overload(
+            [arena](String& string) -> BytesValue {
+              return BytesValue::From(std::move(string.target), arena);
+            },
+            [arena](Cord& cord) -> BytesValue {
+              return BytesValue::From(cord.stream.Consume(), arena);
+            }),
+        AsVariant());
   }
 
  private:
   struct String final {
-    String(absl::string_view target, google::protobuf::Arena* absl_nullable arena)
-        : target(target), stream(&this->target), arena(arena) {}
+    explicit String(absl::string_view target)
+        : target(target), stream(&this->target) {}
 
     std::string target;
     google::protobuf::io::StringOutputStream stream;
-    google::protobuf::Arena* absl_nullable arena;
   };
 
-  using Cord = google::protobuf::io::CordOutputStream;
+  struct Cord final {
+    explicit Cord(const absl::Cord& cord) : stream(cord) {}
+
+    google::protobuf::io::CordOutputStream stream;
+  };
 
   using Variant = absl::variant<String, Cord>;
 
-  void Construct(const BytesValue& value, google::protobuf::Arena* absl_nullable arena) {
+  void Construct(const BytesValue& value) {
     switch (value.value_.GetKind()) {
       case common_internal::ByteStringKind::kSmall:
-        Construct(value.value_.GetSmall(), arena);
+        Construct(value.value_.GetSmall());
         break;
       case common_internal::ByteStringKind::kMedium:
-        Construct(value.value_.GetMedium(), arena);
+        Construct(value.value_.GetMedium());
         break;
       case common_internal::ByteStringKind::kLarge:
         Construct(value.value_.GetLarge());
@@ -148,9 +149,9 @@ class BytesValueOutputStream final : public google::protobuf::io::ZeroCopyOutput
     }
   }
 
-  void Construct(absl::string_view value, google::protobuf::Arena* absl_nullable arena) {
+  void Construct(absl::string_view value) {
     ::new (static_cast<void*>(&impl_[0]))
-        Variant(absl::in_place_type<String>, value, arena);
+        Variant(absl::in_place_type<String>, value);
   }
 
   void Construct(const absl::Cord& value) {

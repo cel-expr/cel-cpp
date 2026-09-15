@@ -841,8 +841,9 @@ TEST_F(ProtoValueUnwrapTest, NonMessageValue) {
   TestAllTypes dest;
   EXPECT_THAT(ProtoMessageFromValue(IntValue(42), dest),
               StatusIs(absl::StatusCode::kInvalidArgument));
-  EXPECT_THAT(ProtoMessageFromValue(StringValue("not a message"), dest),
-              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(
+      ProtoMessageFromValue(StringValue::WrapUnsafe("not a message"), dest),
+      StatusIs(absl::StatusCode::kInvalidArgument));
   EXPECT_THAT(ProtoMessageFromValue(NullValue(), dest),
               StatusIs(absl::StatusCode::kInvalidArgument));
 }

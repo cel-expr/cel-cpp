@@ -420,7 +420,7 @@ absl::StatusOr<Value> FallbackSelect(
               }
 
               return elem->GetMap().Has(
-                  StringValue(arena, *qualifier.GetStringKey()),
+                  StringValue::WrapUnsafe(*qualifier.GetStringKey()),
                   descriptor_pool, message_factory, arena);
             }),
         last_instruction);

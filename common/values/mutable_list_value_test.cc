@@ -47,7 +47,8 @@ TEST_F(MutableListValueTest, IsEmpty) {
   auto* mutable_list_value = NewMutableListValue(arena());
   mutable_list_value->Reserve(1);
   EXPECT_TRUE(CustomListValue(mutable_list_value, arena()).IsEmpty());
-  EXPECT_THAT(mutable_list_value->Append(StringValue("foo")), IsOk());
+  EXPECT_THAT(mutable_list_value->Append(StringValue::WrapUnsafe("foo")),
+              IsOk());
   EXPECT_FALSE(CustomListValue(mutable_list_value, arena()).IsEmpty());
 }
 
@@ -55,7 +56,8 @@ TEST_F(MutableListValueTest, Size) {
   auto* mutable_list_value = NewMutableListValue(arena());
   mutable_list_value->Reserve(1);
   EXPECT_THAT(CustomListValue(mutable_list_value, arena()).Size(), 0);
-  EXPECT_THAT(mutable_list_value->Append(StringValue("foo")), IsOk());
+  EXPECT_THAT(mutable_list_value->Append(StringValue::WrapUnsafe("foo")),
+              IsOk());
   EXPECT_THAT(CustomListValue(mutable_list_value, arena()).Size(), 1);
 }
 
@@ -73,7 +75,8 @@ TEST_F(MutableListValueTest, ForEach) {
                            message_factory(), arena()),
               IsOk());
   EXPECT_THAT(elements, IsEmpty());
-  EXPECT_THAT(mutable_list_value->Append(StringValue("foo")), IsOk());
+  EXPECT_THAT(mutable_list_value->Append(StringValue::WrapUnsafe("foo")),
+              IsOk());
   EXPECT_THAT(CustomListValue(mutable_list_value, arena())
                   .ForEach(for_each_callback, descriptor_pool(),
                            message_factory(), arena()),
@@ -89,7 +92,8 @@ TEST_F(MutableListValueTest, NewIterator) {
       CustomListValue(mutable_list_value, arena()).NewIterator());
   EXPECT_THAT(iterator->Next(descriptor_pool(), message_factory(), arena()),
               StatusIs(absl::StatusCode::kFailedPrecondition));
-  EXPECT_THAT(mutable_list_value->Append(StringValue("foo")), IsOk());
+  EXPECT_THAT(mutable_list_value->Append(StringValue::WrapUnsafe("foo")),
+              IsOk());
   ASSERT_OK_AND_ASSIGN(
       iterator, CustomListValue(mutable_list_value, arena()).NewIterator());
   EXPECT_TRUE(iterator->HasNext());
@@ -110,7 +114,8 @@ TEST_F(MutableListValueTest, Get) {
       IsOk());
   EXPECT_THAT(value,
               ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)));
-  EXPECT_THAT(mutable_list_value->Append(StringValue("foo")), IsOk());
+  EXPECT_THAT(mutable_list_value->Append(StringValue::WrapUnsafe("foo")),
+              IsOk());
   EXPECT_THAT(
       CustomListValue(mutable_list_value, arena())
           .Get(0, descriptor_pool(), message_factory(), arena(), &value),

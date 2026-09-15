@@ -354,8 +354,8 @@ TEST_F(LegacyStructValueTest, WrapLegacyFieldAccessResultParsedJsonList) {
   auto list_val = val.GetList();
   EXPECT_THAT(list_val.IsEmpty(), IsOkAndHolds(false));
   EXPECT_THAT(list_val.Size(), IsOkAndHolds(2));
-  EXPECT_THAT(list_val.Contains(StringValue("item1"), descriptor_pool(),
-                                message_factory(), arena()),
+  EXPECT_THAT(list_val.Contains(StringValue::WrapUnsafe("item1"),
+                                descriptor_pool(), message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
 
   Value elem;
@@ -403,10 +403,10 @@ TEST_F(LegacyStructValueTest, WrapLegacyFieldAccessResultParsedMapField) {
   EXPECT_THAT(map_val.IsEmpty(), IsOkAndHolds(false));
   EXPECT_FALSE(map_val.IsZeroValue());
   EXPECT_THAT(map_val.Size(), IsOkAndHolds(2));
-  EXPECT_THAT(map_val.Has(StringValue("key1"), descriptor_pool(),
+  EXPECT_THAT(map_val.Has(StringValue::WrapUnsafe("key1"), descriptor_pool(),
                           message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  EXPECT_THAT(map_val.Has(StringValue("missing"), descriptor_pool(),
+  EXPECT_THAT(map_val.Has(StringValue::WrapUnsafe("missing"), descriptor_pool(),
                           message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
   EXPECT_THAT(
@@ -414,13 +414,13 @@ TEST_F(LegacyStructValueTest, WrapLegacyFieldAccessResultParsedMapField) {
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument))));
 
   Value found_val;
-  ASSERT_THAT(map_val.Find(StringValue("key1"), descriptor_pool(),
+  ASSERT_THAT(map_val.Find(StringValue::WrapUnsafe("key1"), descriptor_pool(),
                            message_factory(), arena(), &found_val),
               IsOkAndHolds(true));
   EXPECT_THAT(found_val, StringValueIs("val1"));
 
   Value get_val;
-  ASSERT_THAT(map_val.Get(StringValue("key2"), descriptor_pool(),
+  ASSERT_THAT(map_val.Get(StringValue::WrapUnsafe("key2"), descriptor_pool(),
                           message_factory(), arena(), &get_val),
               IsOk());
   EXPECT_THAT(get_val, StringValueIs("val2"));
@@ -466,10 +466,10 @@ TEST_F(LegacyStructValueTest, WrapLegacyFieldAccessResultParsedJsonMap) {
   EXPECT_THAT(map_val.IsEmpty(), IsOkAndHolds(false));
   EXPECT_FALSE(map_val.IsZeroValue());
   EXPECT_THAT(map_val.Size(), IsOkAndHolds(2));
-  EXPECT_THAT(map_val.Has(StringValue("k1"), descriptor_pool(),
+  EXPECT_THAT(map_val.Has(StringValue::WrapUnsafe("k1"), descriptor_pool(),
                           message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  EXPECT_THAT(map_val.Has(StringValue("missing"), descriptor_pool(),
+  EXPECT_THAT(map_val.Has(StringValue::WrapUnsafe("missing"), descriptor_pool(),
                           message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
   EXPECT_THAT(
@@ -477,13 +477,13 @@ TEST_F(LegacyStructValueTest, WrapLegacyFieldAccessResultParsedJsonMap) {
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument))));
 
   Value found_val;
-  ASSERT_THAT(map_val.Find(StringValue("k1"), descriptor_pool(),
+  ASSERT_THAT(map_val.Find(StringValue::WrapUnsafe("k1"), descriptor_pool(),
                            message_factory(), arena(), &found_val),
               IsOkAndHolds(true));
   EXPECT_THAT(found_val, StringValueIs("v1"));
 
   Value get_val;
-  ASSERT_THAT(map_val.Get(StringValue("k2"), descriptor_pool(),
+  ASSERT_THAT(map_val.Get(StringValue::WrapUnsafe("k2"), descriptor_pool(),
                           message_factory(), arena(), &get_val),
               IsOk());
   EXPECT_THAT(get_val, StringValueIs("v2"));

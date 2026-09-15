@@ -17,25 +17,19 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <new>
+#include <cstring>
 #include <ostream>
 #include <string>
-#include <type_traits>
 #include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
-#include "absl/base/optimization.h"
 #include "absl/functional/overload.h"
 #include "absl/hash/hash.h"
 #include "absl/log/absl_check.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "common/allocator.h"
-#include "common/arena.h"
-#include "common/internal/reference_count.h"
-#include "common/memory.h"
 #include "google/protobuf/arena.h"
 
 namespace cel {
@@ -46,15 +40,7 @@ class StringValue;
 
 namespace common_internal {
 
-// absl::Cord is trivially relocatable IFF we are not using ASan or MSan. When
-// using ASan or MSan absl::Cord will poison/unpoison its inline storage.
-#if defined(ABSL_HAVE_ADDRESS_SANITIZER) || defined(ABSL_HAVE_MEMORY_SANITIZER)
-#define CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI
-#else
-#define CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI ABSL_ATTRIBUTE_TRIVIAL_ABI
-#endif
-
-class CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI [[nodiscard]] ByteString;
+class [[nodiscard]] ByteString;
 
 struct ByteStringTestFriend;
 
@@ -76,11 +62,11 @@ inline std::ostream& operator<<(std::ostream& out, ByteStringKind kind) {
 }
 
 // Representation of small strings in ByteString, which are stored in place.
-struct CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI SmallByteStringRep final {
+struct SmallByteStringRep final {
 #ifdef _MSC_VER
 #pragma pack(push, 1)
 #endif
-  struct ABSL_ATTRIBUTE_PACKED CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI {
+  struct ABSL_ATTRIBUTE_PACKED {
     std::uint8_t kind : 2;
     std::uint8_t size : 6;
   };
@@ -98,6 +84,9 @@ inline constexpr size_t kMediumByteStringSizeBits = sizeof(size_t) * 8 - 2;
 inline constexpr size_t kMediumByteStringMaxSize =
     (size_t{1} << kMediumByteStringSizeBits) - 1;
 
+inline constexpr size_t kLargeByteStringMaxSize =
+    (size_t{1} << kMediumByteStringSizeBits) - 1;
+
 inline constexpr size_t kByteStringViewSizeBits = sizeof(size_t) * 8 - 1;
 inline constexpr size_t kByteStringViewMaxSize =
     (size_t{1} << kByteStringViewSizeBits) - 1;
@@ -105,43 +94,45 @@ inline constexpr size_t kByteStringViewMaxSize =
 // Representation of medium strings in ByteString. These are either owned by an
 // arena or managed by a reference count. This is encoded in `owner` following
 // the same semantics as `cel::Owner`.
-struct CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI MediumByteStringRep final {
+struct MediumByteStringRep final {
 #ifdef _MSC_VER
 #pragma pack(push, 1)
 #endif
-  struct ABSL_ATTRIBUTE_PACKED CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI {
+  struct ABSL_ATTRIBUTE_PACKED {
     size_t kind : 2;
     size_t size : kMediumByteStringSizeBits;
   };
 #ifdef _MSC_VER
 #pragma pack(pop)
 #endif
-  const char* data;
-  uintptr_t owner;
+  const char* absl_nullability_unknown data;
+  google::protobuf::Arena* absl_nullable arena;
 };
 
 // Representation of large strings in ByteString. These are stored as
-// `absl::Cord` and never owned by an arena.
-struct CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI LargeByteStringRep final {
+// a pointer to `absl::Cord`.
+struct LargeByteStringRep final {
 #ifdef _MSC_VER
 #pragma pack(push, 1)
 #endif
-  struct ABSL_ATTRIBUTE_PACKED CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI {
+  struct ABSL_ATTRIBUTE_PACKED {
     size_t kind : 2;
-    size_t padding : kMediumByteStringSizeBits;
+    size_t offset : kMediumByteStringSizeBits / 2;
+    size_t size : kMediumByteStringSizeBits / 2;
   };
 #ifdef _MSC_VER
 #pragma pack(pop)
 #endif
-  alignas(absl::Cord) std::byte data[sizeof(absl::Cord)];
+  const absl::Cord* absl_nullability_unknown data;
+  google::protobuf::Arena* absl_nullable arena;
 };
 
 // Representation of ByteString.
-union CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI ByteStringRep final {
+union ByteStringRep final {
 #ifdef _MSC_VER
 #pragma pack(push, 1)
 #endif
-  struct ABSL_ATTRIBUTE_PACKED CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI {
+  struct ABSL_ATTRIBUTE_PACKED {
     ByteStringKind kind : 2;
   } header;
 #ifdef _MSC_VER
@@ -166,99 +157,62 @@ absl::string_view LegacyByteString(const ByteString& string, bool stable,
 // string is constructed the allocator will not and cannot change. Copying and
 // moving between different allocators is supported and dealt with
 // transparently by copying.
-class CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI [[nodiscard]]
-ByteString final {
+class [[nodiscard]] ByteString final {
  public:
+  static ByteString From(const char* absl_nullable value,
+                         google::protobuf::Arena* absl_nonnull arena
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  static ByteString From(absl::string_view value,
+                         google::protobuf::Arena* absl_nonnull arena
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  static ByteString From(const absl::Cord& value,
+                         google::protobuf::Arena* absl_nonnull arena
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  static ByteString From(std::string&& value,
+                         google::protobuf::Arena* absl_nonnull arena
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+
+  static ByteString Wrap(absl::string_view value,
+                         google::protobuf::Arena* absl_nullable arena
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  static ByteString Wrap(
+      const absl::Cord* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return Wrap(value, 0, value->size(), arena);
+  }
+  static ByteString Wrap(
+      const absl::Cord* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      size_t offset, size_t size,
+      google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  static ByteString Wrap(std::nullptr_t, google::protobuf::Arena*) = delete;
+  static ByteString Wrap(std::nullptr_t, size_t, size_t,
+                         google::protobuf::Arena*) = delete;
+  static ByteString Wrap(std::string&& value, google::protobuf::Arena*) = delete;
+
+  static ByteString WrapUnsafe(absl::string_view value);
+  static ByteString WrapUnsafe(const absl::Cord* absl_nonnull value) {
+    return WrapUnsafe(value, 0, value->size());
+  }
+  static ByteString WrapUnsafe(const absl::Cord* absl_nonnull value,
+                               size_t offset, size_t size);
+  static ByteString WrapUnsafe(std::nullptr_t) = delete;
+  static ByteString WrapUnsafe(std::nullptr_t, size_t, size_t) = delete;
+
   static ByteString Concat(const ByteString& lhs, const ByteString& rhs,
                            google::protobuf::Arena* absl_nonnull arena);
 
-  ByteString() : ByteString(NewDeleteAllocator()) {}
+  ByteString() noexcept { SetSmallEmpty(nullptr); }
 
-  explicit ByteString(const char* absl_nullable string)
-      : ByteString(NewDeleteAllocator(), string) {}
-
-  explicit ByteString(absl::string_view string)
-      : ByteString(NewDeleteAllocator(), string) {}
-
-  explicit ByteString(const std::string& string)
-      : ByteString(NewDeleteAllocator(), string) {}
-
-  explicit ByteString(std::string&& string)
-      : ByteString(NewDeleteAllocator(), std::move(string)) {}
-
-  explicit ByteString(const absl::Cord& cord)
-      : ByteString(NewDeleteAllocator(), cord) {}
-
-  ByteString(const ByteString& other) noexcept {
-    Construct(other, /*allocator=*/absl::nullopt);
-  }
-
-  ByteString(ByteString&& other) noexcept {
-    Construct(other, /*allocator=*/absl::nullopt);
-  }
-
-  explicit ByteString(Allocator<> allocator) {
-    SetSmallEmpty(allocator.arena());
-  }
-
-  ByteString(Allocator<> allocator, const char* absl_nullable string)
-      : ByteString(allocator, absl::NullSafeStringView(string)) {}
-
-  ByteString(Allocator<> allocator, absl::string_view string);
-
-  ByteString(Allocator<> allocator, const std::string& string);
-
-  ByteString(Allocator<> allocator, std::string&& string);
-
-  ByteString(Allocator<> allocator, const absl::Cord& cord);
-
-  ByteString(Allocator<> allocator, const ByteString& other) {
-    Construct(other, allocator);
-  }
-
-  ByteString(Allocator<> allocator, ByteString&& other) {
-    Construct(other, allocator);
-  }
-
-  ByteString(Borrower borrower,
-             const char* absl_nullable string ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : ByteString(borrower, absl::NullSafeStringView(string)) {}
-
-  ByteString(Borrower borrower,
-             absl::string_view string ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : ByteString(Borrowed(borrower, string)) {}
-
-  ByteString(Borrower borrower,
-             const absl::Cord& cord ABSL_ATTRIBUTE_LIFETIME_BOUND)
-      : ByteString(Borrowed(borrower, cord)) {}
-
-  // Creates a medium byte string that is backed by an external string. Should
-  // only be called from explicit 'Unsafe' factories.
-  static ByteString FromExternal(absl::string_view string);
-
-  ~ByteString() { Destroy(); }
-
-  ByteString& operator=(const ByteString& other) noexcept {
-    if (ABSL_PREDICT_TRUE(this != &other)) {
-      CopyFrom(other);
-    }
-    return *this;
-  }
-
-  ByteString& operator=(ByteString&& other) noexcept {
-    if (ABSL_PREDICT_TRUE(this != &other)) {
-      MoveFrom(other);
-    }
-    return *this;
-  }
+  ByteString(const ByteString&) = default;
+  ByteString(ByteString&&) = default;
+  ByteString& operator=(const ByteString&) = default;
+  ByteString& operator=(ByteString&&) = default;
 
   bool empty() const;
 
   size_t size() const;
 
   size_t max_size() const { return kByteStringViewMaxSize; }
-
-  absl::string_view Flatten() ABSL_ATTRIBUTE_LIFETIME_BOUND;
 
   absl::optional<absl::string_view> TryFlat() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND;
@@ -339,10 +293,9 @@ ByteString final {
     }
   }
 
-  friend void swap(ByteString& lhs, ByteString& rhs) {
-    if (&lhs != &rhs) {
-      lhs.Swap(rhs);
-    }
+  friend void swap(ByteString& lhs, ByteString& rhs) noexcept {
+    using std::swap;
+    swap(lhs.rep_, rhs.rep_);
   }
 
   template <typename H>
@@ -360,21 +313,12 @@ ByteString final {
   friend absl::string_view LegacyByteString(const ByteString& string,
                                             bool stable,
                                             google::protobuf::Arena* absl_nonnull arena);
-  friend struct cel::ArenaTraits<ByteString>;
 
-  struct ExternalStringTag {};
+  struct UninitializedTag {
+    explicit UninitializedTag() = default;
+  };
 
-  static ByteString Borrowed(Borrower borrower,
-                             absl::string_view string
-                                 ABSL_ATTRIBUTE_LIFETIME_BOUND);
-
-  static ByteString Borrowed(
-      Borrower borrower, const absl::Cord& cord ABSL_ATTRIBUTE_LIFETIME_BOUND);
-
-  ByteString(const ReferenceCount* absl_nonnull refcount,
-             absl::string_view string);
-
-  ByteString(ExternalStringTag, absl::string_view string);
+  explicit ByteString(UninitializedTag) {}
 
   constexpr ByteStringKind GetKind() const { return rep_.header.kind; }
 
@@ -412,39 +356,28 @@ ByteString final {
   }
 
   static google::protobuf::Arena* absl_nullable GetMediumArena(
-      const MediumByteStringRep& rep);
-
-  const ReferenceCount* absl_nullable GetMediumReferenceCount() const {
-    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kMedium);
-    return GetMediumReferenceCount(rep_.medium);
+      const MediumByteStringRep& rep) {
+    return rep.arena;
   }
 
-  static const ReferenceCount* absl_nullable GetMediumReferenceCount(
-      const MediumByteStringRep& rep);
-
-  uintptr_t GetMediumOwner() const {
-    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kMedium);
-    return rep_.medium.owner;
-  }
-
-  absl::Cord& GetLarge() ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kLarge);
-    return GetLarge(rep_.large);
-  }
-
-  static absl::Cord& GetLarge(
-      LargeByteStringRep& rep ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-    return *std::launder(reinterpret_cast<absl::Cord*>(&rep.data[0]));
-  }
-
-  const absl::Cord& GetLarge() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kLarge);
-    return GetLarge(rep_.large);
-  }
-
-  static const absl::Cord& GetLarge(
+  static absl::Cord GetLarge(
       const LargeByteStringRep& rep ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-    return *std::launder(reinterpret_cast<const absl::Cord*>(&rep.data[0]));
+    return rep.data->Subcord(rep.offset, rep.size);
+  }
+
+  absl::Cord GetLarge() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kLarge);
+    return GetLarge(rep_.large);
+  }
+
+  google::protobuf::Arena* absl_nullable GetLargeArena() const {
+    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kLarge);
+    return GetLargeArena(rep_.large);
+  }
+
+  static google::protobuf::Arena* absl_nullable GetLargeArena(
+      const LargeByteStringRep& rep ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return rep.arena;
   }
 
   void SetSmallEmpty(google::protobuf::Arena* absl_nullable arena) {
@@ -459,48 +392,14 @@ ByteString final {
 
   void SetMedium(google::protobuf::Arena* absl_nullable arena, absl::string_view string);
 
-  // This is used to create a medium byte string that is backed by an external
-  // string. Should only be called from explicit 'Unsafe' factories.
-  void SetExternalMedium(absl::string_view string);
-
-  void SetMedium(google::protobuf::Arena* absl_nullable arena, std::string&& string);
-
-  void SetMedium(google::protobuf::Arena* absl_nonnull arena, const absl::Cord& cord);
-
-  void SetMedium(absl::string_view string, uintptr_t owner);
-
-  void SetLarge(const absl::Cord& cord);
-
-  void SetLarge(absl::Cord&& cord);
-
-  void Swap(ByteString& other);
-
-  void Construct(const ByteString& other,
-                 absl::optional<Allocator<>> allocator);
-
-  void Construct(ByteString& other, absl::optional<Allocator<>> allocator);
-
-  void CopyFrom(const ByteString& other);
-
-  void MoveFrom(ByteString& other);
-
-  void Destroy();
-
-  void DestroyMedium() {
-    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kMedium);
-    DestroyMedium(rep_.medium);
+  void SetMedium(google::protobuf::Arena* absl_nullable arena,
+                 const std::string* absl_nonnull string) {
+    SetMedium(arena, absl::string_view(*string));
   }
 
-  static void DestroyMedium(const MediumByteStringRep& rep) {
-    StrongUnref(GetMediumReferenceCount(rep));
-  }
-
-  void DestroyLarge() {
-    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kLarge);
-    DestroyLarge(rep_.large);
-  }
-
-  static void DestroyLarge(LargeByteStringRep& rep) { GetLarge(rep).~Cord(); }
+  void SetLarge(google::protobuf::Arena* absl_nullable arena,
+                const absl::Cord* absl_nonnull cord, size_t offset = 0,
+                size_t size = static_cast<size_t>(-1));
 
   void CopyToArray(char* absl_nonnull out) const;
 
@@ -662,26 +561,7 @@ inline bool operator>=(const absl::Cord& lhs, const ByteString& rhs) {
   return -rhs.Compare(lhs) >= 0;
 }
 
-#undef CEL_COMMON_INTERNAL_BYTE_STRING_TRIVIAL_ABI
-
 }  // namespace common_internal
-
-template <>
-struct ArenaTraits<common_internal::ByteString> {
-  using constructible = std::true_type;
-
-  static bool trivially_destructible(
-      const common_internal::ByteString& byte_string) {
-    switch (byte_string.GetKind()) {
-      case common_internal::ByteStringKind::kSmall:
-        return true;
-      case common_internal::ByteStringKind::kMedium:
-        return byte_string.GetMediumReferenceCount() == nullptr;
-      case common_internal::ByteStringKind::kLarge:
-        return false;
-    }
-  }
-};
 
 }  // namespace cel
 

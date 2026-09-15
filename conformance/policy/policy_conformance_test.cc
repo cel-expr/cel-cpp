@@ -136,9 +136,9 @@ cel::Value LocationCode(const cel::StringValue& ip,
                         const google::protobuf::DescriptorPool* pool,
                         google::protobuf::MessageFactory* factory, google::protobuf::Arena* arena) {
   std::string ip_str = ip.ToString();
-  if (ip_str == "10.0.0.1") return cel::StringValue(arena, "us");
-  if (ip_str == "10.0.0.2") return cel::StringValue(arena, "de");
-  return cel::StringValue(arena, "ir");
+  if (ip_str == "10.0.0.1") return cel::StringValue::WrapUnsafe("us");
+  if (ip_str == "10.0.0.2") return cel::StringValue::WrapUnsafe("de");
+  return cel::StringValue::WrapUnsafe("ir");
 }
 
 // TODO(uncreated-issue/92): This should be migrated to use the testrunner utility
@@ -209,7 +209,9 @@ class InputEvaluator {
     cel::Activation activation;
     EvaluateOptions options;
     options.message_factory = message_factory;
-    return program->Evaluate(arena, activation, options);
+    CEL_ASSIGN_OR_RETURN(auto result,
+                         program->Evaluate(arena, activation, options));
+    return result.Clone(arena);
   }
 
  private:
