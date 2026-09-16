@@ -503,7 +503,7 @@ std::vector<TestCase> GetParserTestCases() {
             )",
       },
       TestCase{
-          .source = "-!true",
+          .source = "-(!true)",
           .expected_ast = R"(
               -_(
                 !_(
@@ -511,6 +511,46 @@ std::vector<TestCase> GetParserTestCases() {
                 )^#2:Expr.Call#
               )^#1:Expr.Call#
             )",
+      },
+      TestCase{
+          .source = "!-42",
+          .expected_ast = R"(
+              !_(
+                -42^#2:int64#
+              )^#1:Expr.Call#
+            )",
+      },
+      TestCase{
+          .source = "!-4.2",
+          .expected_ast = R"(
+              !_(
+                -4.2^#2:double#
+              )^#1:Expr.Call#
+            )",
+      },
+      TestCase{
+          .source = "9in-x",
+          .expected_ast = R"(
+              @in(
+                9^#1:int64#,
+                -_(
+                  x^#4:Expr.Ident#
+                )^#3:Expr.Call#
+              )^#2:Expr.Call#
+            )",
+      },
+      TestCase{
+          .source = "a.?b.?c",
+          .expected_ast = R"(
+              _?._(
+                _?._(
+                  a^#1:Expr.Ident#,
+                  "b"^#3:string#
+                )^#2:Expr.Call#,
+                "c"^#5:string#
+              )^#4:Expr.Call#
+            )",
+          .enable_optional_syntax = true,
       },
       TestCase{
           .source = "-.2.V",
@@ -1192,6 +1232,30 @@ std::vector<TestCase> GetParserTestCases() {
           .enable_optional_syntax = true,
       },
       TestCase{
+          .source = "import{}",
+          .expected_ast = R"(
+              import{}^#1:Expr.CreateStruct#
+            )",
+      },
+      TestCase{
+          .source = ".import{}",
+          .expected_ast = R"(
+              .import{}^#1:Expr.CreateStruct#
+            )",
+      },
+      TestCase{
+          .source = "import.Foo{}",
+          .expected_ast = R"(
+              import.Foo{}^#1:Expr.CreateStruct#
+            )",
+      },
+      TestCase{
+          .source = "Foo.import{}",
+          .expected_ast = R"(
+              Foo.import{}^#1:Expr.CreateStruct#
+            )",
+      },
+      TestCase{
           .source = "(((10 - 3) - 2))",
           .expected_ast = R"(
               _-_(
@@ -1670,6 +1734,88 @@ std::vector<ErrorTestCase> GetErrorTestCases() {
               " | \"😀😀😀😀😀\" ~error\n"
               " | .．．．．．..^",
       },
+      ErrorTestCase{
+          .source = "-!x",
+          .expected_error =
+              "ERROR: <input>:1:2: Syntax error: unexpected token\n"
+              " | -!x\n"
+              " | .^\n"
+              "ERROR: <input>:1:3: Syntax error: unexpected token after "
+              "expression\n"
+              " | -!x\n"
+              " | ..^",
+      },
+      ErrorTestCase{
+          .source = "!-x",
+          .expected_error = "ERROR: <input>:1:2: Syntax error: unexpected '-'\n"
+                            " | !-x\n"
+                            " | .^",
+      },
+      ErrorTestCase{
+          .source = "a.in",
+          .expected_error =
+              "ERROR: <input>:1:3: Syntax error: expected identifier after "
+              "'.'\n"
+              " | a.in\n"
+              " | ..^",
+      },
+      ErrorTestCase{
+          .source = "1 \v + 2",
+          .expected_error =
+              "ERROR: <input>:1:3: Syntax error: unexpected character\n"
+              " | 1 \v + 2\n"
+              " | ..^",
+      },
+      ErrorTestCase{
+          .source = "has(a.`$b`)",
+          .expected_error = "ERROR: <input>:1:7: unexpected quoted identifier\n"
+                            " | has(a.`$b`)\n"
+                            " | ......^",
+          .enable_quoted_identifiers = true,
+      },
+      // Parentheses are ignored for AST construction, not message creation
+      ErrorTestCase{
+          .source = "(a){}",
+          .expected_error =
+              "ERROR: <input>:1:4: Syntax error: unexpected token after "
+              "expression\n"
+              " | (a){}\n"
+              " | ...^",
+      },
+      ErrorTestCase{
+          .source = "(a.b){}",
+          .expected_error =
+              "ERROR: <input>:1:6: Syntax error: unexpected token after "
+              "expression\n"
+              " | (a.b){}\n"
+              " | .....^",
+      },
+      ErrorTestCase{
+          .source = "(a).b{}",
+          .expected_error =
+              "ERROR: <input>:1:6: Syntax error: unexpected token after "
+              "expression\n"
+              " | (a).b{}\n"
+              " | .....^",
+      },
+      // Backtick quoted identifiers should also be rejected on message creation
+      ErrorTestCase{
+          .source = "a.`b-c`{}",
+          .expected_error =
+              "ERROR: <input>:1:8: Syntax error: unexpected token after "
+              "expression\n"
+              " | a.`b-c`{}\n"
+              " | .......^",
+          .enable_quoted_identifiers = true,
+      },
+      // Invalid field names are disallowed for message creation
+      ErrorTestCase{
+          .source = "Msg{`$b`: 1}",
+          .expected_error = "ERROR: <input>:1:5: unexpected quoted identifier\n"
+                            " | Msg{`$b`: 1}\n"
+                            " | ....^",
+          .enable_quoted_identifiers = true,
+      },
   };
 }
 
@@ -1688,6 +1834,17 @@ TEST(PrattParserTest, SourceInfoPositionsPopulated) {
   ASSERT_EQ(root.call_expr().args().size(), 2);
   EXPECT_EQ(source_info.positions().at(root.call_expr().args()[0].id()), 0);
   EXPECT_EQ(source_info.positions().at(root.call_expr().args()[1].id()), 4);
+
+  cel::ParserOptions opt_options;
+  opt_options.enable_optional_syntax = true;
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> opt_ast,
+                       Parse("a.?b.?c", opt_options));
+  const auto& opt_pos = opt_ast->source_info().positions();
+  EXPECT_EQ(opt_pos.at(1), 0);
+  EXPECT_EQ(opt_pos.at(2), 1);
+  EXPECT_EQ(opt_pos.at(3), 0);
+  EXPECT_EQ(opt_pos.at(4), 4);
+  EXPECT_EQ(opt_pos.at(5), 0);
 }
 
 TEST(PrattParserRecursionDepthTest, ParseRecursionDepth) {

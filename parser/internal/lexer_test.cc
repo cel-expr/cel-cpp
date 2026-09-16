@@ -313,6 +313,24 @@ bytes''' br"raw_bytes" `a.b-c/d e`
           {TokenType::kWhitespace, " "},
           {TokenType::kBytes, "b\"bytes\""},
           {TokenType::kRightParen, ")"}}},
+        {"NumericFollowedByIdent",
+         "0x1A_invalid 123_invalid 1x0 2x 9in-x",
+         {{TokenType::kInt, "0x1A"},
+          {TokenType::kIdent, "_invalid"},
+          {TokenType::kWhitespace, " "},
+          {TokenType::kInt, "123"},
+          {TokenType::kIdent, "_invalid"},
+          {TokenType::kWhitespace, " "},
+          {TokenType::kInt, "1"},
+          {TokenType::kIdent, "x0"},
+          {TokenType::kWhitespace, " "},
+          {TokenType::kInt, "2"},
+          {TokenType::kIdent, "x"},
+          {TokenType::kWhitespace, " "},
+          {TokenType::kInt, "9"},
+          {TokenType::kIn, "in"},
+          {TokenType::kMinus, "-"},
+          {TokenType::kIdent, "x"}}},
     }),
     [](const testing::TestParamInfo<LexerTestCase>& info) {
       return std::string(info.param.name);
@@ -407,32 +425,10 @@ INSTANTIATE_TEST_SUITE_P(
                                        "\n | .^",
         },
         LexerErrorTestCase{
-            .source = "0x1A_invalid",
-            .expected_error_message =
-                "int literal has unexpected trailing characters",
-            .expected_error_location = "\n | 0x1A_invalid"
-                                       "\n | .....^",
-        },
-        LexerErrorTestCase{
-            .source = "123_invalid",
-            .expected_error_message =
-                "int literal has unexpected trailing characters",
-            .expected_error_location = "\n | 123_invalid"
-                                       "\n | ....^",
-        },
-        LexerErrorTestCase{
-            .source = "1x0",
-            .expected_error_message =
-                "int literal has unexpected trailing characters",
-            .expected_error_location = "\n | 1x0"
-                                       "\n | ..^",
-        },
-        LexerErrorTestCase{
-            .source = "2x",
-            .expected_error_message =
-                "int literal has unexpected trailing characters",
-            .expected_error_location = "\n | 2x"
-                                       "\n | ..^",
+            .source = "1 \v + 2",
+            .expected_error_message = "unexpected character",
+            .expected_error_location = "\n | 1 \v + 2"
+                                       "\n | ...^",
         },
         LexerErrorTestCase{
             .source = "`unterminated quoted",

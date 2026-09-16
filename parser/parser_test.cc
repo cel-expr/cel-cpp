@@ -1501,6 +1501,10 @@ std::vector<TestInfo> test_cases = {
      "Msg{\n  "
      "?field:value^#3:Expr.Ident#^#2:Expr.CreateStruct.Entry#\n}^#1:Expr."
      "CreateStruct#"},
+    {"import{}", "import{}^#1:Expr.CreateStruct#"},
+    {".import{}", ".import{}^#1:Expr.CreateStruct#"},
+    {"import.Foo{}", "import.Foo{}^#1:Expr.CreateStruct#"},
+    {"Foo.import{}", "Foo.import{}^#1:Expr.CreateStruct#"},
     {"m.optMap(v, f)",
      "_?_:_(\n  m^#1:Expr.Ident#.hasValue()^#6:Expr.Call#,\n  optional.of(\n   "
      " __comprehension__(\n      // Variable\n      #unused,\n      // "
@@ -1642,7 +1646,149 @@ std::vector<TestInfo> test_cases = {
      " | ^\n"
      "ERROR: <input>:1:8: Syntax error: unexpected token after expression\n"
      " | \"hello\rworld\"\n"
-     " | .......^"}};
+     " | .......^"},
+    {"a.?b.?c",
+     "_?._(\n"
+     "  _?._(\n"
+     "    a^#1:Expr.Ident#,\n"
+     "    \"b\"^#3:string#\n"
+     "  )^#2:Expr.Call#,\n"
+     "  \"c\"^#5:string#\n"
+     ")^#4:Expr.Call#",
+     "",
+     "_?._(\n"
+     "  _?._(\n"
+     "    a^#1[1,0]#,\n"
+     "    \"b\"^#3[1,0]#\n"
+     "  )^#2[1,1]#,\n"
+     "  \"c\"^#5[1,0]#\n"
+     ")^#4[1,4]#"},
+    {"!-42",
+     "!_(\n"
+     "  -42^#2:int64#\n"
+     ")^#1:Expr.Call#",
+     "",
+     "!_(\n"
+     "  -42^#2[1,1]#\n"
+     ")^#1[1,0]#"},
+    {"!-4.2",
+     "!_(\n"
+     "  -4.2^#2:double#\n"
+     ")^#1:Expr.Call#",
+     "",
+     "!_(\n"
+     "  -4.2^#2[1,1]#\n"
+     ")^#1[1,0]#"},
+    {"9in-x",
+     "@in(\n"
+     "  9^#1:int64#,\n"
+     "  -_(\n"
+     "    x^#4:Expr.Ident#\n"
+     "  )^#3:Expr.Call#\n"
+     ")^#2:Expr.Call#"},
+    {"1 \v + 2", "",
+     "ERROR: <input>:1:3: Syntax error: token recognition error at: '\v'\n"
+     " | 1 \v + 2\n"
+     " | ..^",
+     "", "", "",
+     "ERROR: <input>:1:3: Syntax error: unexpected character\n"
+     " | 1 \v + 2\n"
+     " | ..^"},
+    {"-!x", "",
+     "ERROR: <input>:1:2: Syntax error: no viable alternative at input '-!'\n"
+     " | -!x\n"
+     " | .^",
+     "", "", "",
+     "ERROR: <input>:1:2: Syntax error: unexpected token\n"
+     " | -!x\n"
+     " | .^\n"
+     "ERROR: <input>:1:3: Syntax error: unexpected token after expression\n"
+     " | -!x\n"
+     " | ..^"},
+    {"!-x", "",
+     "ERROR: <input>:1:2: invalid constant literal expression\n"
+     " | !-x\n"
+     " | .^\n"
+     "ERROR: <input>:1:3: Syntax error: no viable alternative at input '-x'\n"
+     " | !-x\n"
+     " | ..^",
+     "", "", "",
+     "ERROR: <input>:1:2: Syntax error: unexpected '-'\n"
+     " | !-x\n"
+     " | .^"},
+    {"a.in", "",
+     "ERROR: <input>:1:3: Syntax error: no viable alternative at input '.in'\n"
+     " | a.in\n"
+     " | ..^\n"
+     "ERROR: <input>:1:5: Syntax error: mismatched input '<EOF>' expecting "
+     "{'[', '{', '(', '.', '-', '!', 'true', 'false', 'null', NUM_FLOAT, "
+     "NUM_INT, NUM_UINT, STRING, BYTES, IDENTIFIER}\n"
+     " | a.in\n"
+     " | ....^",
+     "", "", "",
+     "ERROR: <input>:1:3: Syntax error: expected identifier after '.'\n"
+     " | a.in\n"
+     " | ..^"},
+    {"has(a.`$b`)", "",
+     "ERROR: <input>:1:7: Syntax error: token recognition error at: '`$'\n"
+     " | has(a.`$b`)\n"
+     " | ......^\n"
+     "ERROR: <input>:1:10: Syntax error: token recognition error at: '`)'\n"
+     " | has(a.`$b`)\n"
+     " | .........^\n"
+     "ERROR: <input>:1:12: Syntax error: missing ')' at '<EOF>'\n"
+     " | has(a.`$b`)\n"
+     " | ...........^",
+     "", "", "",
+     "ERROR: <input>:1:7: unexpected quoted identifier\n"
+     " | has(a.`$b`)\n"
+     " | ......^"},
+    {"(a){}", "",
+     "ERROR: <input>:1:4: Syntax error: mismatched input '{' expecting <EOF>\n"
+     " | (a){}\n"
+     " | ...^",
+     "", "", "",
+     "ERROR: <input>:1:4: Syntax error: unexpected token after expression\n"
+     " | (a){}\n"
+     " | ...^"},
+    {"(a.b){}", "",
+     "ERROR: <input>:1:6: Syntax error: mismatched input '{' expecting <EOF>\n"
+     " | (a.b){}\n"
+     " | .....^",
+     "", "", "",
+     "ERROR: <input>:1:6: Syntax error: unexpected token after expression\n"
+     " | (a.b){}\n"
+     " | .....^"},
+    {"(a).b{}", "",
+     "ERROR: <input>:1:6: Syntax error: mismatched input '{' expecting <EOF>\n"
+     " | (a).b{}\n"
+     " | .....^",
+     "", "", "",
+     "ERROR: <input>:1:6: Syntax error: unexpected token after expression\n"
+     " | (a).b{}\n"
+     " | .....^"},
+    {"a.`b-c`{}", "",
+     "ERROR: <input>:1:8: Syntax error: mismatched input '{' expecting <EOF>\n"
+     " | a.`b-c`{}\n"
+     " | .......^",
+     "", "", "",
+     "ERROR: <input>:1:8: Syntax error: unexpected token after expression\n"
+     " | a.`b-c`{}\n"
+     " | .......^"},
+    {"Msg{`$b`: 1}", "",
+     "ERROR: <input>:1:5: Syntax error: token recognition error at: '`$'\n"
+     " | Msg{`$b`: 1}\n"
+     " | ....^\n"
+     "ERROR: <input>:1:8: Syntax error: token recognition error at: '`:'\n"
+     " | Msg{`$b`: 1}\n"
+     " | .......^\n"
+     "ERROR: <input>:1:11: Syntax error: missing ':' at '1'\n"
+     " | Msg{`$b`: 1}\n"
+     " | ..........^",
+     "", "", "",
+     "ERROR: <input>:1:5: unexpected quoted identifier\n"
+     " | Msg{`$b`: 1}\n"
+     " | ....^"}};
 
 absl::string_view ConstantKind(const cel::Constant& c) {
   switch (c.kind_case()) {
@@ -1859,7 +2005,7 @@ TEST_P(ExpressionTest, Parse) {
         << result->parsed_expr().ShortDebugString();
   }
 
-  if (!options_.enable_pratt_parser && !test_info.L.empty()) {
+  if (!test_info.L.empty()) {
     LocationAdorner location_adorner(result->parsed_expr().source_info());
     ExprPrinter w(location_adorner);
     std::string adorned_string = w.PrintProto(result->parsed_expr().expr());

@@ -20,6 +20,8 @@
 
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
+#include "absl/cleanup/cleanup.h"
+#include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
@@ -197,6 +199,35 @@ void ParserWorker::SynchronizeOnDelimiter() {
     }
     NextToken();
   }
+}
+
+// Checks whether the current identifier is the root of a struct/message
+// creation expression (`CreateMessage` in grammar: `'.'? IDENTIFIER ('.'
+// IDENTIFIER)* '{' ... '}'`). Unlike standalone identifiers or selector
+// chains, reserved identifiers (e.g. `import{}` or `import.Foo{}`) are
+// permitted in message type names.
+bool ParserWorker::IsStructCreationAhead() {
+  if (peek_token_.type == TokenType::kLeftBrace) {
+    return true;
+  }
+  if (peek_token_.type != TokenType::kDot) {
+    return false;
+  }
+  const int32_t saved_pos = lexer_.SavePosition();
+  auto restore_lexer = absl::MakeCleanup(
+      [this, saved_pos] { lexer_.RestorePosition(saved_pos); });
+  Token tok = peek_token_;
+  while (tok.type == TokenType::kDot) {
+    tok = NextSignificantToken(/*report_error=*/false);
+    if (tok.type != TokenType::kIdent && tok.type != TokenType::kReservedWord) {
+      return false;
+    }
+    if (absl::StartsWith(GetTokenText(tok), "`")) {
+      return false;
+    }
+    tok = NextSignificantToken(/*report_error=*/false);
+  }
+  return tok.type == TokenType::kLeftBrace;
 }
 
 int64_t ParserWorker::NextId(int32_t position) {
