@@ -679,16 +679,6 @@ class TestCustomActivation : public cel::ActivationInterface {
       absl::string_view name) const override {
     return {};
   }
-
-  absl::Span<const cel::AttributePattern> GetUnknownAttributes()
-      const override {
-    return {};
-  }
-
-  absl::Span<const cel::AttributePattern> GetMissingAttributes()
-      const override {
-    return {};
-  }
 };
 }  // namespace
 

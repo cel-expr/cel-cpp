@@ -16,17 +16,17 @@
 
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
-#include "absl/status/status_matchers.h"
 #include "base/attribute.h"
+#include "base/attribute_set.h"
+#include "common/internal/attribute_trail.h"
+#include "common/unknown.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/value_testing.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_logic.h"
 #include "internal/testing.h"
@@ -40,8 +40,6 @@
 namespace google::api::expr::runtime {
 namespace {
 
-using ::absl_testing::IsOk;
-using ::cel::Attribute;
 using ::cel::DoubleValue;
 using ::cel::ErrorValue;
 using ::cel::IntValue;
@@ -53,86 +51,24 @@ using ::cel::test::ValueKindIs;
 
 class ValueStep : public ExpressionStepLogic {
  public:
-  ValueStep(Value value, Attribute attr)
-      : ExpressionStepLogic(),
-        value_(std::move(value)),
-        attr_(std::move(attr)) {}
   explicit ValueStep(Value value)
-      : ExpressionStepLogic(),
-        value_(std::move(value)),
-        attr_() {}
+      : ExpressionStepLogic(), value_(std::move(value)) {}
 
   void Evaluate(ExecutionFrame* frame) const override {
-    frame->value_stack().Push(value_, attr_);
+    if (value_.IsUnknown()) {
+      frame->value_stack().Push(cel::common_internal::GraftUnknowns(
+          cel::common_internal::MakeUnknownValue(
+              cel::Unknown(cel::AttributeSet({cel::Attribute("foo")})),
+              frame->arena()),
+          frame->unknown_tree()));
+    } else {
+      frame->value_stack().Push(value_);
+    }
   }
 
  private:
   Value value_;
-  AttributeTrail attr_;
 };
-
-TEST(IterativeTest, PartialAttrUnknown) {
-  cel::Activation activation;
-  google::protobuf::Arena arena;
-  cel::RuntimeOptions opts;
-  opts.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  FlatExpressionEvaluatorState state(
-      /*value_stack_size=*/5,
-      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
-      cel::internal::GetTestingDescriptorPool(),
-      cel::internal::GetTestingMessageFactory(), &arena);
-
-  ExecutionPath steps;
-  steps.push_back(ExpressionStep::MakeGenericStep(
-      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo"))));
-  steps.push_back(ExpressionStep::MakeGenericStep(
-      std::make_unique<ValueStep>(IntValue(2))));
-  steps.push_back(ExpressionStep::MakeFastEqualStep());
-
-  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
-                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
-              IsOk());
-
-  ExecutionFrame frame(steps, activation, opts, state);
-
-  ASSERT_OK_AND_ASSIGN(Value result, frame.Evaluate());
-
-  EXPECT_THAT(result, ValueKindIs(ValueKind::kUnknown));
-}
-
-TEST(IterativeTest, PartialAttrUnknownDisabled) {
-  cel::Activation activation;
-  google::protobuf::Arena arena;
-  cel::RuntimeOptions opts;
-  opts.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  FlatExpressionEvaluatorState state(
-      /*value_stack_size=*/5,
-      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
-      cel::internal::GetTestingDescriptorPool(),
-      cel::internal::GetTestingMessageFactory(), &arena);
-
-  ExecutionPath steps;
-  steps.push_back(ExpressionStep::MakeGenericStep(
-      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo"))));
-  steps.push_back(ExpressionStep::MakeGenericStep(
-      std::make_unique<ValueStep>(IntValue(2))));
-  steps.push_back(ExpressionStep::MakeFastEqualStep());
-
-  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
-                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
-              IsOk());
-  ExecutionFrame frame(steps, activation, opts, state);
-
-  ASSERT_OK_AND_ASSIGN(Value result, frame.Evaluate());
-
-  EXPECT_THAT(result, BoolValueIs(false));
-}
 
 enum class InputType { kInt1, kInt2, kDouble1, kList, kMap, kError, kUnknown };
 enum class OutputType { kBoolTrue, kBoolFalse, kError, kUnknown };

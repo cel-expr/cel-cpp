@@ -13,15 +13,23 @@
 // limitations under the License.
 
 #include <memory>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "google/protobuf/struct.pb.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/ascii.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/attribute.h"
+#include "base/function_result.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
 #include "common/value.h"
 #include "extensions/bindings_ext.h"
 #include "extensions/comprehensions_v2_macros.h"
@@ -33,6 +41,8 @@
 #include "parser/parser_interface.h"
 #include "runtime/activation.h"
 #include "runtime/constant_folding.h"
+#include "runtime/function.h"
+#include "runtime/internal/errors.h"
 #include "runtime/optional_types.h"
 #include "runtime/reference_resolver.h"
 #include "runtime/runtime.h"
@@ -46,6 +56,37 @@ namespace {
 
 using absl_testing::IsOk;
 using ::testing::UnorderedElementsAre;
+using ::testing::UnorderedElementsAreArray;
+
+// Function which just echos its input, this is to force the evaluator to handle
+// partials.
+class FullFunction final : public cel::Function {
+ public:
+  absl::StatusOr<cel::Value> Invoke(absl::Span<const cel::Value> args,
+                                    const InvokeContext&) const override {
+    return args[0];
+  }
+};
+
+class MergeFunction final : public cel::Function {
+ public:
+  absl::StatusOr<cel::Value> Invoke(
+      absl::Span<const cel::Value> args,
+      const InvokeContext& context) const override {
+    return cel::ErrorValue::From(absl::CancelledError(), context.arena());
+  }
+};
+
+class UnknownFunction final : public cel::Function {
+ public:
+  absl::StatusOr<cel::Value> Invoke(
+      absl::Span<const cel::Value> args,
+      const InvokeContext& context) const override {
+    return cel::ErrorValue::From(
+        cel::runtime_internal::CreateUnknownFunctionResultError("unknown"),
+        context.arena());
+  }
+};
 
 class ModernUnknownTest : public ::testing::Test {
  public:
@@ -76,6 +117,45 @@ class ModernUnknownTest : public ::testing::Test {
     ABSL_CHECK_OK(cel::extensions::EnableConstantFolding(
         runtime_builder, cel::internal::GetTestingMessageFactory()));
     ABSL_CHECK_OK(cel::extensions::EnableOptionalTypes(runtime_builder));
+    ABSL_CHECK_OK(runtime_builder.function_registry().Register(
+        cel::FunctionDescriptor("full", false, {cel::Kind::kAny}),
+        std::make_unique<FullFunction>()));
+    ABSL_CHECK_OK(runtime_builder.function_registry().Register(
+        cel::FunctionDescriptor("merge", false,
+                                {cel::Kind::kAny, cel::Kind::kAny}),
+        std::make_unique<MergeFunction>()));
+    ABSL_CHECK_OK(runtime_builder.function_registry().Register(
+        cel::FunctionDescriptor("merge", false,
+                                {cel::Kind::kAny, cel::Kind::kAny,
+                                 cel::Kind::kAny, cel::Kind::kAny}),
+        std::make_unique<MergeFunction>()));
+    ABSL_CHECK_OK(runtime_builder.function_registry().Register(
+        cel::FunctionDescriptor(
+            "merge", false, {cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny, cel::Kind::kAny, cel::Kind::kAny,
+                             cel::Kind::kAny}),
+        std::make_unique<MergeFunction>()));
+    for (char c = 'A'; c <= 'Z'; ++c) {
+      ABSL_CHECK_OK(runtime_builder.function_registry().Register(
+          cel::FunctionDescriptor(
+              absl::StrCat("unknown", absl::string_view(&c, 1)), false, {}),
+          std::make_unique<UnknownFunction>()));
+    }
     auto status_or_runtime = std::move(runtime_builder).Build();
     ABSL_CHECK_OK(status_or_runtime);  // Crash OK
     runtime_ = *std::move(status_or_runtime);
@@ -498,6 +578,314 @@ TEST_F(ModernUnknownTest, ListVariableIndexWildcardQualifier) {
   EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
               UnorderedElementsAre(
                   cel::Attribute("var1", {cel::AttributeQualifier::OfInt(0)})));
+}
+
+TEST_F(ModernUnknownTest, FullKnownUnknown) {
+  auto program = CreateProgram(R"cel(full(a.b.c))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern("a")}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b")})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": {"c": true}})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, FullKnownUnknownWildcard) {
+  auto program = CreateProgram(R"cel(full(a.b.c))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b")})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": {"c": true}})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, FullKnownWildcardUnknown) {
+  auto program = CreateProgram(R"cel(full(a.b.c))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern("a")}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b"),
+                        cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": {"c": true}})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, FullKnownWildcardUnknownWildcard) {
+  auto program = CreateProgram(R"cel(full(a.b.c))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b"),
+                        cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": {"c": true}})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, PartialKnownUnknown) {
+  auto program = CreateProgram(R"cel(full(a.b))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern("a")}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b")})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": true})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, PartialKnownUnknownWildcard) {
+  auto program = CreateProgram(R"cel(full(a.b))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b")})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": true})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, PartialKnownWildcardUnknown) {
+  auto program = CreateProgram(R"cel(full(a.b))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern("a")}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b"),
+                        cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": true})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, PartialKnownWildcardUnknownWildcard) {
+  auto program = CreateProgram(R"cel(full(a.b))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b"),
+                        cel::AttributeQualifierPattern::Wildcard()})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": true})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsTrue());
+}
+
+TEST_F(ModernUnknownTest, FastMerge1) {
+  auto program = CreateProgram(R"cel(merge(a, unknownA()))cel");
+  std::vector<cel::Attribute> attributes;
+  std::vector<cel::AttributePattern> attribute_patterns;
+  std::vector<cel::FunctionResult> functions;
+  for (char c = 'a'; c <= 'a'; ++c) {
+    attributes.push_back(cel::Attribute(std::string(1, c)));
+    attribute_patterns.push_back(cel::AttributePattern(std::string(1, c)));
+    char u = absl::ascii_toupper(c);
+    functions.push_back(
+        cel::FunctionResult(absl::StrCat("unknown", absl::string_view(&u, 1))));
+  }
+  ASSERT_THAT(activation_.SetUnknownPatterns(attribute_patterns), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAreArray(attributes));
+  EXPECT_THAT(result.GetUnknown().ToFunctionResultSet(),
+              UnorderedElementsAreArray(functions));
+}
+
+TEST_F(ModernUnknownTest, FastMerge2) {
+  auto program = CreateProgram(R"cel(merge(a, b, unknownA(), unknownB()))cel");
+  std::vector<cel::Attribute> attributes;
+  std::vector<cel::AttributePattern> attribute_patterns;
+  std::vector<cel::FunctionResult> functions;
+  for (char c = 'a'; c <= 'b'; ++c) {
+    attributes.push_back(cel::Attribute(std::string(1, c)));
+    attribute_patterns.push_back(cel::AttributePattern(std::string(1, c)));
+    char u = absl::ascii_toupper(c);
+    functions.push_back(
+        cel::FunctionResult(absl::StrCat("unknown", absl::string_view(&u, 1))));
+  }
+  ASSERT_THAT(activation_.SetUnknownPatterns(attribute_patterns), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAreArray(attributes));
+  EXPECT_THAT(result.GetUnknown().ToFunctionResultSet(),
+              UnorderedElementsAreArray(functions));
+}
+
+TEST_F(ModernUnknownTest, LargeMerge) {
+  auto program = CreateProgram(
+      R"cel(merge(a, b, c, d, e, f, g, h, i, j, k, l, m,
+                  n, o, p, q, r, s, t, u, v, w, x, y, z,
+                  unknownA(), unknownB(), unknownC(), unknownD(), unknownE(), unknownF(),
+                  unknownG(), unknownH(), unknownI(), unknownJ(), unknownK(), unknownL(),
+                  unknownM(), unknownN(), unknownO(), unknownP(), unknownQ(), unknownR(),
+                  unknownS(), unknownT(), unknownU(), unknownV(), unknownW(), unknownX(),
+                  unknownY(), unknownZ()))cel");
+  std::vector<cel::Attribute> attributes;
+  std::vector<cel::AttributePattern> attribute_patterns;
+  std::vector<cel::FunctionResult> functions;
+  for (char c = 'a'; c <= 'z'; ++c) {
+    attributes.push_back(cel::Attribute(std::string(1, c)));
+    attribute_patterns.push_back(cel::AttributePattern(std::string(1, c)));
+    char u = absl::ascii_toupper(c);
+    functions.push_back(
+        cel::FunctionResult(absl::StrCat("unknown", absl::string_view(&u, 1))));
+  }
+  ASSERT_THAT(activation_.SetUnknownPatterns(attribute_patterns), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAreArray(attributes));
+  EXPECT_THAT(result.GetUnknown().ToFunctionResultSet(),
+              UnorderedElementsAreArray(functions));
+}
+
+TEST_F(ModernUnknownTest, ListFastMerge1) {
+  auto program = CreateProgram(R"cel(full([a, unknownA()]))cel");
+  std::vector<cel::Attribute> attributes;
+  std::vector<cel::AttributePattern> attribute_patterns;
+  std::vector<cel::FunctionResult> functions;
+  for (char c = 'a'; c <= 'a'; ++c) {
+    attributes.push_back(cel::Attribute(std::string(1, c)));
+    attribute_patterns.push_back(cel::AttributePattern(std::string(1, c)));
+    char u = absl::ascii_toupper(c);
+    functions.push_back(
+        cel::FunctionResult(absl::StrCat("unknown", absl::string_view(&u, 1))));
+  }
+  ASSERT_THAT(activation_.SetUnknownPatterns(attribute_patterns), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAreArray(attributes));
+  EXPECT_THAT(result.GetUnknown().ToFunctionResultSet(),
+              UnorderedElementsAreArray(functions));
+}
+
+TEST_F(ModernUnknownTest, ListFastMerge2) {
+  auto program = CreateProgram(R"cel(full([a, b, unknownA(), unknownB()]))cel");
+  std::vector<cel::Attribute> attributes;
+  std::vector<cel::AttributePattern> attribute_patterns;
+  std::vector<cel::FunctionResult> functions;
+  for (char c = 'a'; c <= 'b'; ++c) {
+    attributes.push_back(cel::Attribute(std::string(1, c)));
+    attribute_patterns.push_back(cel::AttributePattern(std::string(1, c)));
+    char u = absl::ascii_toupper(c);
+    functions.push_back(
+        cel::FunctionResult(absl::StrCat("unknown", absl::string_view(&u, 1))));
+  }
+  ASSERT_THAT(activation_.SetUnknownPatterns(attribute_patterns), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAreArray(attributes));
+  EXPECT_THAT(result.GetUnknown().ToFunctionResultSet(),
+              UnorderedElementsAreArray(functions));
+}
+
+TEST_F(ModernUnknownTest, ListLargeMerge) {
+  auto program = CreateProgram(
+      R"cel(full([a, b, c, d, e, f, g, h, i, j, k, l, m,
+                  n, o, p, q, r, s, t, u, v, w, x, y, z,
+                  unknownA(), unknownB(), unknownC(), unknownD(), unknownE(), unknownF(),
+                  unknownG(), unknownH(), unknownI(), unknownJ(), unknownK(), unknownL(),
+                  unknownM(), unknownN(), unknownO(), unknownP(), unknownQ(), unknownR(),
+                  unknownS(), unknownT(), unknownU(), unknownV(), unknownW(), unknownX(),
+                  unknownY(), unknownZ()]))cel");
+  std::vector<cel::Attribute> attributes;
+  std::vector<cel::AttributePattern> attribute_patterns;
+  std::vector<cel::FunctionResult> functions;
+  for (char c = 'a'; c <= 'z'; ++c) {
+    attributes.push_back(cel::Attribute(std::string(1, c)));
+    attribute_patterns.push_back(cel::AttributePattern(std::string(1, c)));
+    char u = absl::ascii_toupper(c);
+    functions.push_back(
+        cel::FunctionResult(absl::StrCat("unknown", absl::string_view(&u, 1))));
+  }
+  ASSERT_THAT(activation_.SetUnknownPatterns(attribute_patterns), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAreArray(attributes));
+  EXPECT_THAT(result.GetUnknown().ToFunctionResultSet(),
+              UnorderedElementsAreArray(functions));
+}
+
+TEST_F(ModernUnknownTest, ListPartialMerge) {
+  auto program = CreateProgram(
+      R"cel(full([a, b, c, d, e, f, g, h, i, j, k, l, m,
+                  n, o, p, q, r, s, t, u, v, w, x, y, z,
+                  unknownA(), unknownB(), unknownC(), unknownD(), unknownE(), unknownF(),
+                  unknownG(), unknownH(), unknownI(), unknownJ(), unknownK(), unknownL(),
+                  unknownM(), unknownN(), unknownO(), unknownP(), unknownQ(), unknownR(),
+                  unknownS(), unknownT(), unknownU(), unknownV(), unknownW(), unknownX(),
+                  unknownY(), unknownZ()]))cel");
+  std::vector<cel::Attribute> attributes;
+  std::vector<cel::AttributePattern> attribute_patterns;
+  std::vector<cel::FunctionResult> functions;
+  for (char c = 'a'; c <= 'z'; ++c) {
+    attributes.push_back(cel::Attribute(std::string(1, c)));
+    attribute_patterns.push_back(cel::AttributePattern(
+        std::string(1, c), {cel::AttributeQualifierPattern::Wildcard()}));
+    ASSERT_TRUE(
+        activation_.InsertOrAssignValue(std::string(1, c), cel::MapValue()));
+    char u = absl::ascii_toupper(c);
+    functions.push_back(
+        cel::FunctionResult(absl::StrCat("unknown", absl::string_view(&u, 1))));
+  }
+  ASSERT_THAT(activation_.SetUnknownPatterns(attribute_patterns), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown()) << result;
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAreArray(attributes));
+  EXPECT_THAT(result.GetUnknown().ToFunctionResultSet(),
+              UnorderedElementsAreArray(functions));
+}
+
+TEST_F(ModernUnknownTest, KnownUnknownPartial) {
+  auto program = CreateProgram(R"cel(full(a.b))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern("a")}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b"),
+                        cel::AttributeQualifierPattern::OfString("c")})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": {"c": true}})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown()) << result;
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAre(cel::Attribute(
+                  "a", {cel::AttributeQualifier::OfString("b")})));
+}
+
+TEST_F(ModernUnknownTest, KnownUnknownFull) {
+  auto program = CreateProgram(R"cel(full(a.b.d))cel");
+  ASSERT_THAT(activation_.SetUnknownPatterns({cel::AttributePattern("a")}),
+              IsOk());
+  ASSERT_THAT(activation_.SetKnownPatterns({cel::AttributePattern(
+                  "a", {cel::AttributeQualifierPattern::OfString("b"),
+                        cel::AttributeQualifierPattern::OfString("c")})}),
+              IsOk());
+  BindJsonToActivation("a", R"json({"b": {"c": true}})json");
+  ASSERT_OK_AND_ASSIGN(auto result, Evaluate(*program));
+  ASSERT_TRUE(result.IsUnknown()) << result;
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+              UnorderedElementsAre(cel::Attribute(
+                  "a", {cel::AttributeQualifier::OfString("b"),
+                        cel::AttributeQualifier::OfString("d")})));
 }
 
 }  // namespace

@@ -2,6 +2,7 @@
 
 #include "base/attribute.h"
 #include "common/value.h"
+#include "eval/eval/attribute_trail.h"
 #include "internal/testing.h"
 
 namespace google::api::expr::runtime {
@@ -14,21 +15,17 @@ TEST(EvaluatorStackTest, StackPushPop) {
   EvaluatorStack stack(10);
   stack.Push(cel::IntValue(1));
   stack.Push(cel::IntValue(2), AttributeTrail());
-  stack.Push(cel::IntValue(3), AttributeTrail("name"));
+  stack.Push(cel::IntValue(3), AttributeTrail());
 
   ASSERT_EQ(stack.Peek().GetInt().NativeValue(), 3);
-  ASSERT_FALSE(stack.PeekAttribute().empty());
-  ASSERT_EQ(stack.PeekAttribute().attribute(), attribute);
 
   stack.Pop(1);
 
   ASSERT_EQ(stack.Peek().GetInt().NativeValue(), 2);
-  ASSERT_TRUE(stack.PeekAttribute().empty());
 
   stack.Pop(1);
 
   ASSERT_EQ(stack.Peek().GetInt().NativeValue(), 1);
-  ASSERT_TRUE(stack.PeekAttribute().empty());
 }
 
 // Test that inner stacks within value stack retain the equality of their sizes.

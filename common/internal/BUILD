@@ -18,6 +18,24 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
+    name = "attribute_trail",
+    srcs = ["attribute_trail.cc"],
+    hdrs = ["attribute_trail.h"],
+    deps = [
+        ":unknowns",
+        "//base:attribute_matcher",
+        "//base:attributes",
+        "//common:value",
+        "//runtime/internal:errors",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_library(
     name = "unknowns",
     srcs = ["unknowns.cc"],
     hdrs = ["unknowns.h"],

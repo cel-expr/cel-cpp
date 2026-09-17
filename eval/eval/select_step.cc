@@ -1,17 +1,16 @@
 #include "eval/eval/select_step.h"
 
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
-#include "absl/log/absl_log.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "base/attribute.h"
 #include "common/legacy_value.h"
 #include "common/type.h"
 #include "common/value.h"
@@ -46,32 +45,6 @@ using ::cel::ValueKind;
 absl::Status InvalidSelectTargetError() {
   return absl::Status(absl::StatusCode::kInvalidArgument,
                       "Applying SELECT to non-message type");
-}
-
-absl::optional<Value> CheckForMarkedAttributes(const AttributeTrail& trail,
-                                               ExecutionFrameBase& frame) {
-  if (frame.unknown_processing_enabled() &&
-      frame.attribute_utility().CheckForUnknownExact(trail)) {
-    return frame.attribute_utility().CreateUnknownSet(trail.attribute(),
-                                                      frame.arena());
-  }
-
-  if (frame.missing_attribute_errors_enabled() &&
-      frame.attribute_utility().CheckForMissingAttribute(trail)) {
-    auto result = frame.attribute_utility().CreateMissingAttributeError(
-        trail.attribute(), frame.arena());
-
-    if (result.ok()) {
-      return std::move(result).value();
-    }
-    // Invariant broken (an invalid CEL Attribute shouldn't match anything).
-    // Log and return a CelError.
-    ABSL_LOG(ERROR) << "Invalid attribute pattern matched select path: "
-                    << result.status().ToString();  // NOLINT: OSS compatibility
-    return cel::ErrorValue::From(std::move(result).status(), frame.arena());
-  }
-
-  return std::nullopt;
 }
 
 absl::Status PerformHas(const Value& target, absl::string_view field,
@@ -196,49 +169,44 @@ void SelectStep::Evaluate(ExecutionFrame* frame) const {
     return;
   }
 
-  const Value& arg = frame->value_stack().Peek();
-  const AttributeTrail& trail = frame->value_stack().PeekAttribute();
+  Value& arg_and_result = frame->value_stack().Peek();
 
-  if (arg.IsUnknown() || arg.IsError()) {
+  if (arg_and_result.IsUnknown() || arg_and_result.IsError()) {
     // Bubble up unknowns and errors.
     return;
   }
 
-  AttributeTrail result_trail;
-
-  // Handle unknown resolution.
-  if (frame->attribute_tracking_enabled()) {
-    result_trail = trail.Step(&field_);
-  }
-
   absl::optional<OptionalValue> optional_arg;
 
-  if (enable_optional_types_ && arg.IsOptional()) {
-    optional_arg = arg.GetOptional();
+  if (enable_optional_types_ && arg_and_result.IsOptional()) {
+    optional_arg = arg_and_result.GetOptional();
   }
 
-  if (!(optional_arg || arg.IsMap() || arg.IsStruct())) {
-    frame->value_stack().PopAndPush(
-        cel::ErrorValue::From(InvalidSelectTargetError(), frame->arena()),
-        std::move(result_trail));
+  if (!(optional_arg || arg_and_result.IsMap() || arg_and_result.IsStruct())) {
+    // Do not bother stepping the attribute trail if the target is incorrect, we
+    // would not have encountered it anyway.
+    arg_and_result =
+        cel::ErrorValue::From(InvalidSelectTargetError(), frame->arena());
+    if (frame->attribute_tracking_enabled()) {
+      frame->value_stack().PeekAttribute().Clear();
+    }
     return;
   }
 
-  absl::optional<Value> marked_attribute_check =
-      CheckForMarkedAttributes(result_trail, *frame);
-  if (marked_attribute_check.has_value()) {
-    frame->value_stack().PopAndPush(std::move(marked_attribute_check).value(),
-                                    std::move(result_trail));
+  // Handle unknown resolution.
+  if (frame->attribute_tracking_enabled() &&
+      frame->value_stack().PeekAttribute().Match<AttributeTrail::kFull>(
+          cel::AttributeQualifierView::OfString(field_), arg_and_result,
+          frame->unknown_tree())) {
     return;
   }
 
   Value result;
   if (test_field_presence_) {
-    const Value* target = &arg;
+    const Value* target = &arg_and_result;
     if (optional_arg) {
       if (!optional_arg->HasValue()) {
-        frame->value_stack().PopAndPush(cel::BoolValue{false},
-                                        std::move(result_trail));
+        arg_and_result = cel::FalseValue();
         return;
       }
       optional_arg->Value(&result);
@@ -252,14 +220,13 @@ void SelectStep::Evaluate(ExecutionFrame* frame) const {
       frame->Abort(std::move(status));
       return;
     }
-    frame->value_stack().PopAndPush(std::move(result), std::move(result_trail));
+    arg_and_result = result;
     return;
   }
 
   if (optional_arg) {
     if (!optional_arg->HasValue()) {
-      frame->value_stack().PopAndPush(OptionalValue::None(),
-                                      std::move(result_trail));
+      arg_and_result = OptionalValue::None();
       return;
     }
     Value value;
@@ -271,36 +238,26 @@ void SelectStep::Evaluate(ExecutionFrame* frame) const {
     if (!status.ok()) {
       result = ErrorValue::From(std::move(status), frame->arena());
     }
-    frame->value_stack().PopAndPush(std::move(result), std::move(result_trail));
+    arg_and_result = result;
     return;
   }
 
-  if (absl::Status status =
-          PerformGet(arg, field_, cel::StringValue::WrapUnsafe(field_),
-                     unboxing_option_, frame->descriptor_pool(),
-                     frame->message_factory(), frame->arena(), result);
+  if (absl::Status status = PerformGet(
+          arg_and_result, field_, cel::StringValue::WrapUnsafe(field_),
+          unboxing_option_, frame->descriptor_pool(), frame->message_factory(),
+          frame->arena(), result);
       !status.ok()) {
     frame->Abort(std::move(status));
     return;
   }
-  frame->value_stack().PopAndPush(std::move(result), std::move(result_trail));
+  arg_and_result = result;
 }
 
 bool CheckAttributeTrail(const std::string& field, ExecutionFrame* frame) {
-  if (!frame->attribute_tracking_enabled()) {
-    return false;
-  }
-  AttributeTrail& attr = frame->value_stack().PeekAttribute();
-  attr = attr.Step(&field);
-
-  absl::optional<Value> marked_attribute_check =
-      CheckForMarkedAttributes(attr, *frame);
-  if (marked_attribute_check.has_value()) {
-    frame->value_stack().Peek() = std::move(marked_attribute_check).value();
-    return true;
-  }
-
-  return false;
+  return frame->attribute_tracking_enabled() &&
+         frame->value_stack().PeekAttribute().Match<AttributeTrail::kFull>(
+             cel::AttributeQualifierView::OfString(field),
+             frame->value_stack().Peek(), frame->unknown_tree());
 }
 
 bool SupportsCachedFieldDescriptor(
