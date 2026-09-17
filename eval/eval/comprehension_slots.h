@@ -25,9 +25,8 @@
 #include "absl/base/nullability.h"
 #include "absl/container/fixed_array.h"
 #include "absl/log/absl_check.h"
-#include "absl/types/optional.h"
+#include "common/internal/attribute_trail.h"
 #include "common/value.h"
-#include "eval/eval/attribute_trail.h"
 
 namespace google::api::expr::runtime {
 
@@ -51,13 +50,14 @@ class ComprehensionSlot final {
     return &value_;
   }
 
-  const AttributeTrail& attribute() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  const cel::common_internal::AttributeTrail& attribute() const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
     ABSL_DCHECK(Has());
 
     return attribute_;
   }
 
-  AttributeTrail* absl_nonnull mutable_attribute()
+  cel::common_internal::AttributeTrail* absl_nonnull mutable_attribute()
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     ABSL_DCHECK(Has());
 
@@ -66,31 +66,35 @@ class ComprehensionSlot final {
 
   bool Has() const { return has_; }
 
-  void Set() { Set(cel::NullValue(), absl::nullopt); }
+  void Set() { Set(cel::NullValue(), cel::common_internal::AttributeTrail()); }
 
   template <typename V>
   void Set(V&& value) {
-    Set(std::forward<V>(value), absl::nullopt);
+    Set(std::forward<V>(value), cel::common_internal::AttributeTrail());
   }
 
-  template <typename V, typename A>
-  void Set(V&& value, A&& attribute) {
+  template <typename V>
+  void Set(V&& value, cel::common_internal::AttributeTrail attribute) {
+    ABSL_DCHECK(!attribute.IsFullMatch())
+        << "Full matches should not be pushed onto the value stack, they "
+           "should be handled directly and converted to an unknown value or "
+           "missing error value";
     value_ = std::forward<V>(value);
-    attribute_ = std::forward<A>(attribute);
+    attribute_ = attribute;
     has_ = true;
   }
 
   void Clear() {
     if (has_) {
       value_ = cel::NullValue();
-      attribute_ = absl::nullopt;
+      attribute_ = cel::common_internal::AttributeTrail();
       has_ = false;
     }
   }
 
  private:
   cel::Value value_;
-  AttributeTrail attribute_;
+  cel::common_internal::AttributeTrail attribute_;
   bool has_ = false;
 };
 
@@ -139,12 +143,13 @@ class ComprehensionSlots final {
 
   template <typename V>
   void Set(size_t index, V&& value) {
-    Set(index, std::forward<V>(value), absl::nullopt);
+    Set(index, std::forward<V>(value), cel::common_internal::AttributeTrail());
   }
 
-  template <typename V, typename A>
-  void Set(size_t index, V&& value, A&& attribute) {
-    Get(index)->Set(std::forward<V>(value), std::forward<A>(attribute));
+  template <typename V>
+  void Set(size_t index, V&& value,
+           cel::common_internal::AttributeTrail attribute) {
+    Get(index)->Set(std::forward<V>(value), attribute);
   }
 
   size_t size() const { return slots_.size(); }

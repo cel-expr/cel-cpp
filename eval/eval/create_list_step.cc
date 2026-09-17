@@ -8,12 +8,11 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
-#include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "common/internal/attribute_trail.h"
 #include "common/optional_ref.h"
 #include "common/value.h"
 #include "common/values/list_value_builder.h"
-#include "eval/eval/attribute_utility.h"
 #include "eval/eval/evaluator_core.h"
 
 namespace google::api::expr::runtime {
@@ -22,7 +21,6 @@ namespace {
 
 using ::cel::ErrorValue;
 using ::cel::ListValueBuilderPtr;
-using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::common_internal::NewListValueBuilder;
 
@@ -73,12 +71,11 @@ void EvaluateListStepImpl(const StepInfo& step, ExecutionFrame& frame) {
   }
 
   if (frame.enable_unknowns()) {
-    absl::optional<UnknownValue> unknown_set =
-        frame.attribute_utility().IdentifyAndMergeUnknowns(
+    if (auto unknown = cel::common_internal::PartiallyIdentifyAndMergeUnknowns(
             args, frame.value_stack().GetAttributeSpan(num_elements),
-            /*use_partial=*/true, frame.arena());
-    if (unknown_set.has_value()) {
-      frame.value_stack().PopAndPush(num_elements, std::move(*unknown_set));
+            frame.unknown_tree());
+        unknown.has_value()) {
+      frame.value_stack().PopAndPush(num_elements, *unknown);
       return;
     }
   }

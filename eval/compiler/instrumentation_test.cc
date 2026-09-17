@@ -192,6 +192,7 @@ TEST_F(InstrumentationTest, AndShortCircuit) {
   ASSERT_OK_AND_ASSIGN(auto value, plan.EvaluateWithCallback(
                                        activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   EXPECT_THAT(expr_ids, ElementsAre(1, 2, 3));
 
@@ -200,6 +201,7 @@ TEST_F(InstrumentationTest, AndShortCircuit) {
   ASSERT_OK_AND_ASSIGN(
       value, plan.EvaluateWithCallback(activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   EXPECT_THAT(expr_ids, ElementsAre(1, 2, 3, 1, 3));
 }
@@ -234,6 +236,7 @@ TEST_F(InstrumentationTest, OrShortCircuit) {
   ASSERT_OK_AND_ASSIGN(auto value, plan.EvaluateWithCallback(
                                        activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   EXPECT_THAT(expr_ids, ElementsAre(1, 2, 3));
   expr_ids.clear();
@@ -242,6 +245,7 @@ TEST_F(InstrumentationTest, OrShortCircuit) {
   ASSERT_OK_AND_ASSIGN(
       value, plan.EvaluateWithCallback(activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   EXPECT_THAT(expr_ids, ElementsAre(1, 3));
 }
@@ -277,6 +281,7 @@ TEST_F(InstrumentationTest, Ternary) {
   ASSERT_OK_AND_ASSIGN(auto value, plan.EvaluateWithCallback(
                                        activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   // AST
   //       ?:() <2>
@@ -290,6 +295,7 @@ TEST_F(InstrumentationTest, Ternary) {
   ASSERT_OK_AND_ASSIGN(
       value, plan.EvaluateWithCallback(activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   EXPECT_THAT(expr_ids, ElementsAre(1, 4, 2));
   expr_ids.clear();

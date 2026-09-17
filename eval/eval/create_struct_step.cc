@@ -26,6 +26,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "common/internal/attribute_trail.h"
 #include "common/value.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
@@ -38,7 +39,6 @@ namespace {
 
 using ::cel::ErrorValue;
 using ::cel::StructValueBuilderInterface;
-using ::cel::UnknownValue;
 using ::cel::Value;
 
 // `CreateStruct` implementation for message/struct.
@@ -74,12 +74,11 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
   }
 
   if (frame->enable_unknowns()) {
-    absl::optional<UnknownValue> unknown_set =
-        frame->attribute_utility().IdentifyAndMergeUnknowns(
+    if (auto unknown = cel::common_internal::PartiallyIdentifyAndMergeUnknowns(
             args, frame->value_stack().GetAttributeSpan(entries_size),
-            /*use_partial=*/true, frame->arena());
-    if (unknown_set.has_value()) {
-      return *unknown_set;
+            frame->unknown_tree());
+        unknown.has_value()) {
+      return *unknown;
     }
   }
 

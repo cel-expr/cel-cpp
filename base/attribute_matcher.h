@@ -118,6 +118,13 @@ class AttributeMatcherNode {
     return children_ != nullptr || wildcard_ != nullptr;
   }
 
+  // True if this is a partial match and the only child of this node is a
+  // wildcard and the wildcard has no children.
+  [[nodiscard]]
+  bool IsPartialWildcard() const {
+    return children_ == nullptr && wildcard_ != nullptr && wildcard_->IsFull();
+  }
+
   [[nodiscard]]
   bool IsFull() const {
     return !IsPartial();
@@ -227,6 +234,13 @@ class [[nodiscard]] AttributeMatch {
   [[nodiscard]]
   bool IsPartial() const {
     return node_ != nullptr && node_->IsPartial();
+  }
+
+  // True if this is a partial match and the only possible next match is a
+  // wildcard and there is no next match after the wildcard.
+  [[nodiscard]]
+  bool IsPartialWildcard() const {
+    return node_ != nullptr && node_->IsPartialWildcard();
   }
 
   [[nodiscard]]
@@ -379,6 +393,12 @@ class AttributeMatcher {
   [[nodiscard]]
   bool HasAttributes() const {
     return !children_.empty();
+  }
+
+  friend void swap(AttributeMatcher& lhs, AttributeMatcher& rhs) {
+    using std::swap;
+    swap(lhs.children_, rhs.children_);
+    swap(lhs.attributes_, rhs.attributes_);
   }
 
  private:
