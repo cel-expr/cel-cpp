@@ -54,11 +54,12 @@ absl::StatusOr<Value> EvaluateEquality(
   }
 
   if (frame.unknown_processing_enabled()) {
-    auto accu = frame.attribute_utility().CreateAccumulator();
-    accu.MaybeAdd(lhs, lhs_attr);
-    accu.MaybeAdd(rhs, rhs_attr);
-    if (!accu.IsEmpty()) {
-      return std::move(accu).Build();
+    UnknownAccumulator accumulator(frame.unknown_tree());
+    accumulator.MaybeAdd(lhs, lhs_attr);
+    accumulator.MaybeAdd(rhs, rhs_attr);
+    if (auto accumulated = std::move(accumulator).Accumulate();
+        accumulated.has_value()) {
+      return *accumulated;
     }
   }
 
@@ -142,11 +143,12 @@ absl::StatusOr<Value> EvaluateIn(ExecutionFrameBase& frame, const Value& item,
   }
 
   if (frame.unknown_processing_enabled()) {
-    auto accu = frame.attribute_utility().CreateAccumulator();
-    accu.MaybeAdd(item, item_attr);
-    accu.MaybeAdd(container, container_attr);
-    if (!accu.IsEmpty()) {
-      return std::move(accu).Build();
+    UnknownAccumulator accumulator(frame.unknown_tree());
+    accumulator.MaybeAdd(item, item_attr);
+    accumulator.MaybeAdd(container, container_attr);
+    if (auto accumulated = std::move(accumulator).Accumulate();
+        accumulated.has_value()) {
+      return *accumulated;
     }
   }
   if (container.IsList()) {

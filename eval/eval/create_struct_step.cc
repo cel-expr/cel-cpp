@@ -38,7 +38,6 @@ namespace {
 
 using ::cel::ErrorValue;
 using ::cel::StructValueBuilderInterface;
-using ::cel::UnknownValue;
 using ::cel::Value;
 
 // `CreateStruct` implementation for message/struct.
@@ -74,12 +73,11 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
   }
 
   if (frame->enable_unknowns()) {
-    absl::optional<UnknownValue> unknown_set =
-        frame->attribute_utility().IdentifyAndMergeUnknowns(
+    if (auto unknown = cel::common_internal::PartiallyIdentityAndMergeUnknowns(
             args, frame->value_stack().GetAttributeSpan(entries_size),
-            /*use_partial=*/true);
-    if (unknown_set.has_value()) {
-      return *unknown_set;
+            frame->unknown_tree());
+        unknown.has_value()) {
+      return *unknown;
     }
   }
 

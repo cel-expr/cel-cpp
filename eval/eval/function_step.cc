@@ -17,6 +17,7 @@
 #include "absl/types/span.h"
 #include "common/expr.h"
 #include "common/function_descriptor.h"
+#include "common/internal/unknowns.h"
 #include "common/kind.h"
 #include "common/value.h"
 #include "common/value_kind.h"
@@ -111,14 +112,12 @@ std::vector<cel::Value> CheckForPartialUnknowns(
   std::vector<cel::Value> result;
   result.reserve(args.size());
   for (size_t i = 0; i < args.size(); i++) {
-    const AttributeTrail& trail = attrs.subspan(i, 1)[0];
-
-    if (frame->attribute_utility().CheckForUnknown(trail,
-                                                   /*use_partial=*/true)) {
-      result.push_back(
-          frame->attribute_utility().CreateUnknownSet(trail.attribute()));
+    const AttributeTrail& trail = attrs[i];
+    if (auto unknown = trail.PartialUnknownMatch(frame->unknown_tree());
+        unknown.has_value()) {
+      result.push_back(*unknown);
     } else {
-      result.push_back(args.at(i));
+      result.push_back(args[i]);
     }
   }
 
@@ -161,8 +160,14 @@ inline absl::StatusOr<Value> Invoke(
 
   if (frame.unknown_function_results_enabled() &&
       IsUnknownFunctionResultError(*result)) {
-    return frame.attribute_utility().CreateUnknownSet(overload.descriptor,
-                                                      expr_id, args);
+    return cel::common_internal::MakeUnknownValue(
+        cel::common_internal::UnknownValueRep{
+            .root = frame.unknown_tree()->Root(),
+            .attributes = nullptr,
+            .functions = cel::common_internal::CreateUnknownFunctionSet(
+                frame.unknown_tree()->Root()->SetFunction(
+                    frame.unknown_tree(), overload.descriptor.name()),
+                frame.unknown_tree()->GetArena())});
   }
   return result;
 }
@@ -183,10 +188,13 @@ Value NoOverloadResult(absl::string_view name,
 
   if (frame.unknown_processing_enabled()) {
     // Already converted partial unknowns to unknown sets so just merge.
-    absl::optional<UnknownValue> unknown_set =
-        frame.attribute_utility().MergeUnknowns(args);
-    if (unknown_set.has_value()) {
-      return *unknown_set;
+    UnknownAccumulator accumulator(frame.unknown_tree());
+    for (const auto& arg : args) {
+      accumulator.MaybeAdd(arg);
+    }
+    if (auto accumulated = std::move(accumulator).Accumulate();
+        accumulated.has_value()) {
+      return *accumulated;
     }
   }
 

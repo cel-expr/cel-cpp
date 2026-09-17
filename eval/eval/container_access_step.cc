@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/log/absl_check.h"
@@ -16,7 +17,6 @@
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/attribute_utility.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
 #include "eval/eval/expression_step_logic.h"
@@ -28,7 +28,6 @@ namespace google::api::expr::runtime {
 
 namespace {
 
-using ::cel::AttributeQualifier;
 using ::cel::ErrorValue;
 using ::cel::IntValue;
 using ::cel::ListValue;
@@ -56,7 +55,7 @@ absl::optional<Number> CelNumberFromValue(const Value& value) {
 }
 
 absl::Status CheckMapKeyType(const Value& key) {
-  ValueKind kind = key->kind();
+  ValueKind kind = key.kind();
   switch (kind) {
     case ValueKind::kString:
     case ValueKind::kInt64:
@@ -69,19 +68,21 @@ absl::Status CheckMapKeyType(const Value& key) {
   }
 }
 
-AttributeQualifier AttributeQualifierFromValue(const Value& v) {
-  switch (v->kind()) {
+cel::AttributeQualifierView AttributeQualifierViewFromValue(
+    const Value& v, std::string& scratch) {
+  switch (v.kind()) {
     case ValueKind::kString:
-      return AttributeQualifier::OfString(v.GetString().ToString());
+      return cel::AttributeQualifierView::OfString(
+          v.GetString().ToStringView(&scratch));
     case ValueKind::kInt64:
-      return AttributeQualifier::OfInt(v.GetInt().NativeValue());
+      return cel::AttributeQualifierView::OfInt(v.GetInt().NativeValue());
     case ValueKind::kUint64:
-      return AttributeQualifier::OfUint(v.GetUint().NativeValue());
+      return cel::AttributeQualifierView::OfUint(v.GetUint().NativeValue());
     case ValueKind::kBool:
-      return AttributeQualifier::OfBool(v.GetBool().NativeValue());
+      return cel::AttributeQualifierView::OfBool(v.GetBool().NativeValue());
     default:
       // Non-matching qualifier.
-      return AttributeQualifier();
+      return cel::AttributeQualifierView();
   }
 }
 
@@ -230,8 +231,7 @@ void PerformLookup(ExecutionFrameBase& frame, const Value& container,
                    bool enable_optional_types, Value& result,
                    AttributeTrail& trail) {
   if (frame.unknown_processing_enabled()) {
-    AttributeUtility::Accumulator unknowns =
-        frame.attribute_utility().CreateAccumulator();
+    UnknownAccumulator unknowns(frame.unknown_tree());
     unknowns.MaybeAdd(container);
     unknowns.MaybeAdd(key);
 
@@ -240,10 +240,10 @@ void PerformLookup(ExecutionFrameBase& frame, const Value& container,
       return;
     }
 
-    trail = container_trail.Step(AttributeQualifierFromValue(key));
-
-    if (frame.attribute_utility().CheckForUnknownExact(trail)) {
-      result = frame.attribute_utility().CreateUnknownSet(trail.attribute());
+    std::string scratch;
+    if (trail.Match<AttributeTrail::kFull>(
+            AttributeQualifierViewFromValue(key, scratch), result,
+            frame.unknown_tree())) {
       return;
     }
   }

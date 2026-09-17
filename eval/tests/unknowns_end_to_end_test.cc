@@ -33,8 +33,6 @@
 #include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "parser/parser.h"
-#include "runtime/internal/activation_attribute_matcher_access.h"
-#include "runtime/internal/attribute_matcher.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/text_format.h"
 
@@ -45,35 +43,11 @@ namespace runtime {
 namespace {
 
 using ::absl_testing::IsOk;
-using ::cel::runtime_internal::ActivationAttributeMatcherAccess;
 using ::cel::expr::Expr;
 using ::cel::expr::ParsedExpr;
 using ::google::api::expr::parser::Parse;
 using ::google::protobuf::Arena;
 using ::testing::ElementsAre;
-using ::testing::UnorderedElementsAre;
-
-absl::StatusOr<CelValue> MakeCelMap(absl::string_view expr,
-                                    google::protobuf::Arena* arena) {
-  static CelExpressionBuilder* builder = []() {
-    return CreateCelExpressionBuilder(InterpreterOptions()).release();
-  }();
-  static absl::NoDestructor<Activation> activation;
-
-  CEL_ASSIGN_OR_RETURN(ParsedExpr parsed_expr, Parse(expr));
-
-  CEL_ASSIGN_OR_RETURN(auto plan,
-                       builder->CreateExpression(&parsed_expr.expr(), nullptr));
-  absl::StatusOr<CelValue> result = plan->Evaluate(*activation, arena);
-  if (!result.ok()) {
-    return result.status();
-  }
-  if (!result->IsMap()) {
-    return absl::FailedPreconditionError(
-        absl::StrCat("expression did not evaluate to a map: ", expr));
-  }
-  return result;
-}
 
 enum class FunctionResponse { kUnknown, kTrue, kFalse };
 
@@ -217,49 +191,6 @@ TEST_F(UnknownsTest, UnknownAttributesPruning) {
 
   ASSERT_TRUE(response.IsBool());
   EXPECT_TRUE(response.BoolOrDie());
-}
-
-class CustomMatcher : public cel::runtime_internal::AttributeMatcher {
- public:
-  MatchResult CheckForUnknown(const cel::Attribute& attr) const override {
-    // Rendering to a string just for ease of testing.
-    std::string name = attr.AsString().value_or("");
-    if (name == "var1") {
-      return MatchResult::PARTIAL;
-    } else if (name == "var1.foo") {
-      return MatchResult::FULL;
-    }
-    return MatchResult::NONE;
-  }
-};
-
-TEST_F(UnknownsTest, UnknownAttributesCustomMatcher) {
-  PrepareBuilder(UnknownProcessingOptions::kAttributeOnly);
-
-  ASSERT_OK_AND_ASSIGN(auto var1, MakeCelMap("{'bar': 1}", &arena_));
-  activation_.InsertValue("var1", var1);
-  CustomMatcher matcher;
-  ActivationAttributeMatcherAccess::SetAttributeMatcher(activation_, &matcher);
-
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F1", FunctionResponse::kTrue, CelValue::Type::kMap)),
-              IsOk());
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F2", FunctionResponse::kTrue)),
-              IsOk());
-
-  ASSERT_OK_AND_ASSIGN(ParsedExpr expr,
-                       Parse("F1(var1) || var1.foo || var1.bar"));
-  auto plan = builder_->CreateExpression(&expr.expr(), nullptr);
-  ASSERT_THAT(plan, IsOk());
-
-  ASSERT_OK_AND_ASSIGN(CelValue response,
-                       plan.value()->Evaluate(activation_, &arena_));
-
-  ASSERT_TRUE(response.IsUnknownSet()) << response.DebugString();
-  EXPECT_THAT(
-      response.UnknownSetOrDie()->unknown_attributes(),
-      UnorderedElementsAre(AttributeIs("var1"), AttributeIs("var1.foo")));
 }
 
 TEST_F(UnknownsTest, UnknownFunctionsWithoutOptionError) {

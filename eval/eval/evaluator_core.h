@@ -32,11 +32,12 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/attribute_matcher.h"
 #include "base/type_provider.h"
+#include "common/internal/unknowns.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
-#include "eval/eval/attribute_utility.h"
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/comprehension_step.h"
 #include "eval/eval/equality_steps.h"
@@ -48,7 +49,6 @@
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
 #include "runtime/activation_interface.h"
-#include "runtime/internal/activation_attribute_matcher_access.h"
 #include "runtime/internal/errors.h"
 #include "runtime/runtime.h"
 #include "runtime/runtime_options.h"
@@ -441,7 +441,8 @@ class FlatExpressionEvaluatorState {
         comprehension_slots_(comprehension_slot_count),
         type_provider_(type_provider),
         descriptor_pool_(descriptor_pool),
-        message_factory_(message_factory) {}
+        message_factory_(message_factory),
+        unknown_tree_() {}
 
   FlatExpressionEvaluatorState(
       size_t value_stack_size, size_t comprehension_slot_count,
@@ -458,7 +459,8 @@ class FlatExpressionEvaluatorState {
         type_provider_(type_provider),
         descriptor_pool_(descriptor_pool),
         message_factory_(message_factory),
-        arena_(arena) {}
+        arena_(arena),
+        unknown_tree_(arena) {}
 
   void Reset();
 
@@ -486,10 +488,13 @@ class FlatExpressionEvaluatorState {
     return arena_;
   }
 
+  cel::common_internal::UnknownTree* unknown_tree() { return &unknown_tree_; }
+
   void Rebind(google::protobuf::Arena* absl_nonnull arena,
               google::protobuf::MessageFactory* absl_nonnull message_factory) {
     arena_ = arena;
     message_factory_ = message_factory;
+    unknown_tree_.Reset(arena);
   }
 
  private:
@@ -500,6 +505,7 @@ class FlatExpressionEvaluatorState {
   const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool_;
   google::protobuf::MessageFactory* absl_nullability_unknown message_factory_ = nullptr;
   google::protobuf::Arena* absl_nullability_unknown arena_ = nullptr;
+  cel::common_internal::UnknownTree unknown_tree_;
 };
 
 // Context needed for evaluation. This is sufficient for supporting
@@ -513,7 +519,8 @@ class ExecutionFrameBase {
                      const cel::TypeProvider& type_provider,
                      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
                      google::protobuf::MessageFactory* absl_nonnull message_factory,
-                     google::protobuf::Arena* absl_nonnull arena)
+                     google::protobuf::Arena* absl_nonnull arena,
+                     cel::common_internal::UnknownTree* unknown_tree)
       : activation_(&activation),
         callback_(),
         options_(&options),
@@ -522,13 +529,18 @@ class ExecutionFrameBase {
         message_factory_(message_factory),
         arena_(arena),
         embedder_context_(nullptr),
-        attribute_utility_(options.unknown_processing !=
-                                   cel::UnknownProcessingOptions::kDisabled
-                               ? activation.GetUnknownAttributes()
-                               : absl::Span<const cel::AttributePattern>(),
-                           options.enable_missing_attribute_errors
-                               ? activation.GetMissingAttributes()
-                               : absl::Span<const cel::AttributePattern>()),
+        unknown_tree_(unknown_tree),
+        unknown_attributes_(options_->unknown_processing !=
+                                    cel::UnknownProcessingOptions::kDisabled
+                                ? activation.GetUnknownAttributeMatcher()
+                                : cel::EmptyAttributeMatcher()),
+        known_attributes_(options_->unknown_processing !=
+                                  cel::UnknownProcessingOptions::kDisabled
+                              ? activation.GetKnownAttributeMatcher()
+                              : cel::EmptyAttributeMatcher()),
+        missing_attributes_(options_->enable_missing_attribute_errors
+                                ? activation.GetMissingAttributeMatcher()
+                                : cel::EmptyAttributeMatcher()),
         slots_(&ComprehensionSlots::GetEmptyInstance()),
         max_iterations_(options.comprehension_max_iterations),
         iterations_(0),
@@ -542,15 +554,7 @@ class ExecutionFrameBase {
                                     cel::UnknownProcessingOptions::kDisabled),
         unknown_function_results_enabled_(
             options_->unknown_processing ==
-            cel::UnknownProcessingOptions::kAttributeAndFunction) {
-    if (unknown_processing_enabled()) {
-      if (auto matcher = cel::runtime_internal::
-              ActivationAttributeMatcherAccess::GetAttributeMatcher(activation);
-          matcher != nullptr) {
-        attribute_utility_.set_matcher(matcher);
-      }
-    }
-  }
+            cel::UnknownProcessingOptions::kAttributeAndFunction) {}
 
   ExecutionFrameBase(const cel::ActivationInterface& activation,
                      EvaluationListener callback,
@@ -560,7 +564,8 @@ class ExecutionFrameBase {
                      google::protobuf::MessageFactory* absl_nonnull message_factory,
                      google::protobuf::Arena* absl_nonnull arena,
                      const cel::EmbedderContext* absl_nullable embedder_context,
-                     ComprehensionSlots& slots)
+                     ComprehensionSlots& slots,
+                     cel::common_internal::UnknownTree* unknown_tree)
       : activation_(&activation),
         callback_(std::move(callback)),
         options_(&options),
@@ -569,13 +574,18 @@ class ExecutionFrameBase {
         message_factory_(message_factory),
         arena_(arena),
         embedder_context_(embedder_context),
-        attribute_utility_(options.unknown_processing !=
-                                   cel::UnknownProcessingOptions::kDisabled
-                               ? activation.GetUnknownAttributes()
-                               : absl::Span<const cel::AttributePattern>(),
-                           options.enable_missing_attribute_errors
-                               ? activation.GetMissingAttributes()
-                               : absl::Span<const cel::AttributePattern>()),
+        unknown_tree_(unknown_tree),
+        unknown_attributes_(options_->unknown_processing !=
+                                    cel::UnknownProcessingOptions::kDisabled
+                                ? activation.GetUnknownAttributeMatcher()
+                                : cel::EmptyAttributeMatcher()),
+        known_attributes_(options_->unknown_processing !=
+                                  cel::UnknownProcessingOptions::kDisabled
+                              ? activation.GetKnownAttributeMatcher()
+                              : cel::EmptyAttributeMatcher()),
+        missing_attributes_(options_->enable_missing_attribute_errors
+                                ? activation.GetMissingAttributeMatcher()
+                                : cel::EmptyAttributeMatcher()),
         slots_(&slots),
         max_iterations_(options.comprehension_max_iterations),
         iterations_(0),
@@ -589,15 +599,7 @@ class ExecutionFrameBase {
                                     cel::UnknownProcessingOptions::kDisabled),
         unknown_function_results_enabled_(
             options_->unknown_processing ==
-            cel::UnknownProcessingOptions::kAttributeAndFunction) {
-    if (unknown_processing_enabled()) {
-      if (auto matcher = cel::runtime_internal::
-              ActivationAttributeMatcherAccess::GetAttributeMatcher(activation);
-          matcher != nullptr) {
-        attribute_utility_.set_matcher(matcher);
-      }
-    }
-  }
+            cel::UnknownProcessingOptions::kAttributeAndFunction) {}
 
   const cel::ActivationInterface& activation() const { return *activation_; }
 
@@ -621,8 +623,8 @@ class ExecutionFrameBase {
     return embedder_context_;
   }
 
-  const AttributeUtility& attribute_utility() const {
-    return attribute_utility_;
+  cel::common_internal::UnknownTree* absl_nonnull unknown_tree() const {
+    return unknown_tree_;
   }
 
   bool attribute_tracking_enabled() const {
@@ -639,6 +641,18 @@ class ExecutionFrameBase {
 
   bool unknown_function_results_enabled() const {
     return unknown_function_results_enabled_;
+  }
+
+  const cel::AttributeMatcher& unknown_attributes() const {
+    return unknown_attributes_;
+  }
+
+  const cel::AttributeMatcher& known_attributes() const {
+    return known_attributes_;
+  }
+
+  const cel::AttributeMatcher& missing_attributes() const {
+    return missing_attributes_;
   }
 
   ComprehensionSlots& comprehension_slots() { return *slots_; }
@@ -668,7 +682,10 @@ class ExecutionFrameBase {
   google::protobuf::MessageFactory* absl_nonnull message_factory_;
   google::protobuf::Arena* absl_nonnull arena_;
   const cel::EmbedderContext* absl_nullable embedder_context_;
-  AttributeUtility attribute_utility_;
+  cel::common_internal::UnknownTree* absl_nonnull unknown_tree_;
+  const cel::AttributeMatcher& unknown_attributes_;
+  const cel::AttributeMatcher& known_attributes_;
+  const cel::AttributeMatcher& missing_attributes_;
   ComprehensionSlots* absl_nonnull slots_;
   const int max_iterations_;
   int iterations_;
@@ -696,7 +713,8 @@ class ExecutionFrame : public ExecutionFrameBase {
       : ExecutionFrameBase(activation, std::move(callback), options,
                            state.type_provider(), state.descriptor_pool(),
                            state.message_factory(), state.arena(),
-                           embedder_context, state.comprehension_slots()),
+                           embedder_context, state.comprehension_slots(),
+                           state.unknown_tree()),
         pc_(0UL),
         execution_path_(flat),
         value_stack_(&state.value_stack()),
@@ -712,7 +730,8 @@ class ExecutionFrame : public ExecutionFrameBase {
       : ExecutionFrameBase(activation, std::move(callback), options,
                            state.type_provider(), state.descriptor_pool(),
                            state.message_factory(), state.arena(),
-                           embedder_context, state.comprehension_slots()),
+                           embedder_context, state.comprehension_slots(),
+                           state.unknown_tree()),
         pc_(0UL),
         execution_path_(subexpressions[0]),
         value_stack_(&state.value_stack()),

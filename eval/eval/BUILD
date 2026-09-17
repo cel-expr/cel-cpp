@@ -54,11 +54,11 @@ cc_library(
     ],
     deps = [
         ":attribute_trail",
-        ":attribute_utility",
         ":comprehension_slots",
         ":evaluator_stack",
         ":expression_step_logic",
         ":iterator_stack",
+        "//base:attribute_matcher",
         "//base:attributes",
         "//base:builtins",
         "//base:data",
@@ -67,6 +67,8 @@ cc_library(
         "//common:kind",
         "//common:value",
         "//common:value_kind",
+        "//common/internal:attribute_trail",
+        "//common/internal:unknowns",
         "//eval/internal:errors",
         "//internal:number",
         "//internal:status_macros",
@@ -77,7 +79,6 @@ cc_library(
         "//runtime:function_provider",
         "//runtime:function_registry",
         "//runtime:runtime_options",
-        "//runtime/internal:activation_attribute_matcher_access",
         "//runtime/internal:errors",
         "//runtime/standard:equality_functions",
         "@com_google_absl//absl/base",
@@ -128,14 +129,13 @@ cc_library(
         "comprehension_slots.h",
     ],
     deps = [
-        ":attribute_trail",
         "//common:value",
+        "//common/internal:attribute_trail",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:fixed_array",
         "@com_google_absl//absl/log:absl_check",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
@@ -164,8 +164,8 @@ cc_library(
         "evaluator_stack.h",
     ],
     deps = [
-        ":attribute_trail",
         "//common:value",
+        "//common/internal:attribute_trail",
         "//internal:align",
         "//internal:new",
         "@com_google_absl//absl/base:core_headers",
@@ -174,7 +174,6 @@ cc_library(
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/meta:type_traits",
-        "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
     ],
 )
@@ -218,7 +217,6 @@ cc_library(
     ],
     deps = [
         ":attribute_trail",
-        ":attribute_utility",
         ":evaluator_core",
         ":expression_step_base",
         ":expression_step_logic",
@@ -250,7 +248,6 @@ cc_library(
         "//common:value",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings:cord",
         "@com_google_absl//absl/strings:string_view",
         "@com_googlesource_code_re2//:re2",
     ],
@@ -260,6 +257,17 @@ cc_library(
     name = "ident_step",
     deps = [
         ":evaluator_core",
+        ":expression_step_base",
+        ":expression_step_logic",
+        "//base:attribute_matcher",
+        "//base:attributes",
+        "//common:value",
+        "//eval/internal:errors",
+        "//internal:status_macros",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
     ],
 )
 
@@ -283,6 +291,7 @@ cc_library(
         ":evaluator_core",
         ":expression_step_base",
         ":expression_step_logic",
+        "//base:attributes",
         "//common:memory",
         "//common:type",
         "//common:value",
@@ -293,7 +302,6 @@ cc_library(
         "//runtime:runtime_options",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_check",
-        "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
@@ -311,17 +319,16 @@ cc_library(
         "create_list_step.h",
     ],
     deps = [
-        ":attribute_utility",
         ":evaluator_core",
         ":expression_step_base",
         ":expression_step_logic",
         "//common:expr",
         "//common:value",
+        "//common/internal:attribute_trail",
         "//internal:status_macros",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
@@ -360,12 +367,12 @@ cc_library(
         ":expression_step_base",
         ":expression_step_logic",
         "//common:value",
+        "//common/internal:attribute_trail",
         "//internal:status_macros",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
@@ -756,74 +763,15 @@ cc_test(
 
 cc_library(
     name = "attribute_trail",
-    srcs = ["attribute_trail.cc"],
     hdrs = ["attribute_trail.h"],
     deps = [
+        "//base:attribute_matcher",
         "//base:attributes",
-        "@com_google_absl//absl/types:optional",
-        "@com_google_absl//absl/utility",
-    ],
-)
-
-cc_test(
-    name = "attribute_trail_test",
-    size = "small",
-    srcs = [
-        "attribute_trail_test.cc",
-    ],
-    deps = [
-        ":attribute_trail",
-        "//eval/public:cel_attribute",
-        "//eval/public:cel_value",
-        "//internal:testing",
-        "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
-    ],
-)
-
-cc_library(
-    name = "attribute_utility",
-    srcs = ["attribute_utility.cc"],
-    hdrs = ["attribute_utility.h"],
-    deps = [
-        ":attribute_trail",
-        "//base:attributes",
-        "//base:function_result",
-        "//base:function_result_set",
-        "//base/internal:unknown_set",
-        "//common:function_descriptor",
-        "//common:unknown",
         "//common:value",
-        "//eval/internal:errors",
-        "//internal:status_macros",
-        "//runtime/internal:attribute_matcher",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
-        "@com_google_absl//absl/types:span",
-        "@com_google_protobuf//:protobuf",
-    ],
-)
-
-cc_test(
-    name = "attribute_utility_test",
-    size = "small",
-    srcs = [
-        "attribute_utility_test.cc",
-    ],
-    deps = [
-        ":attribute_trail",
-        ":attribute_utility",
-        "//base:attributes",
-        "//common:unknown",
-        "//common:value",
-        "//eval/public:cel_attribute",
-        "//eval/public:cel_value",
-        "//eval/public:unknown_attribute_set",
-        "//eval/public:unknown_set",
-        "//internal:testing",
-        "//runtime/internal:attribute_matcher",
-        "@com_google_absl//absl/types:span",
-        "@com_google_protobuf//:protobuf",
+        "//common/internal:attribute_trail",
+        "//common/internal:unknowns",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/strings:string_view",
     ],
 )
 

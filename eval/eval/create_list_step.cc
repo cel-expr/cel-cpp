@@ -9,11 +9,10 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/types/optional.h"
 #include "common/expr.h"
+#include "common/internal/attribute_trail.h"
 #include "common/value.h"
 #include "common/values/list_value_builder.h"
-#include "eval/eval/attribute_utility.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
 #include "eval/eval/expression_step_logic.h"
@@ -25,7 +24,6 @@ namespace {
 
 using ::cel::ErrorValue;
 using ::cel::ListValueBuilderPtr;
-using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::common_internal::NewListValueBuilder;
 
@@ -75,12 +73,11 @@ absl::Status CreateListStep::DoEvaluate(ExecutionFrame* frame,
   }
 
   if (frame->enable_unknowns()) {
-    absl::optional<UnknownValue> unknown_set =
-        frame->attribute_utility().IdentifyAndMergeUnknowns(
+    if (auto unknown = cel::common_internal::PartiallyIdentityAndMergeUnknowns(
             args, frame->value_stack().GetAttributeSpan(list_size_),
-            /*use_partial=*/true);
-    if (unknown_set.has_value()) {
-      *result = std::move(*unknown_set);
+            frame->unknown_tree());
+        unknown.has_value()) {
+      *result = *unknown;
       return absl::OkStatus();
     }
   }

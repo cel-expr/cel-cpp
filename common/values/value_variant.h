@@ -18,7 +18,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <new>
 #include <type_traits>
 #include <utility>
@@ -27,8 +26,6 @@
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/meta/type_traits.h"
-#include "absl/utility/utility.h"
-#include "common/arena.h"
 #include "common/value_kind.h"
 #include "common/values/bool_value.h"
 #include "common/values/bytes_value.h"
@@ -89,22 +86,8 @@ enum class ValueIndex : uint8_t {
   kBytes,
   kString,
   kError,
-  // Keep non-trivial alternatives together to aid in compiling optimizations.
   kUnknown,
 };
-
-// Used by ValueVariant to indicate pre-computed behaviors.
-enum class ValueFlags : uint32_t {
-  kNone = 0,
-  kNonTrivial = 1,
-};
-
-ABSL_ATTRIBUTE_ALWAYS_INLINE inline constexpr ValueFlags operator&(
-    ValueFlags lhs, ValueFlags rhs) {
-  return static_cast<ValueFlags>(
-      static_cast<std::underlying_type_t<ValueFlags>>(lhs) &
-      static_cast<std::underlying_type_t<ValueFlags>>(rhs));
-}
 
 // Traits specialized by each alternative.
 //
@@ -130,166 +113,90 @@ template <>
 struct ValueAlternative<NullValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kNull;
   static constexpr ValueKind kKind = NullValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const NullValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<BoolValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kBool;
   static constexpr ValueKind kKind = BoolValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const BoolValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<IntValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kInt;
   static constexpr ValueKind kKind = IntValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const IntValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<UintValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kUint;
   static constexpr ValueKind kKind = UintValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const UintValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<DoubleValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kDouble;
   static constexpr ValueKind kKind = DoubleValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const DoubleValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<DurationValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kDuration;
   static constexpr ValueKind kKind = DurationValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const DurationValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<TimestampValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kTimestamp;
   static constexpr ValueKind kKind = TimestampValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const TimestampValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<TypeValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kType;
   static constexpr ValueKind kKind = TypeValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const TypeValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<LegacyListValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kLegacyList;
   static constexpr ValueKind kKind = LegacyListValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const LegacyListValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<ParsedJsonListValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kParsedJsonList;
   static constexpr ValueKind kKind = ParsedJsonListValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const ParsedJsonListValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<ParsedRepeatedFieldValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kParsedRepeatedField;
   static constexpr ValueKind kKind = ParsedRepeatedFieldValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(
-      const ParsedRepeatedFieldValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<CustomListValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kCustomList;
   static constexpr ValueKind kKind = CustomListValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const CustomListValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<LegacyMapValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kLegacyMap;
   static constexpr ValueKind kKind = LegacyMapValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const LegacyMapValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<ParsedJsonMapValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kParsedJsonMap;
   static constexpr ValueKind kKind = ParsedJsonMapValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const ParsedJsonMapValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<ParsedMapFieldValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kParsedMapField;
   static constexpr ValueKind kKind = ParsedMapFieldValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const ParsedMapFieldValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
@@ -297,98 +204,54 @@ struct ValueAlternative<CustomMapValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kCustomMap;
   static constexpr ValueKind kKind = CustomMapValue::kKind;
   static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const CustomMapValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<LegacyStructValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kLegacyStruct;
   static constexpr ValueKind kKind = LegacyStructValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const LegacyStructValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<ParsedMessageValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kParsedMessage;
   static constexpr ValueKind kKind = ParsedMessageValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const ParsedMessageValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<CustomStructValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kCustomStruct;
   static constexpr ValueKind kKind = CustomStructValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const CustomStructValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<OpaqueValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kOpaque;
   static constexpr ValueKind kKind = OpaqueValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static constexpr ValueFlags Flags(const OpaqueValue* absl_nonnull) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<BytesValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kBytes;
   static constexpr ValueKind kKind = BytesValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static ValueFlags Flags(const BytesValue* absl_nonnull alternative) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<StringValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kString;
   static constexpr ValueKind kKind = StringValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static ValueFlags Flags(const StringValue* absl_nonnull alternative) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<ErrorValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kError;
   static constexpr ValueKind kKind = ErrorValue::kKind;
-  static constexpr bool kAlwaysTrivial = true;
-
-  static ValueFlags Flags(const ErrorValue* absl_nonnull alternative) {
-    return ValueFlags::kNone;
-  }
 };
 
 template <>
 struct ValueAlternative<UnknownValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kUnknown;
   static constexpr ValueKind kKind = UnknownValue::kKind;
-  static constexpr bool kAlwaysTrivial = false;
-
-  static constexpr ValueFlags Flags(const UnknownValue* absl_nonnull) {
-    return ValueFlags::kNonTrivial;
-  }
 };
 
 template <typename T, typename = void>
@@ -406,93 +269,33 @@ inline constexpr bool IsValueAlternativeV = IsValueAlternative<T>::value;
 inline constexpr size_t kValueVariantAlign = 8;
 inline constexpr size_t kValueVariantSize = 24;
 
-// Hand-rolled variant used by cel::Value which exhibits up to a 25% performance
-// improvement compared to using std::variant.
-//
-// The implementation abuses the fact that most alternatives are trivially
-// copyable and some are conditionally trivially copyable at runtime. For the
-// fast path, we perform raw byte copying. For the slow path, we fallback to a
-// non-inlined function. The compiler is typically smart enough to inline the
-// fast path and emit efficient instructions for the raw byte copying (usually
-// two instructions). It also uses switch for visiting, which most compilers can
-// optimize better compared to a function pointer table (which libc++ currently
-// uses and Clang currently does not optimize well).
-class alignas(kValueVariantAlign) CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI
-    ValueVariant final {
+// Hand-rolled variant used by cel::Value which avoids std::variant and its
+// lack of support for an unchecked get.
+class alignas(kValueVariantAlign) ValueVariant {
  public:
   ValueVariant() = default;
-
-  ValueVariant(const ValueVariant& other) noexcept
-      : index_(other.index_), kind_(other.kind_), flags_(other.flags_) {
-    if ((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone) {
-      std::memcpy(raw_, other.raw_, sizeof(raw_));
-    } else {
-      SlowCopyConstruct(other);
-    }
-  }
-
-  ValueVariant(ValueVariant&& other) noexcept
-      : index_(other.index_), kind_(other.kind_), flags_(other.flags_) {
-    if ((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone) {
-      std::memcpy(raw_, other.raw_, sizeof(raw_));
-    } else {
-      SlowMoveConstruct(other);
-    }
-  }
-
-  ~ValueVariant() {
-    if ((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNonTrivial) {
-      SlowDestruct();
-    }
-  }
-
-  ValueVariant& operator=(const ValueVariant& other) noexcept {
-    if (this != &other) {
-      const bool trivial =
-          (flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone;
-      const bool other_trivial =
-          (other.flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone;
-      if (trivial && other_trivial) {
-        FastCopyAssign(other);
-      } else {
-        SlowCopyAssign(other, trivial, other_trivial);
-      }
-    }
-    return *this;
-  }
-
-  ValueVariant& operator=(ValueVariant&& other) noexcept {
-    if (this != &other) {
-      const bool trivial =
-          (flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone;
-      const bool other_trivial =
-          (other.flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone;
-      if (trivial && other_trivial) {
-        FastMoveAssign(other);
-      } else {
-        SlowMoveAssign(other, trivial, other_trivial);
-      }
-    }
-    return *this;
-  }
+  ValueVariant(const ValueVariant&) = default;
+  ValueVariant& operator=(const ValueVariant&) = default;
 
   template <typename T, typename... Args>
-  explicit ValueVariant(absl::in_place_type_t<T>, Args&&... args)
+  explicit ValueVariant(std::in_place_type_t<T>, Args&&... args)
       : index_(ValueAlternative<T>::kIndex), kind_(ValueAlternative<T>::kKind) {
     static_assert(alignof(T) <= kValueVariantAlign);
     static_assert(sizeof(T) <= kValueVariantSize);
 
-    flags_ = ValueAlternative<T>::Flags(::new (static_cast<void*>(&raw_[0]))
-                                            T(std::forward<Args>(args)...));
+    ::new (static_cast<void*>(&raw_[0])) T(std::forward<Args>(args)...);
   }
 
   template <typename T, typename = std::enable_if_t<
                             IsValueAlternativeV<absl::remove_cvref_t<T>>>>
   explicit ValueVariant(T&& value)
-      : ValueVariant(absl::in_place_type<absl::remove_cvref_t<T>>,
+      : ValueVariant(std::in_place_type<absl::remove_cvref_t<T>>,
                      std::forward<T>(value)) {}
 
-  ValueKind kind() const { return kind_; }
+  [[nodiscard]]
+  ValueKind kind() const {
+    return kind_;
+  }
 
   template <typename T>
   void Assign(T&& value) {
@@ -501,67 +304,35 @@ class alignas(kValueVariantAlign) CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI
     static_assert(alignof(U) <= kValueVariantAlign);
     static_assert(sizeof(U) <= kValueVariantSize);
 
-    if constexpr (ValueAlternative<U>::kAlwaysTrivial) {
-      if ((flags_ & ValueFlags::kNonTrivial) != ValueFlags::kNone) {
-        SlowDestruct();
-      }
-      index_ = ValueAlternative<U>::kIndex;
-      kind_ = ValueAlternative<U>::kKind;
-      flags_ = ValueAlternative<U>::Flags(::new (static_cast<void*>(&raw_[0]))
-                                              U(std::forward<T>(value)));
-    } else {
-      // U is not always trivial. See if the current active alternative is U. If
-      // it is, we can just do a simple assignment without having to destruct
-      // first. Otherwise fallback to destruct and construct.
-      if (index_ == ValueAlternative<U>::kIndex) {
-        *At<U>() = std::forward<T>(value);
-        flags_ = ValueAlternative<U>::Flags(At<U>());
-      } else {
-        if ((flags_ & ValueFlags::kNonTrivial) != ValueFlags::kNone) {
-          SlowDestruct();
-        }
-        index_ = ValueAlternative<U>::kIndex;
-        kind_ = ValueAlternative<U>::kKind;
-        flags_ = ValueAlternative<U>::Flags(::new (static_cast<void*>(&raw_[0]))
-                                                U(std::forward<T>(value)));
-      }
-    }
+    index_ = ValueAlternative<U>::kIndex;
+    kind_ = ValueAlternative<U>::kKind;
+    ::new (static_cast<void*>(&raw_[0])) U(std::forward<T>(value));
   }
 
   template <typename T>
+  [[nodiscard]]
   bool Is() const {
     return index_ == ValueAlternative<T>::kIndex;
   }
 
   template <typename T>
-      T& Get() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  [[nodiscard]]
+  T& Get() ABSL_ATTRIBUTE_LIFETIME_BOUND {
     ABSL_DCHECK(Is<T>());
 
     return *At<T>();
   }
 
   template <typename T>
-  const T& Get() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  [[nodiscard]]
+  const T& Get() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
     ABSL_DCHECK(Is<T>());
 
     return *At<T>();
   }
 
   template <typename T>
-      T&& Get() && ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    ABSL_DCHECK(Is<T>());
-
-    return std::move(*At<T>());
-  }
-
-  template <typename T>
-  const T&& Get() const&& ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    ABSL_DCHECK(Is<T>());
-
-    return std::move(*At<T>());
-  }
-
-  template <typename T>
+  [[nodiscard]]
   T* absl_nullable As() ABSL_ATTRIBUTE_LIFETIME_BOUND {
     if (Is<T>()) {
       return At<T>();
@@ -570,6 +341,7 @@ class alignas(kValueVariantAlign) CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI
   }
 
   template <typename T>
+  [[nodiscard]]
   const T* absl_nullable As() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
     if (Is<T>()) {
       return At<T>();
@@ -578,187 +350,119 @@ class alignas(kValueVariantAlign) CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI
   }
 
   template <typename Visitor>
-  ABSL_ATTRIBUTE_ALWAYS_INLINE decltype(auto) Visit(Visitor&& visitor) & {
-    return std::as_const(*this).Visit(std::forward<Visitor>(visitor));
-  }
-
-  template <typename Visitor>
-  decltype(auto) Visit(Visitor&& visitor) const& {
+  decltype(auto) Visit(Visitor&& visitor) const {
     switch (index_) {
       case ValueIndex::kNull:
-        return std::forward<Visitor>(visitor)(Get<NullValue>());
+        return std::forward<Visitor>(visitor)(*At<NullValue>());
       case ValueIndex::kBool:
-        return std::forward<Visitor>(visitor)(Get<BoolValue>());
+        return std::forward<Visitor>(visitor)(*At<BoolValue>());
       case ValueIndex::kInt:
-        return std::forward<Visitor>(visitor)(Get<IntValue>());
+        return std::forward<Visitor>(visitor)(*At<IntValue>());
       case ValueIndex::kUint:
-        return std::forward<Visitor>(visitor)(Get<UintValue>());
+        return std::forward<Visitor>(visitor)(*At<UintValue>());
       case ValueIndex::kDouble:
-        return std::forward<Visitor>(visitor)(Get<DoubleValue>());
+        return std::forward<Visitor>(visitor)(*At<DoubleValue>());
       case ValueIndex::kDuration:
-        return std::forward<Visitor>(visitor)(Get<DurationValue>());
+        return std::forward<Visitor>(visitor)(*At<DurationValue>());
       case ValueIndex::kTimestamp:
-        return std::forward<Visitor>(visitor)(Get<TimestampValue>());
+        return std::forward<Visitor>(visitor)(*At<TimestampValue>());
       case ValueIndex::kType:
-        return std::forward<Visitor>(visitor)(Get<TypeValue>());
+        return std::forward<Visitor>(visitor)(*At<TypeValue>());
       case ValueIndex::kLegacyList:
-        return std::forward<Visitor>(visitor)(Get<LegacyListValue>());
+        return std::forward<Visitor>(visitor)(*At<LegacyListValue>());
       case ValueIndex::kParsedJsonList:
-        return std::forward<Visitor>(visitor)(Get<ParsedJsonListValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedJsonListValue>());
       case ValueIndex::kParsedRepeatedField:
-        return std::forward<Visitor>(visitor)(Get<ParsedRepeatedFieldValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedRepeatedFieldValue>());
       case ValueIndex::kCustomList:
-        return std::forward<Visitor>(visitor)(Get<CustomListValue>());
+        return std::forward<Visitor>(visitor)(*At<CustomListValue>());
       case ValueIndex::kLegacyMap:
-        return std::forward<Visitor>(visitor)(Get<LegacyMapValue>());
+        return std::forward<Visitor>(visitor)(*At<LegacyMapValue>());
       case ValueIndex::kParsedJsonMap:
-        return std::forward<Visitor>(visitor)(Get<ParsedJsonMapValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedJsonMapValue>());
       case ValueIndex::kParsedMapField:
-        return std::forward<Visitor>(visitor)(Get<ParsedMapFieldValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedMapFieldValue>());
       case ValueIndex::kCustomMap:
-        return std::forward<Visitor>(visitor)(Get<CustomMapValue>());
+        return std::forward<Visitor>(visitor)(*At<CustomMapValue>());
       case ValueIndex::kLegacyStruct:
-        return std::forward<Visitor>(visitor)(Get<LegacyStructValue>());
+        return std::forward<Visitor>(visitor)(*At<LegacyStructValue>());
       case ValueIndex::kParsedMessage:
-        return std::forward<Visitor>(visitor)(Get<ParsedMessageValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedMessageValue>());
       case ValueIndex::kCustomStruct:
-        return std::forward<Visitor>(visitor)(Get<CustomStructValue>());
+        return std::forward<Visitor>(visitor)(*At<CustomStructValue>());
       case ValueIndex::kOpaque:
-        return std::forward<Visitor>(visitor)(Get<OpaqueValue>());
+        return std::forward<Visitor>(visitor)(*At<OpaqueValue>());
       case ValueIndex::kBytes:
-        return std::forward<Visitor>(visitor)(Get<BytesValue>());
+        return std::forward<Visitor>(visitor)(*At<BytesValue>());
       case ValueIndex::kString:
-        return std::forward<Visitor>(visitor)(Get<StringValue>());
+        return std::forward<Visitor>(visitor)(*At<StringValue>());
       case ValueIndex::kError:
-        return std::forward<Visitor>(visitor)(Get<ErrorValue>());
+        return std::forward<Visitor>(visitor)(*At<ErrorValue>());
       case ValueIndex::kUnknown:
-        return std::forward<Visitor>(visitor)(Get<UnknownValue>());
+        return std::forward<Visitor>(visitor)(*At<UnknownValue>());
     }
   }
 
   template <typename Visitor>
-  decltype(auto) Visit(Visitor&& visitor) && {
+  decltype(auto) Visit(Visitor&& visitor) {
     switch (index_) {
       case ValueIndex::kNull:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<NullValue>());
+        return std::forward<Visitor>(visitor)(*At<NullValue>());
       case ValueIndex::kBool:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<BoolValue>());
+        return std::forward<Visitor>(visitor)(*At<BoolValue>());
       case ValueIndex::kInt:
-        return std::forward<Visitor>(visitor)(std::move(*this).Get<IntValue>());
+        return std::forward<Visitor>(visitor)(*At<IntValue>());
       case ValueIndex::kUint:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<UintValue>());
+        return std::forward<Visitor>(visitor)(*At<UintValue>());
       case ValueIndex::kDouble:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<DoubleValue>());
+        return std::forward<Visitor>(visitor)(*At<DoubleValue>());
       case ValueIndex::kDuration:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<DurationValue>());
+        return std::forward<Visitor>(visitor)(*At<DurationValue>());
       case ValueIndex::kTimestamp:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<TimestampValue>());
+        return std::forward<Visitor>(visitor)(*At<TimestampValue>());
       case ValueIndex::kType:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<TypeValue>());
+        return std::forward<Visitor>(visitor)(*At<TypeValue>());
       case ValueIndex::kLegacyList:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<LegacyListValue>());
+        return std::forward<Visitor>(visitor)(*At<LegacyListValue>());
       case ValueIndex::kParsedJsonList:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<ParsedJsonListValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedJsonListValue>());
       case ValueIndex::kParsedRepeatedField:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<ParsedRepeatedFieldValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedRepeatedFieldValue>());
       case ValueIndex::kCustomList:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<CustomListValue>());
+        return std::forward<Visitor>(visitor)(*At<CustomListValue>());
       case ValueIndex::kLegacyMap:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<LegacyMapValue>());
+        return std::forward<Visitor>(visitor)(*At<LegacyMapValue>());
       case ValueIndex::kParsedJsonMap:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<ParsedJsonMapValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedJsonMapValue>());
       case ValueIndex::kParsedMapField:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<ParsedMapFieldValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedMapFieldValue>());
       case ValueIndex::kCustomMap:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<CustomMapValue>());
+        return std::forward<Visitor>(visitor)(*At<CustomMapValue>());
       case ValueIndex::kLegacyStruct:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<LegacyStructValue>());
+        return std::forward<Visitor>(visitor)(*At<LegacyStructValue>());
       case ValueIndex::kParsedMessage:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<ParsedMessageValue>());
+        return std::forward<Visitor>(visitor)(*At<ParsedMessageValue>());
       case ValueIndex::kCustomStruct:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<CustomStructValue>());
+        return std::forward<Visitor>(visitor)(*At<CustomStructValue>());
       case ValueIndex::kOpaque:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<OpaqueValue>());
+        return std::forward<Visitor>(visitor)(*At<OpaqueValue>());
       case ValueIndex::kBytes:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<BytesValue>());
+        return std::forward<Visitor>(visitor)(*At<BytesValue>());
       case ValueIndex::kString:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<StringValue>());
+        return std::forward<Visitor>(visitor)(*At<StringValue>());
       case ValueIndex::kError:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<ErrorValue>());
+        return std::forward<Visitor>(visitor)(*At<ErrorValue>());
       case ValueIndex::kUnknown:
-        return std::forward<Visitor>(visitor)(
-            std::move(*this).Get<UnknownValue>());
-    }
-  }
-
-  template <typename Visitor>
-  ABSL_ATTRIBUTE_ALWAYS_INLINE decltype(auto) Visit(Visitor&& visitor) const&& {
-    return Visit(std::forward<Visitor>(visitor));
-  }
-
-  friend void swap(ValueVariant& lhs, ValueVariant& rhs) noexcept {
-    if (&lhs != &rhs) {
-      const bool lhs_trivial =
-          (lhs.flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone;
-      const bool rhs_trivial =
-          (rhs.flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNone;
-      if (lhs_trivial && rhs_trivial) {
-// We validated the instances can be copied byte-wise at runtime, but compilers
-// warn since this is not safe in the general case.
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wclass-memaccess"
-#elif defined(__clang__) && __clang_major__ >= 20
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wnontrivial-memcall"
-#endif
-        alignas(ValueVariant) std::byte tmp[sizeof(ValueVariant)];
-        // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
-        std::memcpy(tmp, std::addressof(lhs), sizeof(ValueVariant));
-        // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
-        std::memcpy(std::addressof(lhs), std::addressof(rhs),
-                    sizeof(ValueVariant));
-        // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
-        std::memcpy(std::addressof(rhs), tmp, sizeof(ValueVariant));
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#elif defined(__clang__) && __clang_major__ >= 20
-#pragma clang diagnostic pop
-#endif
-      } else {
-        SlowSwap(lhs, rhs, lhs_trivial, rhs_trivial);
-      }
+        return std::forward<Visitor>(visitor)(*At<UnknownValue>());
     }
   }
 
  private:
-  friend struct cel::ArenaTraits<ValueVariant>;
-
   template <typename T>
+  [[nodiscard]]
   ABSL_ATTRIBUTE_ALWAYS_INLINE T* absl_nonnull At()
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    static_assert(IsValueAlternativeV<T>);
     static_assert(alignof(T) <= kValueVariantAlign);
     static_assert(sizeof(T) <= kValueVariantSize);
 
@@ -766,58 +470,22 @@ class alignas(kValueVariantAlign) CEL_COMMON_INTERNAL_VALUE_VARIANT_TRIVIAL_ABI
   }
 
   template <typename T>
+  [[nodiscard]]
   ABSL_ATTRIBUTE_ALWAYS_INLINE const T* absl_nonnull At() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    static_assert(IsValueAlternativeV<T>);
     static_assert(alignof(T) <= kValueVariantAlign);
     static_assert(sizeof(T) <= kValueVariantSize);
 
     return std::launder(reinterpret_cast<const T*>(&raw_[0]));
   }
 
-  ABSL_ATTRIBUTE_ALWAYS_INLINE void FastCopyAssign(
-      const ValueVariant& other) noexcept {
-    index_ = other.index_;
-    kind_ = other.kind_;
-    flags_ = other.flags_;
-    std::memcpy(raw_, other.raw_, sizeof(raw_));
-  }
-
-  ABSL_ATTRIBUTE_ALWAYS_INLINE void FastMoveAssign(
-      ValueVariant& other) noexcept {
-    FastCopyAssign(other);
-  }
-
-  void SlowCopyConstruct(const ValueVariant& other) noexcept;
-
-  void SlowMoveConstruct(ValueVariant& other) noexcept;
-
-  void SlowDestruct() noexcept;
-
-  void SlowCopyAssign(const ValueVariant& other, bool trivial,
-                      bool other_trivial) noexcept;
-
-  void SlowMoveAssign(ValueVariant& other, bool ntrivial,
-                      bool other_trivial) noexcept;
-
-  static void SlowSwap(ValueVariant& lhs, ValueVariant& rhs, bool lhs_trivial,
-                       bool rhs_trivial) noexcept;
-
   ValueIndex index_ = ValueIndex::kNull;
   ValueKind kind_ = ValueKind::kNull;
-  ValueFlags flags_ = ValueFlags::kNone;
   alignas(kValueVariantAlign) std::byte raw_[kValueVariantSize];
 };
 
 }  // namespace common_internal
-
-template <>
-struct ArenaTraits<common_internal::ValueVariant> {
-  static bool trivially_destructible(
-      const common_internal::ValueVariant& value) {
-    return (value.flags_ & common_internal::ValueFlags::kNonTrivial) ==
-           common_internal::ValueFlags::kNone;
-  }
-};
 
 }  // namespace cel
 

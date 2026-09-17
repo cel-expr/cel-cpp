@@ -28,6 +28,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/types/span.h"
+#include "common/internal/attribute_trail.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
@@ -136,12 +137,11 @@ void ExpressionStep::EvaluateMutableListAppendStep(ExecutionFrame& frame) {
     return;
   }
   if (frame.unknown_processing_enabled()) {
-    std::optional<cel::UnknownValue> unknown_set =
-        frame.attribute_utility().IdentifyAndMergeUnknowns(
+    if (auto unknown = cel::common_internal::PartiallyIdentityAndMergeUnknowns(
             args, frame.value_stack().GetAttributeSpan(2),
-            /*use_partial=*/true);
-    if (unknown_set.has_value()) {
-      frame.value_stack().PopAndPush(2, std::move(*unknown_set));
+            frame.unknown_tree());
+        unknown.has_value()) {
+      frame.value_stack().PopAndPush(2, *unknown);
       return;
     }
   }

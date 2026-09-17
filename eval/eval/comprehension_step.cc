@@ -28,7 +28,6 @@ enum class IterableKind {
 };
 
 using ::cel::AttributeQualifier;
-using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::ValueIteratorPtr;
 using ::cel::ValueKind;
@@ -67,9 +66,9 @@ void ComprehensionInitStep::Evaluate(ExecutionFrame* frame) const {
 
   if (frame->enable_unknowns() && top.IsMap()) {
     const AttributeTrail& top_attr = frame->value_stack().PeekAttribute();
-    if (frame->attribute_utility().CheckForUnknownPartial(top_attr)) {
-      frame->value_stack().PopAndPush(
-          frame->attribute_utility().CreateUnknownSet(top_attr.attribute()));
+    if (auto unknown = top_attr.PartialUnknownMatch(frame->unknown_tree());
+        unknown.has_value()) {
+      frame->value_stack().PopAndPush(*unknown);
       frame->JumpToOrAbort(error_jump_offset_);
       return;
     }
@@ -162,13 +161,10 @@ void ComprehensionNextStep::Evaluate1(ExecutionFrame* frame) const {
       frame->Abort(std::move(inc_status));
       return;
     }
-    *iter_slot->mutable_attribute() = frame->value_stack().PeekAttribute().Step(
-        AttributeQualifierFromValue(*key));
-    if (frame->attribute_utility().CheckForUnknownExact(
-            iter_slot->attribute())) {
-      *iter_slot->mutable_value() = frame->attribute_utility().CreateUnknownSet(
-          iter_slot->attribute().attribute());
-    }
+    static_cast<void>(
+        frame->value_stack().PeekAttribute().Match<AttributeTrail::kFull>(
+            AttributeQualifierFromValue(*key), *iter_slot->mutable_value(),
+            *iter_slot->mutable_attribute(), frame->unknown_tree()));
   } else {
     absl::StatusOr<bool> ok = entry.iterator->Next1(
         frame->descriptor_pool(), frame->message_factory(), frame->arena(),
@@ -239,15 +235,12 @@ void ComprehensionNextStep::Evaluate2(ExecutionFrame* frame) const {
     return;
   }
   if (frame->enable_unknowns()) {
-    *iter_slot->mutable_attribute() = *iter2_slot->mutable_attribute() =
-        frame->value_stack().PeekAttribute().Step(
-            AttributeQualifierFromValue(iter_slot->value()));
-    if (frame->attribute_utility().CheckForUnknownExact(
-            iter2_slot->attribute())) {
-      *iter2_slot->mutable_value() =
-          frame->attribute_utility().CreateUnknownSet(
-              iter2_slot->attribute().attribute());
-    }
+    static_cast<void>(
+        frame->value_stack().PeekAttribute().Match<AttributeTrail::kFull>(
+            AttributeQualifierFromValue(iter_slot->value()),
+            *iter2_slot->mutable_value(), *iter_slot->mutable_attribute(),
+            frame->unknown_tree()));
+    *iter2_slot->mutable_attribute() = iter_slot->attribute();
   }
 }
 

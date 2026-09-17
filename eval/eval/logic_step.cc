@@ -21,7 +21,6 @@ namespace {
 
 using ::cel::BoolValue;
 using ::cel::ErrorValue;
-using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::ValueKind;
 using ::cel::runtime_internal::CreateNoMatchingOverloadError;
@@ -34,15 +33,6 @@ void EvaluateNotStep(ExecutionFrame& frame) {
     return;
   }
   const Value& operand = frame.value_stack().Peek();
-
-  if (frame.unknown_processing_enabled()) {
-    const AttributeTrail& attribute_trail = frame.value_stack().PeekAttribute();
-    if (frame.attribute_utility().CheckForUnknownPartial(attribute_trail)) {
-      frame.value_stack().PopAndPush(frame.attribute_utility().CreateUnknownSet(
-          attribute_trail.attribute()));
-      return;
-    }
-  }
 
   switch (operand.kind()) {
     case ValueKind::kBool:
@@ -122,10 +112,13 @@ void EvaluateBoolLogicStep(BoolLogicKind kind, size_t num_args,
   // error.
   if (frame.enable_unknowns()) {
     // Check if unknown?
-    std::optional<cel::UnknownValue> unknown_set =
-        frame.attribute_utility().MergeUnknowns(args);
-    if (unknown_set.has_value()) {
-      frame.value_stack().PopAndPush(num_args, *std::move(unknown_set));
+    UnknownAccumulator accumulator(frame.unknown_tree());
+    for (const auto& arg : args) {
+      accumulator.MaybeAdd(arg);
+    }
+    if (auto accumulated = std::move(accumulator).Accumulate();
+        accumulated.has_value()) {
+      frame.value_stack().PopAndPush(num_args, *accumulated);
       return;
     }
   }
