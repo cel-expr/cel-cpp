@@ -62,11 +62,11 @@ TEST_F(LazyInitStepTest, CreateCheckInitStepDoesInit) {
   ExecutionPath path;
   ExecutionPath subpath;
 
-  path.push_back(CreateLazyInitStep(/*slot_index=*/0,
-                                    /*subexpression_index=*/1, -1));
+  path.push_back(ExpressionStep::MakeGenericStep(CreateLazyInitStep(
+      /*slot_index=*/0, /*subexpression_index=*/1)));
 
-  ASSERT_OK_AND_ASSIGN(subpath.emplace_back(),
-                       CreateConstValueStep(cel::IntValue(42), -1, false));
+  subpath.push_back(
+      ExpressionStep::MakeGenericStep(CreateConstValueStep(cel::IntValue(42))));
 
   std::vector<ExecutionPathView> expression_table{path, subpath};
 
@@ -84,10 +84,11 @@ TEST_F(LazyInitStepTest, CreateCheckInitStepSkipInit) {
   // This is the expected usage, but in this test we are just depending on the
   // fact that these don't change the stack and fit the program layout
   // requirements.
-  path.push_back(CreateLazyInitStep(/*slot_index=*/0, -1, -1));
+  path.push_back(ExpressionStep::MakeGenericStep(CreateLazyInitStep(
+      /*slot_index=*/0, /*subexpression_index=*/-1)));
 
-  ASSERT_OK_AND_ASSIGN(subpath.emplace_back(),
-                       CreateConstValueStep(cel::IntValue(42), -1, false));
+  subpath.push_back(
+      ExpressionStep::MakeGenericStep(CreateConstValueStep(cel::IntValue(42))));
 
   std::vector<ExecutionPathView> expression_table{path, subpath};
 
@@ -102,7 +103,8 @@ TEST_F(LazyInitStepTest, CreateCheckInitStepSkipInit) {
 TEST_F(LazyInitStepTest, CreateAssignSlotAndPopStepBasic) {
   ExecutionPath path;
 
-  path.push_back(CreateAssignSlotAndPopStep(0));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(CreateAssignSlotAndPopStep(0)));
 
   ExecutionFrame frame(path, activation_, runtime_options_, evaluator_state_);
   frame.comprehension_slots().ClearSlot(0);
@@ -122,7 +124,7 @@ TEST_F(LazyInitStepTest, CreateAssignSlotAndPopStepBasic) {
 TEST_F(LazyInitStepTest, CreateClearSlotStepBasic) {
   ExecutionPath path;
 
-  path.push_back(CreateClearSlotStep(0, -1));
+  path.push_back(ExpressionStep::MakeGenericStep(CreateClearSlotStep(0)));
 
   ExecutionFrame frame(path, activation_, runtime_options_, evaluator_state_);
   frame.comprehension_slots().Set(0, cel::IntValue(42));
@@ -137,7 +139,7 @@ TEST_F(LazyInitStepTest, CreateClearSlotStepBasic) {
 TEST_F(LazyInitStepTest, CreateClearSlotsStepBasic) {
   ExecutionPath path;
 
-  path.push_back(CreateClearSlotsStep(0, 2, -1));
+  path.push_back(ExpressionStep::MakeGenericStep(CreateClearSlotsStep(0, 2)));
 
   ExecutionFrame frame(path, activation_, runtime_options_, evaluator_state_);
   frame.comprehension_slots().Set(0, cel::IntValue(42));

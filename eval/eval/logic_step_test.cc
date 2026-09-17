@@ -67,16 +67,11 @@ class LogicStepTest : public testing::TestWithParam<bool> {
   absl::Status EvaluateLogic(CelValue arg0, CelValue arg1, bool is_or,
                              CelValue* result, bool enable_unknown) {
     ExecutionPath path;
-    CEL_ASSIGN_OR_RETURN(auto step, CreateIdentStep("name0", /*expr_id=*/-1));
-    path.push_back(std::move(step));
-
-    CEL_ASSIGN_OR_RETURN(step, CreateIdentStep("name1", /*expr_id=*/-1));
-    path.push_back(std::move(step));
-
-    CEL_ASSIGN_OR_RETURN(
-        step, (is_or) ? CreateOrStep(/*num_args=*/2, /*expr_id=*/2)
-                      : CreateAndStep(/*num_args=*/2, /*expr_id=*/2));
-    path.push_back(std::move(step));
+    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name0")));
+    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name1")));
+    path.push_back(ExpressionStep::MakeGenericStep(
+        (is_or) ? CreateOrStep(/*num_args=*/2) : CreateAndStep(/*num_args=*/2),
+        /*expr_id=*/2));
 
     auto dummy_expr = std::make_unique<Expr>();
     cel::RuntimeOptions options;

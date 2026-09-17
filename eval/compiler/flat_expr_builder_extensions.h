@@ -23,6 +23,7 @@
 #define THIRD_PARTY_CEL_CPP_EVAL_COMPILER_FLAT_EXPR_BUILDER_EXTENSIONS_H_
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -84,11 +85,10 @@ class ProgramBuilder {
   // Must be tied to a ProgramBuilder to coordinate relationships.
   class Subexpression {
    private:
-    using Element = absl::variant<std::unique_ptr<ExpressionStep>,
-                                  Subexpression* absl_nonnull>;
+    using Element = absl::variant<ExpressionStep, Subexpression* absl_nonnull>;
 
     using TreePlan = std::vector<Element>;
-    using FlattenedPlan = std::vector<std::unique_ptr<const ExpressionStep>>;
+    using FlattenedPlan = ExecutionPath;
 
    public:
     struct RecursiveProgram {
@@ -105,7 +105,7 @@ class ProgramBuilder {
     Subexpression& operator=(Subexpression&&) = delete;
 
     // Add a program step at the current end of the subexpression.
-    bool AddStep(std::unique_ptr<ExpressionStep> step) {
+    bool AddStep(ExpressionStep step) {
       if (IsRecursive()) {
         return false;
       }
@@ -141,13 +141,12 @@ class ProgramBuilder {
     // Accessor for program steps.
     //
     // Value is undefined if in the expression has not yet been flattened.
-    std::vector<std::unique_ptr<const ExpressionStep>>& flattened_elements() {
+    ExecutionPath& flattened_elements() {
       ABSL_DCHECK(IsFlattened());
       return absl::get<FlattenedPlan>(program_);
     }
 
-    const std::vector<std::unique_ptr<const ExpressionStep>>&
-    flattened_elements() const {
+    const ExecutionPath& flattened_elements() const {
       ABSL_DCHECK(IsFlattened());
       return absl::get<FlattenedPlan>(program_);
     }
@@ -202,7 +201,7 @@ class ProgramBuilder {
     // ownership of the given steps.
     //
     // Returns false if the subexpression is not currently flattened.
-    bool ExtractTo(std::vector<std::unique_ptr<const ExpressionStep>>& out);
+    bool ExtractTo(ExecutionPath& out);
 
    private:
     Subexpression(const cel::Expr* self, ProgramBuilder* owner);
@@ -287,13 +286,12 @@ class ProgramBuilder {
   // Note: If successful, the pointer should remain valid until the parent
   // expression is finalized. Optimizers may modify the program plan which may
   // free the step at that point.
-  ExpressionStep* absl_nullable AddStep(std::unique_ptr<ExpressionStep> step);
+  ExpressionStep* absl_nullable AddStep(ExpressionStep step);
 
   void Reset();
 
  private:
-  static std::vector<std::unique_ptr<const ExpressionStep>>
-  FlattenSubexpression(Subexpression* absl_nonnull expr);
+  static ExecutionPath FlattenSubexpression(Subexpression* absl_nonnull expr);
 
   Subexpression* absl_nullable MakeSubexpression(const cel::Expr* expr);
 
@@ -385,8 +383,13 @@ class PlannerContext {
                               int depth);
 
   // Extend the current subplan with the given expression step.
+  absl::Status AddSubplanStep(const cel::Expr& node, ExpressionStep step);
   absl::Status AddSubplanStep(const cel::Expr& node,
-                              std::unique_ptr<ExpressionStep> step);
+                              std::unique_ptr<ExpressionStepLogic> step,
+                              int64_t expr_id = -1) {
+    return AddSubplanStep(
+        node, ExpressionStep::MakeGenericStep(std::move(step), expr_id));
+  }
 
   const Resolver& resolver() const { return resolver_; }
   const cel::TypeReflector& type_reflector() const { return type_reflector_; }

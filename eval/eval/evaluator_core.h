@@ -17,11 +17,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -54,16 +57,76 @@ class ExecutionFrame;
 
 using EvaluationListener = cel::TraceableProgram::EvaluationListener;
 
-// Class Expression represents single execution step.
+class ExpressionStepLogic;
+
+enum class ExpressionStepKind : uint16_t {
+  kMovedFrom = 0,
+  kGenericLogic = 1,
+};
+
 class ExpressionStep {
  public:
-  explicit ExpressionStep(int64_t id, bool comes_from_ast = true)
-      : id_(id), comes_from_ast_(comes_from_ast) {}
-
+  // Move-only.
   ExpressionStep(const ExpressionStep&) = delete;
   ExpressionStep& operator=(const ExpressionStep&) = delete;
+  ExpressionStep(ExpressionStep&&);
+  ExpressionStep& operator=(ExpressionStep&&);
 
-  virtual ~ExpressionStep() = default;
+  // Returns corresponding expression object ID.
+  // Requires that the input expression has IDs assigned to sub-expressions,
+  // e.g. via a checker. The default value 0 is returned if there is no
+  // expression associated (e.g. a jump step), or if there is no ID assigned to
+  // the corresponding expression. Useful for error scenarios where information
+  // from Expr object is needed to create CelError.
+  int64_t id() const {
+    return header_.id >= 0 ? static_cast<int64_t>(header_.id) : -1;
+  }
+
+  // Returns if the execution step comes from AST.
+  bool comes_from_ast() const { return header_.id >= 0; }
+
+  absl::Status Evaluate(ExecutionFrame* context) const;
+
+  template <typename T>
+  T Get() const;
+  template <typename T>
+  bool Is() const;
+
+  const ExpressionStepLogic* GetGenericStep() const;
+  bool IsGenericStep() const;
+
+  static ExpressionStep MakeGenericStep(
+      std::unique_ptr<ExpressionStepLogic> logic, int64_t id = -1) {
+    if (id < 0 || id > std::numeric_limits<int32_t>::max()) {
+      id = -1;
+    }
+    return ExpressionStep(ExpressionStepKind::kGenericLogic, id,
+                          std::move(logic));
+  }
+
+ private:
+  struct Header {
+    ExpressionStepKind kind;
+    uint16_t reserved;
+    int32_t id;
+  };
+
+  friend void swap(ExpressionStep& lhs, ExpressionStep& rhs);
+
+  ExpressionStep() = default;
+
+  ExpressionStep(ExpressionStepKind kind, int32_t id,
+                 std::unique_ptr<ExpressionStepLogic> logic)
+      : header_{kind, 0, id}, logic_(std::move(logic)) {}
+
+  Header header_;
+  std::unique_ptr<const ExpressionStepLogic> logic_;
+};
+
+// Class Expression represents single execution step.
+class ExpressionStepLogic {
+ public:
+  virtual ~ExpressionStepLogic() = default;
 
   // Performs actual evaluation.
   // Values are passed between Expression objects via EvaluatorStack, which is
@@ -74,32 +137,16 @@ class ExpressionStep {
   // modify execution order(perform jumps).
   virtual absl::Status Evaluate(ExecutionFrame* context) const = 0;
 
-  // Returns corresponding expression object ID.
-  // Requires that the input expression has IDs assigned to sub-expressions,
-  // e.g. via a checker. The default value 0 is returned if there is no
-  // expression associated (e.g. a jump step), or if there is no ID assigned to
-  // the corresponding expression. Useful for error scenarios where information
-  // from Expr object is needed to create CelError.
-  int64_t id() const { return id_; }
-
-  // Returns if the execution step comes from AST.
-  bool comes_from_ast() const { return comes_from_ast_; }
-
   // Return the type of the underlying expression step for special handling in
   // the planning phase. This should only be overridden by special cases, and
   // callers must not make any assumptions about the default case.
   virtual cel::NativeTypeId GetNativeTypeId() const {
     return cel::NativeTypeId();
   }
-
- private:
-  const int64_t id_;
-  const bool comes_from_ast_;
 };
 
-using ExecutionPath = std::vector<std::unique_ptr<const ExpressionStep>>;
-using ExecutionPathView =
-    absl::Span<const std::unique_ptr<const ExpressionStep>>;
+using ExecutionPath = std::vector<ExpressionStep>;
+using ExecutionPathView = absl::Span<const ExpressionStep>;
 
 // Class that wraps the state that needs to be allocated for expression
 // evaluation. This can be reused to save on allocations.
@@ -375,7 +422,7 @@ class ExecutionFrame : public ExecutionFrameBase {
   void Call(size_t slot_index, size_t subexpression_index) {
     ABSL_DCHECK_LT(subexpression_index, subexpressions_.size());
     ExecutionPathView subexpression = subexpressions_[subexpression_index];
-    ABSL_DCHECK(subexpression != execution_path_);
+    ABSL_DCHECK(subexpression.data() != execution_path_.data());
     size_t return_pc = pc_;
     // return pc == size() is supported (a tail call).
     ABSL_DCHECK_LE(return_pc, execution_path_.size());
@@ -510,6 +557,61 @@ class FlatExpression {
   // kept alive.
   absl_nullable std::shared_ptr<google::protobuf::Arena> arena_;
 };
+
+// Implementation details.
+
+inline absl::Status ExpressionStep::Evaluate(ExecutionFrame* context) const {
+  ABSL_DCHECK_EQ(header_.kind, ExpressionStepKind::kGenericLogic);
+  return logic_->Evaluate(context);
+}
+
+template <typename T>
+inline T ExpressionStep::Get() const {
+  if constexpr (std::is_same_v<T, const ExpressionStepLogic*>) {
+    return GetGenericStep();
+  } else {
+    static_assert(sizeof(T) == 0, "unsupported type");
+  }
+  ABSL_UNREACHABLE();
+}
+
+inline const ExpressionStepLogic* ExpressionStep::GetGenericStep() const {
+  ABSL_DCHECK_EQ(header_.kind, ExpressionStepKind::kGenericLogic);
+  return logic_.get();
+}
+
+template <typename T>
+inline bool ExpressionStep::Is() const {
+  if constexpr (std::is_same_v<T, const ExpressionStepLogic*>) {
+    return header_.kind == ExpressionStepKind::kGenericLogic;
+  } else {
+    static_assert(sizeof(T) == 0, "unsupported type");
+  }
+  ABSL_UNREACHABLE();
+}
+
+inline bool ExpressionStep::IsGenericStep() const {
+  return header_.kind == ExpressionStepKind::kGenericLogic;
+}
+
+inline ExpressionStep::ExpressionStep(ExpressionStep&& other)
+    : ExpressionStep() {
+  using std::swap;
+  swap(*this, other);
+}
+
+inline ExpressionStep& ExpressionStep::operator=(ExpressionStep&& other) {
+  using std::swap;
+  swap(*this, other);
+  return *this;
+}
+
+inline void swap(ExpressionStep& lhs, ExpressionStep& rhs) {
+  using std::swap;
+
+  swap(lhs.header_, rhs.header_);
+  swap(lhs.logic_, rhs.logic_);
+}
 
 }  // namespace google::api::expr::runtime
 

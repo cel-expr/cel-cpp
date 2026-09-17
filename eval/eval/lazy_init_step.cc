@@ -38,8 +38,8 @@ using ::cel::Value;
 
 class LazyInitStep final : public ExpressionStepBase {
  public:
-  LazyInitStep(size_t slot_index, size_t subexpression_index, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
+  LazyInitStep(size_t slot_index, size_t subexpression_index)
+      : ExpressionStepBase(),
         slot_index_(slot_index),
         subexpression_index_(subexpression_index) {}
 
@@ -130,8 +130,8 @@ class AssignSlotAndPopStepStep final : public ExpressionStepBase {
 
 class ClearSlotStep : public ExpressionStepBase {
  public:
-  explicit ClearSlotStep(size_t slot_index, int64_t expr_id)
-      : ExpressionStepBase(expr_id), slot_index_(slot_index) {}
+  explicit ClearSlotStep(size_t slot_index)
+      : ExpressionStepBase(), slot_index_(slot_index) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     frame->comprehension_slots().ClearSlot(slot_index_);
@@ -144,8 +144,8 @@ class ClearSlotStep : public ExpressionStepBase {
 
 class ClearSlotsStep final : public ExpressionStepBase {
  public:
-  explicit ClearSlotsStep(size_t slot_index, size_t slot_count, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
+  ClearSlotsStep(size_t slot_index, size_t slot_count)
+      : ExpressionStepBase(),
         slot_index_(slot_index),
         slot_count_(slot_count) {}
 
@@ -210,27 +210,24 @@ std::unique_ptr<DirectExpressionStep> CreateDirectLazyInitStep(
                                               expr_id);
 }
 
-std::unique_ptr<ExpressionStep> CreateLazyInitStep(size_t slot_index,
-                                                   size_t subexpression_index,
-                                                   int64_t expr_id) {
-  return std::make_unique<LazyInitStep>(slot_index, subexpression_index,
-                                        expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateLazyInitStep(
+    size_t slot_index, size_t subexpression_index) {
+  return std::make_unique<LazyInitStep>(slot_index, subexpression_index);
 }
 
-std::unique_ptr<ExpressionStep> CreateAssignSlotAndPopStep(size_t slot_index) {
+std::unique_ptr<ExpressionStepLogic> CreateAssignSlotAndPopStep(
+    size_t slot_index) {
   return std::make_unique<AssignSlotAndPopStepStep>(slot_index);
 }
 
-std::unique_ptr<ExpressionStep> CreateClearSlotStep(size_t slot_index,
-                                                    int64_t expr_id) {
-  return std::make_unique<ClearSlotStep>(slot_index, expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateClearSlotStep(size_t slot_index) {
+  return std::make_unique<ClearSlotStep>(slot_index);
 }
 
-std::unique_ptr<ExpressionStep> CreateClearSlotsStep(size_t slot_index,
-                                                     size_t slot_count,
-                                                     int64_t expr_id) {
+std::unique_ptr<ExpressionStepLogic> CreateClearSlotsStep(size_t slot_index,
+                                                          size_t slot_count) {
   ABSL_DCHECK_GT(slot_count, 0);
-  return std::make_unique<ClearSlotsStep>(slot_index, slot_count, expr_id);
+  return std::make_unique<ClearSlotsStep>(slot_index, slot_count);
 }
 
 }  // namespace google::api::expr::runtime
