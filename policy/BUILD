@@ -225,7 +225,6 @@ cc_test(
 
 cc_library(
     name = "test_util",
-    testonly = True,
     srcs = ["test_util.cc"],
     hdrs = ["test_util.h"],
     copts = ["-fexceptions"],
