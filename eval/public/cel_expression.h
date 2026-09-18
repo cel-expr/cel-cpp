@@ -24,6 +24,13 @@ namespace google::api::expr::runtime {
 // then the order of the callback invocations is guaranteed to correspond
 // the order of variable sub-elements (e.g. the order of elements returned
 // by Comprehension.iter_range).
+//
+// Expression IDs outside of the range [0, INT32_MAX] are not supported and
+// will not invoke the listener. While the AST allows any int64, supported
+// parser implementations should use a dense range starting at 1. In practice,
+// no AST should contain more than ~ 1e9 nodes.
+//
+// ID 0 should not be considered valid, but is supported for legacy reasons.
 using CelEvaluationListener = std::function<absl::Status(
     int64_t expr_id, const CelValue&, google::protobuf::Arena*)>;
 

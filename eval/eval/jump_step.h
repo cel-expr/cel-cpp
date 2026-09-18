@@ -28,8 +28,8 @@ namespace google::api::expr::runtime {
 
 class JumpStepBase : public ExpressionStepBase {
  public:
-  JumpStepBase(absl::optional<int> jump_offset, int64_t expr_id)
-      : ExpressionStepBase(expr_id, false), jump_offset_(jump_offset) {}
+  explicit JumpStepBase(absl::optional<int> jump_offset = absl::nullopt)
+      : ExpressionStepBase(), jump_offset_(jump_offset) {}
 
   void set_jump_offset(int offset) { jump_offset_ = offset; }
 
@@ -45,8 +45,8 @@ class JumpStepBase : public ExpressionStepBase {
 };
 
 // Factory method for Jump step.
-std::unique_ptr<JumpStepBase> CreateJumpStep(absl::optional<int> jump_offset,
-                                             int64_t expr_id);
+std::unique_ptr<JumpStepBase> CreateJumpStep(
+    absl::optional<int> jump_offset = absl::nullopt);
 
 // Factory method for Conditional Jump step (used for and/or shortcircuiting).
 // Conditional Jump requires a boolean value to sit on the stack.
@@ -54,20 +54,20 @@ std::unique_ptr<JumpStepBase> CreateJumpStep(absl::optional<int> jump_offset,
 // The boolean value is left on top of the stack.
 std::unique_ptr<JumpStepBase> CreateCondJumpStep(
     bool jump_condition, absl::optional<int> jump_offset,
-    size_t expected_stack_size, int64_t expr_id);
+    size_t expected_stack_size);
 
 // Factory method for Ternary Conditional Jump step.
 // Requires a boolean condition value on top of the stack.
 // If the boolean value is false, a jump is performed to the second branch.
 // The condition value is popped from the stack before jumping or continuing.
 std::unique_ptr<JumpStepBase> CreateTernaryCondJumpStep(
-    absl::optional<int> jump_offset, int64_t expr_id);
+    absl::optional<int> jump_offset = absl::nullopt);
 
 // Factory method for ErrorJump step.
 // This step performs a Jump when an Error is on the top of the stack.
 // Value is left on stack if it is a bool or an error.
 std::unique_ptr<JumpStepBase> CreateBoolCheckJumpStep(
-    absl::optional<int> jump_offset, int64_t expr_id);
+    absl::optional<int> jump_offset = absl::nullopt);
 
 }  // namespace google::api::expr::runtime
 

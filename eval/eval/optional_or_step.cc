@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/base/optimization.h"
@@ -79,8 +80,8 @@ ErrorValue MakeNoOverloadError(OptionalOrKind kind) {
 // getting the result of optional.value())
 class OptionalHasValueJumpStep final : public JumpStepBase {
  public:
-  OptionalHasValueJumpStep(int64_t expr_id, OptionalOrKind kind)
-      : JumpStepBase({}, expr_id), kind_(kind) {}
+  explicit OptionalHasValueJumpStep(OptionalOrKind kind)
+      : JumpStepBase(std::nullopt), kind_(kind) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     if (!frame->value_stack().HasEnough(1)) {
@@ -110,8 +111,8 @@ class OptionalHasValueJumpStep final : public JumpStepBase {
 
 class OptionalOrStep : public ExpressionStepBase {
  public:
-  explicit OptionalOrStep(int64_t expr_id, OptionalOrKind kind)
-      : ExpressionStepBase(expr_id), kind_(kind) {}
+  explicit OptionalOrStep(OptionalOrKind kind)
+      : ExpressionStepBase(), kind_(kind) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 
@@ -273,17 +274,13 @@ absl::Status DirectOptionalOrStep::Evaluate(ExecutionFrameBase& frame,
 
 }  // namespace
 
-std::unique_ptr<JumpStepBase> CreateOptionalHasValueJumpStep(bool or_value,
-                                                             int64_t expr_id) {
+std::unique_ptr<JumpStepBase> CreateOptionalHasValueJumpStep(bool or_value) {
   return std::make_unique<OptionalHasValueJumpStep>(
-      expr_id,
       or_value ? OptionalOrKind::kOrValue : OptionalOrKind::kOrOptional);
 }
 
-std::unique_ptr<ExpressionStep> CreateOptionalOrStep(bool is_or_value,
-                                                     int64_t expr_id) {
+std::unique_ptr<ExpressionStepLogic> CreateOptionalOrStep(bool is_or_value) {
   return std::make_unique<OptionalOrStep>(
-      expr_id,
       is_or_value ? OptionalOrKind::kOrValue : OptionalOrKind::kOrOptional);
 }
 

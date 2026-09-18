@@ -34,11 +34,10 @@ absl::StatusOr<CelValue> RunShadowableExpression(
     const absl_nonnull std::shared_ptr<const RuntimeEnv>& env,
     std::string identifier, cel::Value value, const Activation& activation,
     Arena* arena) {
-  CEL_ASSIGN_OR_RETURN(
-      auto step,
-      CreateShadowableValueStep(std::move(identifier), std::move(value), 1));
+  CEL_ASSIGN_OR_RETURN(auto step,
+                       CreateShadowableValueStep(identifier, std::move(value)));
   ExecutionPath path;
-  path.push_back(std::move(step));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step), 1));
 
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
@@ -55,11 +54,10 @@ TEST(ShadowableValueStepTest, TestEvaluateNoShadowing) {
   Arena arena;
 
   auto type_value = CreateTypeValueFromView(&arena, type_name);
-  auto status =
-      RunShadowableExpression(env, type_name, type_value, activation, &arena);
-  ASSERT_OK(status);
+  ASSERT_OK_AND_ASSIGN(
+      auto value,
+      RunShadowableExpression(env, type_name, type_value, activation, &arena));
 
-  auto value = status.value();
   ASSERT_TRUE(value.IsCelType());
   EXPECT_THAT(value.CelTypeOrDie().value(), Eq(type_name));
 }
@@ -74,11 +72,10 @@ TEST(ShadowableValueStepTest, TestEvaluateShadowedIdentifier) {
   Arena arena;
 
   auto type_value = CreateTypeValueFromView(&arena, type_name);
-  auto status =
-      RunShadowableExpression(env, type_name, type_value, activation, &arena);
-  ASSERT_OK(status);
+  ASSERT_OK_AND_ASSIGN(
+      auto value,
+      RunShadowableExpression(env, type_name, type_value, activation, &arena));
 
-  auto value = status.value();
   ASSERT_TRUE(value.IsInt64());
   EXPECT_THAT(value.Int64OrDie(), Eq(1024L));
 }

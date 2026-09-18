@@ -276,9 +276,8 @@ void PerformLookup(ExecutionFrameBase& frame, const Value& container,
 // message.
 class ContainerAccessStep : public ExpressionStepBase {
  public:
-  ContainerAccessStep(int64_t expr_id, bool enable_optional_types)
-      : ExpressionStepBase(expr_id),
-        enable_optional_types_(enable_optional_types) {}
+  explicit ContainerAccessStep(bool enable_optional_types)
+      : ExpressionStepBase(), enable_optional_types_(enable_optional_types) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 
@@ -357,14 +356,14 @@ std::unique_ptr<DirectExpressionStep> CreateDirectContainerAccessStep(
 }
 
 // Factory method for Select - based Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateContainerAccessStep(
-    const cel::CallExpr& call, int64_t expr_id, bool enable_optional_types) {
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateContainerAccessStep(
+    const cel::CallExpr& call, bool enable_optional_types) {
   int arg_count = call.args().size() + (call.has_target() ? 1 : 0);
   if (arg_count != kNumContainerAccessArguments) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Invalid argument count for index operation: ", arg_count));
   }
-  return std::make_unique<ContainerAccessStep>(expr_id, enable_optional_types);
+  return std::make_unique<ContainerAccessStep>(enable_optional_types);
 }
 
 }  // namespace google::api::expr::runtime

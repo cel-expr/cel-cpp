@@ -31,13 +31,11 @@ namespace google::api::expr::runtime {
 // true, performs a jump. If `or_value` is true and we are jumping,
 // `optional.value` is called and the result replaces the optional at the top of
 // the stack.
-std::unique_ptr<JumpStepBase> CreateOptionalHasValueJumpStep(bool or_value,
-                                                             int64_t expr_id);
+std::unique_ptr<JumpStepBase> CreateOptionalHasValueJumpStep(bool or_value);
 
 // Factory method for OptionalOr step, used to implement optional.or and
 // optional.orValue.
-std::unique_ptr<ExpressionStep> CreateOptionalOrStep(bool is_or_value,
-                                                     int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateOptionalOrStep(bool is_or_value);
 
 // Creates a step implementing the short-circuiting optional.or or
 // optional.orValue step.
