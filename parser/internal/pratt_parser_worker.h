@@ -358,18 +358,21 @@ ExprNode PrattParserWorker<ExprNode>::ParseExpr() {
 
 template <typename ExprNode>
 void PrattParserWorker<ExprNode>::ParseTernary(ExprNode& lhs) {
-  Token op_tok = NextToken();
-  int64_t op_id = NextId(op_tok);
-  ExprNode true_expr = ParseBinaryAndTernary(1);
-  if (!Expect(TokenType::kColon, "expected ':' in conditional expression")) {
+  if (recursion_depth_ > options_.max_recursion_depth) {
+    recursion_limit_exceeded_ = true;
     return;
   }
-  ExprNode false_expr = ParseBinaryAndTernary(0);
+  recursion_depth_++;
+  absl::Cleanup depth_cleanup = [this] { recursion_depth_--; };
+  int64_t op_id = NextId(NextToken());
   std::vector<ExprNode> args;
   args.reserve(3);
   args.push_back(std::move(lhs));
-  args.push_back(std::move(true_expr));
-  args.push_back(std::move(false_expr));
+  args.push_back(ParseBinaryAndTernary(1));
+  if (!Expect(TokenType::kColon, "expected ':' in conditional expression")) {
+    return;
+  }
+  args.push_back(ParseBinaryAndTernary(0));
   lhs = ast_factory_.NewCall(op_id, CelOperator::CONDITIONAL, std::move(args));
 }
 
@@ -391,7 +394,7 @@ void PrattParserWorker<ExprNode>::BuildBinaryCall(int64_t op_id,
 template <typename ExprNode>
 ExprNode PrattParserWorker<ExprNode>::ParseBinaryAndTernary(int min_prec) {
   ExprNode lhs = ParseSelectorChain();
-  while (true) {
+  while (!recursion_limit_exceeded_ && !is_recovery_limit_exceeded()) {
     TokenType tok = peek_token_.type;
     if (tok == TokenType::kQuestion && min_prec <= 0) {
       ParseTernary(lhs);
