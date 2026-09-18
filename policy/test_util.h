@@ -28,6 +28,11 @@ namespace cel::test {
 absl::StatusOr<cel::expr::conformance::test::TestSuite>
 ParsePolicyTestSuiteYaml(absl::string_view yaml_content);
 
+// Parses a YAML string representing an individual test case and adapts it to
+// the cel.expr.conformance.test.TestCase protobuf message.
+absl::StatusOr<cel::expr::conformance::test::TestCase> ParseTestCaseYaml(
+    absl::string_view yaml_content);
+
 }  // namespace cel::test
 
 #endif  // THIRD_PARTY_CEL_CPP_POLICY_TEST_UTIL_H_
