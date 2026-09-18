@@ -1278,7 +1278,7 @@ INSTANTIATE_TEST_SUITE_P(
               ASSERT_OK_AND_ASSIGN(Value result, got);
               ASSERT_TRUE(result->Is<UnknownValue>()) << result->DebugString();
               EXPECT_THAT(
-                  result.GetUnknown().attribute_set(),
+                  result.GetUnknown().ToAttributeSet(),
                   ElementsAre(Eq(Attribute(
                       "b", {
                                AttributeQualifier::OfString("child"),
@@ -1328,7 +1328,7 @@ INSTANTIATE_TEST_SUITE_P(
             [](const absl::StatusOr<Value>& got) {
               ASSERT_OK_AND_ASSIGN(Value result, got);
               ASSERT_TRUE(result->Is<UnknownValue>()) << result->DebugString();
-              EXPECT_THAT(result.GetUnknown().attribute_set(),
+              EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
                           ElementsAre(Truly([](const Attribute& attr) {
                             return attr.variable_name() == "b";
                           })));

@@ -40,12 +40,20 @@ namespace cel {
 class Value;
 class UnknownValue;
 
+namespace common_internal {
+[[nodiscard]]
+UnknownValue MakeUnknownValue(Unknown value);
+[[nodiscard]]
+Unknown GetUnknown(const UnknownValue& value);
+[[nodiscard]]
+const FunctionResultSet& GetUnknownFunctionResultSet(
+    const UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND);
+}  // namespace common_internal
+
 // `UnknownValue` represents values of the primitive `duration` type.
 class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
  public:
   static constexpr ValueKind kKind = ValueKind::kUnknown;
-
-  explicit UnknownValue(Unknown unknown) : unknown_(std::move(unknown)) {}
 
   UnknownValue() = default;
   UnknownValue(const UnknownValue&) = default;
@@ -80,30 +88,24 @@ class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
 
   bool IsZeroValue() const { return false; }
 
+  [[nodiscard]]
+  AttributeSet ToAttributeSet() const {
+    return unknown_.unknown_attributes();
+  }
+
   void swap(UnknownValue& other) noexcept {
     using std::swap;
     swap(unknown_, other.unknown_);
   }
 
-  const Unknown& NativeValue() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    return unknown_;
-  }
-
-  Unknown NativeValue() && {
-    Unknown unknown = std::move(unknown_);
-    return unknown;
-  }
-
-  const AttributeSet& attribute_set() const {
-    return unknown_.unknown_attributes();
-  }
-
-  const FunctionResultSet& function_result_set() const {
-    return unknown_.unknown_function_results();
-  }
-
  private:
+  friend UnknownValue common_internal::MakeUnknownValue(Unknown value);
+  friend Unknown common_internal::GetUnknown(const UnknownValue&);
+  friend const FunctionResultSet& common_internal::GetUnknownFunctionResultSet(
+      const UnknownValue& value);
   friend class common_internal::ValueMixin<UnknownValue>;
+
+  explicit UnknownValue(Unknown unknown) : unknown_(std::move(unknown)) {}
 
   Unknown unknown_;
 };
@@ -115,6 +117,26 @@ inline void swap(UnknownValue& lhs, UnknownValue& rhs) noexcept {
 inline std::ostream& operator<<(std::ostream& out, const UnknownValue& value) {
   return out << value.DebugString();
 }
+
+namespace common_internal {
+
+[[nodiscard]]
+inline UnknownValue MakeUnknownValue(Unknown value) {
+  return UnknownValue(std::move(value));
+}
+
+[[nodiscard]]
+inline Unknown GetUnknown(const UnknownValue& value) {
+  return value.unknown_;
+}
+
+[[nodiscard]]
+inline const FunctionResultSet& GetUnknownFunctionResultSet(
+    const UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+  return value.unknown_.unknown_function_results();
+}
+
+}  // namespace common_internal
 
 }  // namespace cel
 

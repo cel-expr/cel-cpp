@@ -356,7 +356,8 @@ struct BinaryTestCase {
 UnknownValue MakeUnknownValue(std::string attr) {
   std::vector<Attribute> attrs;
   attrs.push_back(Attribute(std::move(attr)));
-  return cel::UnknownValue(cel::Unknown(AttributeSet(attrs)));
+  return cel::common_internal::MakeUnknownValue(
+      cel::Unknown(AttributeSet(attrs)));
 }
 
 std::unique_ptr<DirectExpressionStep> MakeArgStep(OpArg arg,

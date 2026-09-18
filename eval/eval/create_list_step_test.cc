@@ -329,9 +329,9 @@ TEST(CreateDirectListStep, ForwardFirstError) {
 
 std::vector<std::string> UnknownAttrNames(const UnknownValue& v) {
   std::vector<std::string> names;
-  names.reserve(v.attribute_set().size());
+  names.reserve(v.ToAttributeSet().size());
 
-  for (const auto& attr : v.attribute_set()) {
+  for (const auto& attr : v.ToAttributeSet()) {
     EXPECT_OK(attr.AsString().status());
     names.push_back(attr.AsString().value_or("<empty>"));
   }
@@ -355,10 +355,14 @@ TEST(CreateDirectListStep, MergeUnknowns) {
   AttributeSet attr_set2({Attribute("var2")});
 
   std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(
-      cel::UnknownValue(cel::Unknown(std::move(attr_set1))), -1));
-  deps.push_back(CreateConstValueDirectStep(
-      cel::UnknownValue(cel::Unknown(std::move(attr_set2))), -1));
+  deps.push_back(
+      CreateConstValueDirectStep(cel::common_internal::MakeUnknownValue(
+                                     cel::Unknown(std::move(attr_set1))),
+                                 -1));
+  deps.push_back(
+      CreateConstValueDirectStep(cel::common_internal::MakeUnknownValue(
+                                     cel::Unknown(std::move(attr_set2))),
+                                 -1));
   auto step = CreateDirectListStep(std::move(deps), {}, -1);
 
   cel::Value result;
