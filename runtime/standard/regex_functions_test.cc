@@ -38,10 +38,10 @@ MATCHER_P2(MatchesDescriptor, name, call_style, "") {
       break;
   }
   const FunctionDescriptor& descriptor = *arg;
-  std::vector<Kind> types{Kind::kString, Kind::kString};
+  std::vector<Kind> kinds{Kind::kString, Kind::kString};
   return descriptor.name() == name &&
          descriptor.receiver_style() == receiver_style &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 TEST(RegisterRegexFunctions, Registered) {

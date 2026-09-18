@@ -71,6 +71,13 @@ Type OptionalMapOfKV() {
   return *kInstance;
 }
 
+Type ListOfOptionalV() {
+  static const absl::NoDestructor<ListType> kInstance(
+      checker_internal::BuiltinsArena(), OptionalOfV());
+
+  return *kInstance;
+}
+
 class OptionalNames {
  public:
   static constexpr char kOptionalType[] = "optional_type";
@@ -85,6 +92,8 @@ class OptionalNames {
   static constexpr char kOptionalIndex[] = "_[?_]";
   static constexpr char kOptionalFirst[] = "first";
   static constexpr char kOptionalLast[] = "last";
+  static constexpr char kOptionalUnwrap[] = "optional.unwrap";
+  static constexpr char kOptionalUnwrapOpt[] = "unwrapOpt";
 };
 
 class OptionalOverloads {
@@ -114,6 +123,9 @@ class OptionalOverloads {
   // Syntactic sugar for chained indexing.
   static constexpr char kOptionalListIndexInt[] = "optional_list_index_int";
   static constexpr char kOptionalMapIndexValue[] = "optional_map_index_value";
+  // Unwrapping
+  static constexpr char kOptionalUnwrapList[] = "optional_unwrap_list";
+  static constexpr char kOptionalUnwrapOptList[] = "optional_unwrapOpt_list";
 };
 
 absl::Status RegisterOptionalDecls(TypeCheckerBuilder& builder, int version) {
@@ -207,6 +219,17 @@ absl::Status RegisterOptionalDecls(TypeCheckerBuilder& builder, int version) {
                            OptionalOfV(), OptionalMapOfKV(),
                            TypeParamType("K"))));
 
+  CEL_ASSIGN_OR_RETURN(
+      auto unwrap,
+      MakeFunctionDecl(
+          OptionalNames::kOptionalUnwrap,
+          MakeOverloadDecl(OptionalOverloads::kOptionalUnwrapList, ListOfV(), ListOfOptionalV())));
+  CEL_ASSIGN_OR_RETURN(
+      auto unwrap_opt,
+      MakeFunctionDecl(
+          OptionalNames::kOptionalUnwrapOpt,
+          MakeMemberOverloadDecl(OptionalOverloads::kOptionalUnwrapOptList, ListOfV(), ListOfOptionalV())));
+
   CEL_RETURN_IF_ERROR(builder.AddVariable(
       MakeVariableDecl(OptionalNames::kOptionalType, TypeOfOptionalOfV())));
 
@@ -220,6 +243,8 @@ absl::Status RegisterOptionalDecls(TypeCheckerBuilder& builder, int version) {
   CEL_RETURN_IF_ERROR(builder.AddFunction(std::move(opt_index)));
   CEL_RETURN_IF_ERROR(builder.AddFunction(std::move(select)));
   CEL_RETURN_IF_ERROR(builder.MergeFunction(std::move(index)));
+  CEL_RETURN_IF_ERROR(builder.AddFunction(std::move(unwrap)));
+  CEL_RETURN_IF_ERROR(builder.AddFunction(std::move(unwrap_opt)));
 
   if (version == 0 || version == 1) {
     return absl::OkStatus();

@@ -32,9 +32,9 @@ using ::testing::UnorderedElementsAre;
 
 MATCHER_P3(MatchesDescriptor, name, receiver, expected_kinds, "") {
   const FunctionDescriptor& descriptor = *arg;
-  const std::vector<Kind>& types = expected_kinds;
+  const std::vector<Kind>& kinds = expected_kinds;
   return descriptor.name() == name && descriptor.receiver_style() == receiver &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 static constexpr std::array<absl::string_view, 3> kInOperators = {

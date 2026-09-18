@@ -151,11 +151,17 @@ absl::StatusOr<Value> CaptureStringN(
 
 absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
                                     int max_regex_program_size) {
+  // Overload IDs from decls
+  static constexpr absl::string_view kReExtractStringStringString = "re_extract_string_string_string";
+  static constexpr absl::string_view kReCaptureStringString = "re_capture_string_string";
+  static constexpr absl::string_view kReCaptureNStringString = "re_captureN_string_string";
+
   // Register Regex Extract Function
   CEL_RETURN_IF_ERROR(
       (TernaryFunctionAdapter<
           absl::StatusOr<Value>, StringValue, StringValue,
           StringValue>::RegisterGlobalOverload(kRegexExtract,
+                                               kReExtractStringStringString,
                                                absl::bind_front(
                                                    &ExtractString,
                                                    max_regex_program_size),
@@ -166,6 +172,7 @@ absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
       (BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue>::
            RegisterGlobalOverload(
                kRegexCapture,
+               kReCaptureStringString,
                absl::bind_front(&CaptureString, max_regex_program_size),
                registry)));
 
@@ -174,6 +181,7 @@ absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
       (BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue>::
            RegisterGlobalOverload(
                kRegexCaptureN,
+               kReCaptureNStringString,
                absl::bind_front(&CaptureStringN, max_regex_program_size),
                registry)));
   return absl::OkStatus();

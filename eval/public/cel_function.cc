@@ -24,7 +24,7 @@ bool CelFunction::MatchArguments(absl::Span<const CelValue> arguments) const {
   }
   for (size_t i = 0; i < types_size; i++) {
     const auto& value = arguments[i];
-    CelValue::Type arg_type = descriptor().types()[i];
+    CelValue::Type arg_type = descriptor().kinds()[i];
     if (value.type() != arg_type && arg_type != CelValue::Type::kAny) {
       return false;
     }
@@ -41,7 +41,7 @@ bool CelFunction::MatchArguments(absl::Span<const cel::Value> arguments) const {
   }
   for (size_t i = 0; i < types_size; i++) {
     const auto& value = arguments[i];
-    CelValue::Type arg_type = descriptor().types()[i];
+    CelValue::Type arg_type = descriptor().kinds()[i];
     if (value->kind() != arg_type && arg_type != CelValue::Type::kAny) {
       return false;
     }

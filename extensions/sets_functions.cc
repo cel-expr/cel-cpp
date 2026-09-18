@@ -97,30 +97,36 @@ absl::StatusOr<Value> SetsEquivalent(
 }
 
 absl::Status RegisterSetsContainsFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListSetsContainsList = "list_sets_contains_list";
   return registry.Register(
       BinaryFunctionAdapter<
           absl::StatusOr<Value>, const ListValue&,
           const ListValue&>::CreateDescriptor("sets.contains",
+                                              kListSetsContainsList,
                                               /*receiver_style=*/false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
                             const ListValue&>::WrapFunction(SetsContains));
 }
 
 absl::Status RegisterSetsIntersectsFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListSetsIntersectsList = "list_sets_intersects_list";
   return registry.Register(
       BinaryFunctionAdapter<
           absl::StatusOr<Value>, const ListValue&,
           const ListValue&>::CreateDescriptor("sets.intersects",
+                                              kListSetsIntersectsList,
                                               /*receiver_style=*/false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
                             const ListValue&>::WrapFunction(SetsIntersects));
 }
 
 absl::Status RegisterSetsEquivalentFunction(FunctionRegistry& registry) {
+  static constexpr absl::string_view kListSetsEquivalentList = "list_sets_equivalent_list";
   return registry.Register(
       BinaryFunctionAdapter<
           absl::StatusOr<Value>, const ListValue&,
           const ListValue&>::CreateDescriptor("sets.equivalent",
+                                              kListSetsEquivalentList,
                                               /*receiver_style=*/false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
                             const ListValue&>::WrapFunction(SetsEquivalent));
