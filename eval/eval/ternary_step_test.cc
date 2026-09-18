@@ -283,8 +283,8 @@ TEST_P(TernaryStepDirectTest, ForwardUnknown) {
 
   std::vector<cel::Attribute> attrs{{cel::Attribute("var")}};
 
-  cel::UnknownValue unknown_value =
-      cel::UnknownValue(cel::Unknown(cel::AttributeSet(attrs)));
+  cel::UnknownValue unknown_value = cel::common_internal::MakeUnknownValue(
+      cel::Unknown(cel::AttributeSet(attrs)));
 
   std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
       CreateConstValueDirectStep(unknown_value, -1),
@@ -296,7 +296,7 @@ TEST_P(TernaryStepDirectTest, ForwardUnknown) {
 
   ASSERT_OK(step->Evaluate(frame, result, attr_unused));
   ASSERT_TRUE(InstanceOf<UnknownValue>(result));
-  EXPECT_THAT(Cast<UnknownValue>(result).NativeValue().unknown_attributes(),
+  EXPECT_THAT(Cast<UnknownValue>(result).ToAttributeSet(),
               ElementsAre(Truly([](const cel::Attribute& attr) {
                 return attr.variable_name() == "var";
               })));

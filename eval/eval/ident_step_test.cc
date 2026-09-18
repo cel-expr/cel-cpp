@@ -259,7 +259,7 @@ TEST(DirectIdentStepTest, UnknownAttribute) {
   ASSERT_OK(step->Evaluate(frame, result, trail));
 
   ASSERT_TRUE(InstanceOf<UnknownValue>(result));
-  EXPECT_THAT(Cast<UnknownValue>(result).attribute_set(), SizeIs(1));
+  EXPECT_THAT(Cast<UnknownValue>(result).ToAttributeSet(), SizeIs(1));
 }
 
 TEST(DirectIdentStepTest, MissingAttribute) {

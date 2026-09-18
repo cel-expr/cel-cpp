@@ -1116,7 +1116,7 @@ class DirectSelectStepTest : public testing::Test {
 
   std::vector<std::string> AttributeStrings(const UnknownValue& v) {
     std::vector<std::string> result;
-    for (const Attribute& attr : v.attribute_set()) {
+    for (const Attribute& attr : v.ToAttributeSet()) {
       auto attr_str = attr.AsString();
       ABSL_DCHECK_OK(attr_str.status());
       result.push_back(std::move(attr_str).value());
@@ -1597,8 +1597,9 @@ TEST_F(DirectSelectStepTest, ForwardUnknownOperand) {
 
   AttributeSet attr_set({Attribute("attr", {AttributeQualifier::OfInt(0)})});
   auto step = CreateDirectSelectStep(
-      CreateConstValueDirectStep(
-          cel::UnknownValue(cel::Unknown(std::move(attr_set))), -1),
+      CreateConstValueDirectStep(cel::common_internal::MakeUnknownValue(
+                                     cel::Unknown(std::move(attr_set))),
+                                 -1),
       cel::StringValue("single_int64"),
       /*test_only=*/false, -1,
       /*enable_wrapper_type_null_unboxing=*/true);

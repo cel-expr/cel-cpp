@@ -118,16 +118,19 @@ absl::optional<UnknownValue> AttributeUtility::MergeUnknowns(
     const auto& current_set = value.GetUnknown();
 
     cel::base_internal::UnknownSetAccess::Add(
-        *result_set, UnknownSet(current_set.attribute_set(),
-                                current_set.function_result_set()));
+        *result_set,
+        UnknownSet(
+            current_set.ToAttributeSet(),
+            cel::common_internal::GetUnknownFunctionResultSet(current_set)));
   }
 
   if (!result_set.has_value()) {
     return std::nullopt;
   }
 
-  return UnknownValue(cel::Unknown(result_set->unknown_attributes(),
-                                   result_set->unknown_function_results()));
+  return cel::common_internal::MakeUnknownValue(
+      cel::Unknown(result_set->unknown_attributes(),
+                   result_set->unknown_function_results()));
 }
 
 UnknownValue AttributeUtility::MergeUnknownValues(
@@ -136,12 +139,13 @@ UnknownValue AttributeUtility::MergeUnknownValues(
   // distinguish unset (nullopt) and empty(engaged empty value).
   AttributeSet attributes;
   FunctionResultSet function_results;
-  attributes.Add(left.attribute_set());
-  function_results.Add(left.function_result_set());
-  attributes.Add(right.attribute_set());
-  function_results.Add(right.function_result_set());
+  attributes.Add(left.ToAttributeSet());
+  function_results.Add(cel::common_internal::GetUnknownFunctionResultSet(left));
+  attributes.Add(right.ToAttributeSet());
+  function_results.Add(
+      cel::common_internal::GetUnknownFunctionResultSet(right));
 
-  return UnknownValue(
+  return cel::common_internal::MakeUnknownValue(
       cel::Unknown(std::move(attributes), std::move(function_results)));
 }
 
@@ -191,16 +195,17 @@ absl::optional<UnknownValue> AttributeUtility::IdentifyAndMergeUnknowns(
 
   if (arg_unknowns.has_value()) {
     cel::base_internal::UnknownSetAccess::Add(
-        *result_set, UnknownSet((*arg_unknowns).attribute_set(),
-                                (*arg_unknowns).function_result_set()));
+        *result_set, cel::common_internal::GetUnknown(*arg_unknowns));
   }
 
-  return UnknownValue(cel::Unknown(result_set->unknown_attributes(),
-                                   result_set->unknown_function_results()));
+  return cel::common_internal::MakeUnknownValue(
+      cel::Unknown(result_set->unknown_attributes(),
+                   result_set->unknown_function_results()));
 }
 
 UnknownValue AttributeUtility::CreateUnknownSet(cel::Attribute attr) const {
-  return UnknownValue(cel::Unknown(AttributeSet({std::move(attr)})));
+  return cel::common_internal::MakeUnknownValue(
+      cel::Unknown(AttributeSet({std::move(attr)})));
 }
 
 absl::StatusOr<ErrorValue> AttributeUtility::CreateMissingAttributeError(
@@ -213,13 +218,14 @@ absl::StatusOr<ErrorValue> AttributeUtility::CreateMissingAttributeError(
 UnknownValue AttributeUtility::CreateUnknownSet(
     const cel::FunctionDescriptor& fn_descriptor, int64_t expr_id,
     absl::Span<const cel::Value> args) const {
-  return UnknownValue(
+  return cel::common_internal::MakeUnknownValue(
       cel::Unknown(FunctionResultSet(FunctionResult(fn_descriptor, expr_id))));
 }
 
 void AttributeUtility::Add(Accumulator& a, const cel::UnknownValue& v) const {
-  a.attribute_set_.Add(v.attribute_set());
-  a.function_result_set_.Add(v.function_result_set());
+  a.attribute_set_.Add(v.ToAttributeSet());
+  a.function_result_set_.Add(
+      cel::common_internal::GetUnknownFunctionResultSet(v));
 }
 
 void AttributeUtility::Add(Accumulator& a, const AttributeTrail& attr) const {
@@ -253,7 +259,7 @@ bool Accumulator::IsEmpty() const {
 }
 
 cel::UnknownValue Accumulator::Build() && {
-  return cel::UnknownValue(
+  return cel::common_internal::MakeUnknownValue(
       cel::Unknown(std::move(attribute_set_), std::move(function_result_set_)));
 }
 

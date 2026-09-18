@@ -15,6 +15,9 @@
 #ifndef THIRD_PARTY_CEL_CPP_BASE_ATTRIBUTE_SET_H_
 #define THIRD_PARTY_CEL_CPP_BASE_ATTRIBUTE_SET_H_
 
+#include <memory>
+
+#include "absl/base/no_destructor.h"
 #include "absl/container/btree_set.h"
 #include "absl/types/span.h"
 #include "base/attribute.h"
@@ -54,27 +57,43 @@ class AttributeSet final {
     }
   }
 
-  AttributeSet(const AttributeSet& set1, const AttributeSet& set2)
-      : attributes_(set1.attributes_) {
-    for (const auto& attr : set2.attributes_) {
-      Add(attr);
-    }
+  AttributeSet(const AttributeSet& set1, const AttributeSet& set2) {
+    Add(set1);
+    Add(set2);
   }
 
-  iterator begin() const { return attributes_.begin(); }
+  iterator begin() const {
+    return attributes_ != nullptr ? attributes_->begin()
+                                  : EmptyContainer().begin();
+  }
 
-  const_iterator cbegin() const { return attributes_.cbegin(); }
+  const_iterator cbegin() const {
+    return attributes_ != nullptr ? attributes_->cbegin()
+                                  : EmptyContainer().cbegin();
+  }
 
-  iterator end() const { return attributes_.end(); }
+  iterator end() const {
+    return attributes_ != nullptr ? attributes_->end() : EmptyContainer().end();
+  }
 
-  const_iterator cend() const { return attributes_.cend(); }
+  const_iterator cend() const {
+    return attributes_ != nullptr ? attributes_->cend()
+                                  : EmptyContainer().cend();
+  }
 
-  size_type size() const { return attributes_.size(); }
+  size_type size() const {
+    return attributes_ != nullptr ? attributes_->size() : 0;
+  }
 
-  bool empty() const { return attributes_.empty(); }
+  bool empty() const { return attributes_ == nullptr || attributes_->empty(); }
 
   bool operator==(const AttributeSet& other) const {
-    return this == &other || attributes_ == other.attributes_;
+    if (attributes_ == other.attributes_) {
+      return true;
+    }
+    return (attributes_ != nullptr ? *attributes_ : EmptyContainer()) ==
+           (other.attributes_ != nullptr ? *other.attributes_
+                                         : EmptyContainer());
   }
 
   bool operator!=(const AttributeSet& other) const {
@@ -91,16 +110,31 @@ class AttributeSet final {
   friend class UnknownValue;
   friend class base_internal::UnknownSet;
 
-  void Add(const Attribute& attribute) { attributes_.insert(attribute); }
+  static const Container& EmptyContainer() {
+    static const absl::NoDestructor<Container> container;
+    return *container;
+  }
+
+  void Add(const Attribute& attribute) {
+    if (attributes_ == nullptr) {
+      attributes_ = std::make_shared<Container>();
+    }
+    attributes_->insert(attribute);
+  }
 
   void Add(const AttributeSet& other) {
-    for (const auto& attribute : other) {
-      Add(attribute);
+    if (!other.empty()) {
+      if (attributes_ == nullptr) {
+        attributes_ = std::make_shared<Container>();
+      }
+      for (const auto& attribute : other) {
+        attributes_->insert(attribute);
+      }
     }
   }
 
   // Attribute container.
-  Container attributes_;
+  std::shared_ptr<Container> attributes_;
 };
 
 }  // namespace cel
