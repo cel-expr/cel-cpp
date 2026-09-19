@@ -19,14 +19,14 @@ std::unique_ptr<DirectExpressionStep> CreateDirectListStep(
     absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id);
 
 // Factory method for CreateList which constructs an immutable list.
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateCreateListStep(
-    const cel::ListExpr& create_list_expr, int64_t expr_id);
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateCreateListStep(
+    const cel::ListExpr& create_list_expr);
 
 // Factory method for CreateList which constructs a mutable list.
 //
 // This is intended for the list construction step is generated for a
 // list-building comprehension (rather than a user authored expression).
-std::unique_ptr<ExpressionStep> CreateMutableListStep(int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateMutableListStep();
 
 // Factory method for CreateList which constructs a mutable list.
 //

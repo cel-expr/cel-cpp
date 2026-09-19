@@ -27,7 +27,6 @@
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_base.h"
 #include "internal/status_macros.h"
 
 namespace google::api::expr::runtime {
@@ -35,28 +34,6 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::cel::Value;
-
-class LazyInitStep final : public ExpressionStepBase {
- public:
-  LazyInitStep(size_t slot_index, size_t subexpression_index, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
-        slot_index_(slot_index),
-        subexpression_index_(subexpression_index) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    ComprehensionSlot* slot = frame->comprehension_slots().Get(slot_index_);
-    if (slot->Has()) {
-      frame->value_stack().Push(slot->value(), slot->attribute());
-    } else {
-      frame->Call(slot_index_, subexpression_index_);
-    }
-    return absl::OkStatus();
-  }
-
- private:
-  const size_t slot_index_;
-  const size_t subexpression_index_;
-};
 
 class DirectLazyInitStep final : public DirectExpressionStep {
  public:
@@ -106,61 +83,6 @@ class BindStep : public DirectExpressionStep {
   std::unique_ptr<DirectExpressionStep> subexpression_;
 };
 
-class AssignSlotAndPopStepStep final : public ExpressionStepBase {
- public:
-  explicit AssignSlotAndPopStepStep(size_t slot_index)
-      : ExpressionStepBase(/*expr_id=*/-1, /*comes_from_ast=*/false),
-        slot_index_(slot_index) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    if (!frame->value_stack().HasEnough(1)) {
-      return absl::InternalError("Stack underflow assigning lazy value");
-    }
-
-    frame->comprehension_slots().Set(slot_index_, frame->value_stack().Peek(),
-                                     frame->value_stack().PeekAttribute());
-    frame->value_stack().Pop(1);
-
-    return absl::OkStatus();
-  }
-
- private:
-  const size_t slot_index_;
-};
-
-class ClearSlotStep : public ExpressionStepBase {
- public:
-  explicit ClearSlotStep(size_t slot_index, int64_t expr_id)
-      : ExpressionStepBase(expr_id), slot_index_(slot_index) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    frame->comprehension_slots().ClearSlot(slot_index_);
-    return absl::OkStatus();
-  }
-
- private:
-  size_t slot_index_;
-};
-
-class ClearSlotsStep final : public ExpressionStepBase {
- public:
-  explicit ClearSlotsStep(size_t slot_index, size_t slot_count, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
-        slot_index_(slot_index),
-        slot_count_(slot_count) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    for (size_t i = 0; i < slot_count_; ++i) {
-      frame->comprehension_slots().ClearSlot(slot_index_ + i);
-    }
-    return absl::OkStatus();
-  }
-
- private:
-  const size_t slot_index_;
-  const size_t slot_count_;
-};
-
 class BlockStep : public DirectExpressionStep {
  public:
   BlockStep(size_t slot_index, size_t slot_count,
@@ -190,6 +112,32 @@ class BlockStep : public DirectExpressionStep {
 
 }  // namespace
 
+void EvaluateLazyInitStep(const LazyInitStepInfo& step, ExecutionFrame& frame) {
+  ComprehensionSlot* slot = frame.comprehension_slots().Get(step.slot_index);
+  if (slot->Has()) {
+    frame.value_stack().Push(slot->value(), slot->attribute());
+  } else {
+    frame.Call(step.slot_index, step.subexpression_index);
+  }
+}
+
+void EvaluateAssignSlotAndPop(size_t slot_index, ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(1)) {
+    frame.Abort(absl::InternalError("Stack underflow assigning lazy value"));
+    return;
+  }
+  ComprehensionSlot* slot = frame.comprehension_slots().Get(slot_index);
+  slot->Set(frame.value_stack().Peek(), frame.value_stack().PeekAttribute());
+  frame.value_stack().Pop(1);
+}
+
+void EvaluateClearSlotStep(const ClearSlotStepInfo& step,
+                           ExecutionFrame& frame) {
+  for (size_t i = 0; i < step.slot_count; ++i) {
+    frame.comprehension_slots().ClearSlot(step.slot_index + i);
+  }
+}
+
 std::unique_ptr<DirectExpressionStep> CreateDirectBindStep(
     size_t slot_index, std::unique_ptr<DirectExpressionStep> expression,
     int64_t expr_id) {
@@ -208,29 +156,6 @@ std::unique_ptr<DirectExpressionStep> CreateDirectLazyInitStep(
     int64_t expr_id) {
   return std::make_unique<DirectLazyInitStep>(slot_index, subexpression,
                                               expr_id);
-}
-
-std::unique_ptr<ExpressionStep> CreateLazyInitStep(size_t slot_index,
-                                                   size_t subexpression_index,
-                                                   int64_t expr_id) {
-  return std::make_unique<LazyInitStep>(slot_index, subexpression_index,
-                                        expr_id);
-}
-
-std::unique_ptr<ExpressionStep> CreateAssignSlotAndPopStep(size_t slot_index) {
-  return std::make_unique<AssignSlotAndPopStepStep>(slot_index);
-}
-
-std::unique_ptr<ExpressionStep> CreateClearSlotStep(size_t slot_index,
-                                                    int64_t expr_id) {
-  return std::make_unique<ClearSlotStep>(slot_index, expr_id);
-}
-
-std::unique_ptr<ExpressionStep> CreateClearSlotsStep(size_t slot_index,
-                                                     size_t slot_count,
-                                                     int64_t expr_id) {
-  ABSL_DCHECK_GT(slot_count, 0);
-  return std::make_unique<ClearSlotsStep>(slot_index, slot_count, expr_id);
 }
 
 }  // namespace google::api::expr::runtime

@@ -139,11 +139,15 @@ RuntimeImpl::CreateTraceableProgram(
       !flat_expr.subexpressions().empty() &&
       // mainline expression is exactly one recursive step.
       flat_expr.subexpressions().front().size() == 1 &&
-      flat_expr.subexpressions().front().front()->GetNativeTypeId() ==
-          NativeTypeId::For<WrappedDirectStep>()) {
+      flat_expr.subexpressions().front().front().IsGenericStep() &&
+      flat_expr.subexpressions()
+              .front()
+              .front()
+              .GetGenericStep()
+              ->GetNativeTypeId() == NativeTypeId::For<WrappedDirectStep>()) {
     const DirectExpressionStep* root =
         internal::down_cast<const WrappedDirectStep*>(
-            flat_expr.subexpressions().front().front().get())
+            flat_expr.subexpressions().front().front().GetGenericStep())
             ->wrapped();
     return std::make_unique<RecursiveProgramImpl>(environment_,
                                                   std::move(flat_expr), root);
