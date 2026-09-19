@@ -1086,6 +1086,12 @@ std::vector<TestInfo> test_cases = {
      "]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]"
      "]]]]]]",
      "", "Expression recursion limit exceeded. limit: 32", "", "", ""},
+    {"a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : "
+     "a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : "
+     "a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : "
+     "a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : "
+     "a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : a ? b : c",
+     "", "Expression recursion limit exceeded. limit: 32", "", "", ""},
     {
         // Note, the ANTLR parse stack may recurse much more deeply and permit
         // more detailed expressions than the visitor can recurse over in

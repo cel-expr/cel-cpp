@@ -1742,6 +1742,15 @@ TEST(PrattParserRecursionDepthTest, SequentialScopesDoNotAccumulateDepth) {
   EXPECT_THAT(Parse("[1] + [2] + [3]", options), IsOkAndHolds(NotNull()));
 }
 
+TEST(PrattParserRecursionDepthTest, DeeplyNestedTernary) {
+  cel::ParserOptions options;
+  options.max_recursion_depth = 4;
+  EXPECT_THAT(Parse("a ? b : a ? b : a ? b : a ? b : c", options),
+              IsOkAndHolds(NotNull()));
+  EXPECT_THAT(Parse("a ? b : a ? b : a ? b : a ? b : a ? b : c", options),
+              StatusIs(absl::StatusCode::kCancelled));
+}
+
 class TestParserWorker : public ParserWorker {
   // Expose the protected constructor and methods for testing.
  public:
