@@ -182,8 +182,8 @@ TEST_P(StringFormatTest, TestStringFormatting) {
   Activation activation;
   for (const auto& [name, value] : test_case.dyn_args) {
     if (std::holds_alternative<std::string>(value)) {
-      activation.InsertOrAssignValue(name,
-                                     StringValue{std::get<std::string>(value)});
+      activation.InsertOrAssignValue(
+          name, StringValue::From(std::get<std::string>(value), &arena));
     } else if (std::holds_alternative<bool>(value)) {
       activation.InsertOrAssignValue(name, BoolValue{std::get<bool>(value)});
     } else if (std::holds_alternative<int>(value)) {

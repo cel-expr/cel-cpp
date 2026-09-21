@@ -210,15 +210,15 @@ TEST_F(ParsedMapFieldValueTest, Get) {
   EXPECT_THAT(
       value.Get(BoolValue(), descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound))));
-  EXPECT_THAT(value.Get(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(value.Get(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                         message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(value.Get(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(value.Get(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                         message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
   EXPECT_THAT(
-      value.Get(StringValue("baz"), descriptor_pool(), message_factory(),
-                arena()),
+      value.Get(StringValue::WrapUnsafe("baz"), descriptor_pool(),
+                message_factory(), arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound))));
 }
 
@@ -232,13 +232,13 @@ TEST_F(ParsedMapFieldValueTest, Find) {
   EXPECT_THAT(
       value.Find(BoolValue(), descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(Eq(std::nullopt)));
-  EXPECT_THAT(value.Find(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(value.Find(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                          message_factory(), arena()),
               IsOkAndHolds(Optional(BoolValueIs(false))));
-  EXPECT_THAT(value.Find(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(value.Find(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                          message_factory(), arena()),
               IsOkAndHolds(Optional(BoolValueIs(true))));
-  EXPECT_THAT(value.Find(StringValue("baz"), descriptor_pool(),
+  EXPECT_THAT(value.Find(StringValue::WrapUnsafe("baz"), descriptor_pool(),
                          message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
 }
@@ -325,13 +325,13 @@ TEST_F(ParsedMapFieldValueTest, Has) {
   EXPECT_THAT(
       value.Has(BoolValue(), descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(value.Has(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(value.Has(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                         message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  EXPECT_THAT(value.Has(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(value.Has(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                         message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
-  EXPECT_THAT(value.Has(StringValue("baz"), descriptor_pool(),
+  EXPECT_THAT(value.Has(StringValue::WrapUnsafe("baz"), descriptor_pool(),
                         message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
 }
@@ -351,7 +351,7 @@ TEST_F(ParsedMapFieldValueTest, ListKeys) {
   EXPECT_THAT(
       keys.Contains(BoolValue(), descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(keys.Contains(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(keys.Contains(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                             message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(true)));
   EXPECT_THAT(keys.Get(0, descriptor_pool(), message_factory(), arena()),
@@ -691,10 +691,10 @@ TEST_F(ParsedMapFieldValueTest, CloneDifferentArena) {
       cloned.Equal(value, descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(BoolValueIs(true)));
   EXPECT_EQ(cloned.Size(), 2);
-  EXPECT_THAT(cloned.Get(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(cloned.Get(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                          message_factory(), arena()),
               IsOkAndHolds(StringValueIs("bar")));
-  EXPECT_THAT(cloned.Get(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(cloned.Get(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                          message_factory(), arena()),
               IsOkAndHolds(StringValueIs("foo")));
 }

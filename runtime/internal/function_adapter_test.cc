@@ -179,7 +179,7 @@ TEST_F(ValueToAdaptedVisitorTest, DurationWrongKind) {
 }
 
 TEST_F(ValueToAdaptedVisitorTest, String) {
-  Value v = cel::StringValue("string");
+  Value v = cel::StringValue::WrapUnsafe("string");
 
   StringValue out;
   ASSERT_THAT(ValueToAdaptedVisitor{v}(&out), IsOk());
@@ -197,7 +197,7 @@ TEST_F(ValueToAdaptedVisitorTest, StringWrongKind) {
 }
 
 TEST_F(ValueToAdaptedVisitorTest, Bytes) {
-  Value v = cel::BytesValue("bytes");
+  Value v = cel::BytesValue::WrapUnsafe("bytes");
 
   BytesValue out;
   ASSERT_THAT(ValueToAdaptedVisitor{v}(&out), IsOk());
@@ -272,7 +272,7 @@ TEST_F(AdaptedToValueVisitorTest, Duration) {
 }
 
 TEST_F(AdaptedToValueVisitorTest, String) {
-  StringValue value = cel::StringValue("str");
+  StringValue value = cel::StringValue::WrapUnsafe("str");
 
   ASSERT_OK_AND_ASSIGN(auto result, AdaptedToValueVisitor{}(value));
 
@@ -281,7 +281,7 @@ TEST_F(AdaptedToValueVisitorTest, String) {
 }
 
 TEST_F(AdaptedToValueVisitorTest, Bytes) {
-  BytesValue value = cel::BytesValue("bytes");
+  BytesValue value = cel::BytesValue::WrapUnsafe("bytes");
 
   ASSERT_OK_AND_ASSIGN(auto result, AdaptedToValueVisitor{}(value));
 

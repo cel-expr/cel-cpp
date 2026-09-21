@@ -87,15 +87,15 @@ cc_library(
     srcs = ["convert_constant.cc"],
     hdrs = ["convert_constant.h"],
     deps = [
-        "//common:allocator",
-        "//common:ast",
         "//common:constant",
         "//common:value",
         "//eval/internal:errors",
+        "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/time",
         "@com_google_absl//absl/types:variant",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 

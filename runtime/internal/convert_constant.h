@@ -14,10 +14,11 @@
 #ifndef THIRD_PARTY_CEL_CPP_RUNTIME_INTERNAL_CONVERT_CONSTANT_H_
 #define THIRD_PARTY_CEL_CPP_RUNTIME_INTERNAL_CONVERT_CONSTANT_H_
 
+#include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
-#include "common/allocator.h"
-#include "common/ast.h"
+#include "common/constant.h"
 #include "common/value.h"
+#include "google/protobuf/arena.h"
 
 namespace cel::runtime_internal {
 
@@ -32,7 +33,7 @@ namespace cel::runtime_internal {
 // A status may still be returned if value creation fails according to
 // value_factory's policy.
 absl::StatusOr<Value> ConvertConstant(const Constant& constant,
-                                      Allocator<> allocator);
+                                      google::protobuf::Arena* absl_nonnull arena);
 
 }  // namespace cel::runtime_internal
 

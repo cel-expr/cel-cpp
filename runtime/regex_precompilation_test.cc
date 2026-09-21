@@ -87,9 +87,11 @@ TEST_P(RegexPrecompilationTest, Basic) {
       absl::StatusOr<Value>, const StringValue&, const StringValue&>>::
       RegisterGlobalOverload(
           "prepend",
-          [](const StringValue& value, const StringValue& prefix) {
-            return StringValue(
-                absl::StrCat(prefix.ToString(), value.ToString()));
+          [](const StringValue& value, const StringValue& prefix,
+             const Function::InvokeContext& context) {
+            return StringValue::From(
+                absl::StrCat(prefix.ToString(), value.ToString()),
+                context.arena());
           },
           builder.function_registry());
   ASSERT_THAT(status, IsOk());
@@ -114,7 +116,7 @@ TEST_P(RegexPrecompilationTest, Basic) {
   google::protobuf::Arena arena;
   Activation activation;
   activation.InsertOrAssignValue("string_var",
-                                 StringValue(&arena, "string_var"));
+                                 StringValue::WrapUnsafe("string_var"));
 
   ASSERT_OK_AND_ASSIGN(Value value, program->Evaluate(&arena, activation));
   EXPECT_THAT(value, test_case.result_matcher);
@@ -131,9 +133,11 @@ TEST_P(RegexPrecompilationTest, WithConstantFolding) {
       absl::StatusOr<Value>, const StringValue&, const StringValue&>>::
       RegisterGlobalOverload(
           "prepend",
-          [](const StringValue& value, const StringValue& prefix) {
-            return StringValue(
-                absl::StrCat(prefix.ToString(), value.ToString()));
+          [](const StringValue& value, const StringValue& prefix,
+             const Function::InvokeContext& context) {
+            return StringValue::From(
+                absl::StrCat(prefix.ToString(), value.ToString()),
+                context.arena());
           },
           builder.function_registry());
   ASSERT_THAT(status, IsOk());
@@ -158,7 +162,7 @@ TEST_P(RegexPrecompilationTest, WithConstantFolding) {
   google::protobuf::Arena arena;
   Activation activation;
   activation.InsertOrAssignValue("string_var",
-                                 StringValue(&arena, "string_var"));
+                                 StringValue::WrapUnsafe("string_var"));
 
   ASSERT_OK_AND_ASSIGN(Value value, program->Evaluate(&arena, activation));
   EXPECT_THAT(value, test_case.result_matcher);

@@ -35,7 +35,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "common/internal/byte_string.h"
-#include "common/internal/reference_count.h"
 #include "common/value.h"
 #include "internal/status_macros.h"
 #include "internal/strings.h"
@@ -618,8 +617,7 @@ absl::StatusOr<size_t> SubstringImpl(absl::string_view string, uint64_t start) {
       "<string>.substring(<start>): <start> is greater than <string>.size()");
 }
 
-absl::StatusOr<absl::Cord> SubstringImpl(const absl::Cord& cord,
-                                         uint64_t start) {
+absl::StatusOr<size_t> SubstringImpl(const absl::Cord& cord, uint64_t start) {
   absl::Cord::CharIterator char_begin = cord.char_begin();
   absl::Cord::CharIterator char_end = cord.char_end();
   size_t size_code_points = 0;
@@ -629,14 +627,14 @@ absl::StatusOr<absl::Cord> SubstringImpl(const absl::Cord& cord,
     size_t code_units;
     std::tie(code_point, code_units) = cel::internal::Utf8Decode(char_begin);
     if (size_code_points == start) {
-      return cord.Subcord(size_code_units, std::numeric_limits<size_t>::max());
+      return size_code_units;
     }
     absl::Cord::Advance(&char_begin, code_units);
     ++size_code_points;
     size_code_units += code_units;
   }
   if (size_code_points == start) {
-    return cord;
+    return size_code_units;
   }
   return absl::InvalidArgumentError(
       "<string>.substring(<start>): <start> is greater than <string>.size()");
@@ -685,17 +683,18 @@ Value StringValue::Substring(int64_t start) const {
           value_.rep_.medium.size - *status_or_index;
       result.value_.rep_.medium.data =
           value_.rep_.medium.data + *status_or_index;
-      result.value_.rep_.medium.owner = value_.rep_.medium.owner;
-      common_internal::StrongRef(result.value_.GetMediumReferenceCount());
+      result.value_.rep_.medium.arena = value_.rep_.medium.arena;
       return result;
     }
     case common_internal::ByteStringKind::kLarge: {
-      absl::StatusOr<absl::Cord> status_or_cord =
+      absl::StatusOr<size_t> status_or_index =
           (SubstringImpl)(value_.GetLarge(), start);
-      if (!status_or_cord.ok()) {
-        return ErrorValue(std::move(status_or_cord).status());
+      if (!status_or_index.ok()) {
+        return ErrorValue(std::move(status_or_index).status());
       }
-      return StringValue::Wrap(*std::move(status_or_cord));
+      return StringValue(common_internal::ByteString::Wrap(
+          value_.rep_.large.data, value_.rep_.large.offset + *status_or_index,
+          value_.rep_.large.size - *status_or_index, value_.rep_.large.arena));
     }
   }
 }
@@ -729,8 +728,9 @@ absl::StatusOr<std::pair<size_t, size_t>> SubstringImpl(
       "<string>.size()");
 }
 
-absl::StatusOr<absl::Cord> SubstringImpl(const absl::Cord& cord, uint64_t start,
-                                         uint64_t end) {
+absl::StatusOr<std::pair<size_t, size_t>> SubstringImpl(const absl::Cord& cord,
+                                                        uint64_t start,
+                                                        uint64_t end) {
   absl::Cord::CharIterator char_begin = cord.char_begin();
   absl::Cord::CharIterator char_end = cord.char_end();
   size_t size_code_points = 0;
@@ -741,7 +741,7 @@ absl::StatusOr<absl::Cord> SubstringImpl(const absl::Cord& cord, uint64_t start,
       start_code_units = size_code_units;
     }
     if (size_code_points == end) {
-      return cord.Subcord(start_code_units, size_code_units - start_code_units);
+      return std::pair{start_code_units, size_code_units};
     }
     char32_t code_point;
     size_t code_units;
@@ -751,7 +751,7 @@ absl::StatusOr<absl::Cord> SubstringImpl(const absl::Cord& cord, uint64_t start,
     size_code_units += code_units;
   }
   if (size_code_points == start && start == end) {
-    return absl::Cord();
+    return std::pair{size_code_units, size_code_units};
   }
   return absl::InvalidArgumentError(
       "<string>.substring(<start>, <end>): <start> or <end> is greater than "
@@ -804,17 +804,20 @@ Value StringValue::Substring(int64_t start, int64_t end) const {
           (status_or_indices->second - status_or_indices->first);
       result.value_.rep_.medium.data =
           value_.rep_.medium.data + status_or_indices->first;
-      result.value_.rep_.medium.owner = value_.rep_.medium.owner;
-      common_internal::StrongRef(result.value_.GetMediumReferenceCount());
+      result.value_.rep_.medium.arena = value_.rep_.medium.arena;
       return result;
     }
     case common_internal::ByteStringKind::kLarge: {
-      absl::StatusOr<absl::Cord> status_or_cord =
+      absl::StatusOr<std::pair<size_t, size_t>> status_or_indices =
           (SubstringImpl)(value_.GetLarge(), start, end);
-      if (!status_or_cord.ok()) {
-        return ErrorValue(std::move(status_or_cord).status());
+      if (!status_or_indices.ok()) {
+        return ErrorValue(std::move(status_or_indices).status());
       }
-      return StringValue::Wrap(*std::move(status_or_cord));
+      return StringValue(common_internal::ByteString::Wrap(
+          value_.rep_.large.data,
+          value_.rep_.large.offset + status_or_indices->first,
+          status_or_indices->second - status_or_indices->first,
+          value_.rep_.large.arena));
     }
   }
 }
@@ -841,9 +844,9 @@ bool LowerAsciiImpl(absl::string_view in, std::string* absl_nonnull out) {
   return true;
 }
 
-absl::Cord LowerAsciiImpl(const absl::Cord& in) {
+bool LowerAsciiImpl(const absl::Cord& in, absl::Cord* absl_nonnull out) {
   if (in.empty()) {
-    return in;
+    return false;
   }
   size_t pos = 0;
   bool needs_conversion = false;
@@ -855,9 +858,9 @@ absl::Cord LowerAsciiImpl(const absl::Cord& in) {
     pos++;
   }
   if (!needs_conversion) {
-    return in;
+    return false;
   }
-  absl::Cord out = in.Subcord(0, pos);
+  absl::Cord prefix = in.Subcord(0, pos);
   absl::Cord rest = in.Subcord(pos, in.size() - pos);
   std::string suffix;
   suffix.resize(rest.size());
@@ -865,8 +868,9 @@ absl::Cord LowerAsciiImpl(const absl::Cord& in) {
   for (char c : rest.Chars()) {
     suffix[current++] = absl::ascii_tolower(c);
   }
-  out.Append(std::move(suffix));
-  return out;
+  prefix.Append(std::move(suffix));
+  *out = std::move(prefix);
+  return true;
 }
 
 }  // namespace
@@ -889,8 +893,13 @@ StringValue StringValue::LowerAscii(google::protobuf::Arena* absl_nonnull arena)
       }
       return StringValue::From(std::move(out), arena);
     }
-    case common_internal::ByteStringKind::kLarge:
-      return StringValue::Wrap((LowerAsciiImpl)(value_.GetLarge()));
+    case common_internal::ByteStringKind::kLarge: {
+      absl::Cord out;
+      if (!(LowerAsciiImpl)(value_.GetLarge(), &out)) {
+        return *this;
+      }
+      return StringValue::From(std::move(out), arena);
+    }
   }
 }
 
@@ -916,9 +925,9 @@ bool UpperAsciiImpl(absl::string_view in, std::string* absl_nonnull out) {
   return true;
 }
 
-absl::Cord UpperAsciiImpl(const absl::Cord& in) {
+bool UpperAsciiImpl(const absl::Cord& in, absl::Cord* absl_nonnull out) {
   if (in.empty()) {
-    return in;
+    return false;
   }
   size_t pos = 0;
   bool needs_conversion = false;
@@ -930,9 +939,9 @@ absl::Cord UpperAsciiImpl(const absl::Cord& in) {
     pos++;
   }
   if (!needs_conversion) {
-    return in;
+    return false;
   }
-  absl::Cord out = in.Subcord(0, pos);
+  absl::Cord prefix = in.Subcord(0, pos);
   absl::Cord rest = in.Subcord(pos, in.size() - pos);
   std::string suffix;
   suffix.resize(rest.size());
@@ -940,15 +949,15 @@ absl::Cord UpperAsciiImpl(const absl::Cord& in) {
   for (char c : rest.Chars()) {
     suffix[current++] = absl::ascii_toupper(c);
   }
-  out.Append(std::move(suffix));
-  return out;
+  prefix.Append(std::move(suffix));
+  *out = std::move(prefix);
+  return true;
 }
 
 }  // namespace
 
 StringValue StringValue::UpperAscii(google::protobuf::Arena* absl_nonnull arena) const {
   ABSL_DCHECK(arena != nullptr);
-
   switch (value_.GetKind()) {
     case common_internal::ByteStringKind::kSmall: {
       std::string out;
@@ -964,8 +973,13 @@ StringValue StringValue::UpperAscii(google::protobuf::Arena* absl_nonnull arena)
       }
       return StringValue::From(std::move(out), arena);
     }
-    case common_internal::ByteStringKind::kLarge:
-      return StringValue::Wrap((UpperAsciiImpl)(value_.GetLarge()));
+    case common_internal::ByteStringKind::kLarge: {
+      absl::Cord out;
+      if (!(UpperAsciiImpl)(value_.GetLarge(), &out)) {
+        return *this;
+      }
+      return StringValue::From(std::move(out), arena);
+    }
   }
 }
 
@@ -1016,7 +1030,7 @@ std::pair<size_t, size_t> TrimImpl(absl::string_view string) {
   return {left_trim_bytes, string.size() - last_non_ws_end_bytes};
 }
 
-absl::Cord TrimImpl(const absl::Cord& cord) {
+std::pair<size_t, size_t> TrimImpl(const absl::Cord& cord) {
   size_t left_trim_bytes = 0;
   {
     absl::Cord::CharIterator begin = cord.char_begin();
@@ -1034,7 +1048,7 @@ absl::Cord TrimImpl(const absl::Cord& cord) {
   }
 
   if (left_trim_bytes == cord.size()) {
-    return absl::Cord();
+    return {left_trim_bytes, 0};
   }
 
   absl::Cord ltrimmed =
@@ -1056,40 +1070,29 @@ absl::Cord TrimImpl(const absl::Cord& cord) {
       current_pos_bytes += char_len;
     }
   }
-  return ltrimmed.Subcord(0, last_non_ws_end_bytes);
+  return {left_trim_bytes, ltrimmed.size() - last_non_ws_end_bytes};
 }
 
 }  // namespace
 
 StringValue StringValue::Trim() const {
+  std::pair<size_t, size_t> trims;
+  size_t size;
   switch (value_.GetKind()) {
-    case common_internal::ByteStringKind::kSmall: {
-      std::pair<size_t, size_t> trims = (TrimImpl)(value_.GetSmall());
-      StringValue result;
-      result.value_.rep_.header.kind = common_internal::ByteStringKind::kSmall;
-      result.value_.rep_.small.size =
-          value_.rep_.small.size - trims.first - trims.second;
-      std::memcpy(result.value_.rep_.small.data,
-                  value_.rep_.small.data + trims.first,
-                  result.value_.rep_.small.size);
-      result.value_.rep_.small.arena = value_.GetSmallArena();
-      return result;
-    }
-    case common_internal::ByteStringKind::kMedium: {
-      std::pair<size_t, size_t> trims = (TrimImpl)(value_.GetMedium());
-      StringValue result;
-      result.value_.rep_.header.kind = common_internal::ByteStringKind::kMedium;
-      result.value_.rep_.medium.size =
-          value_.rep_.medium.size - trims.first - trims.second;
-      result.value_.rep_.medium.data = value_.rep_.medium.data + trims.first;
-      result.value_.rep_.medium.owner = value_.rep_.medium.owner;
-      common_internal::StrongRef(result.value_.GetMediumReferenceCount());
-      return result;
-    }
-    case common_internal::ByteStringKind::kLarge: {
-      return StringValue::Wrap((TrimImpl)(value_.GetLarge()));
-    }
+    case common_internal::ByteStringKind::kSmall:
+      trims = (TrimImpl)(value_.GetSmall());
+      size = value_.GetSmall().size();
+      break;
+    case common_internal::ByteStringKind::kMedium:
+      trims = (TrimImpl)(value_.GetMedium());
+      size = value_.GetMedium().size();
+      break;
+    case common_internal::ByteStringKind::kLarge:
+      trims = (TrimImpl)(value_.GetLarge());
+      size = value_.rep_.large.size;
+      break;
   }
+  return StringValue(value_.Substring(trims.first, size - trims.second));
 }
 
 namespace {

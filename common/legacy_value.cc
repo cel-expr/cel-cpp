@@ -1043,12 +1043,10 @@ absl::Status ModernValue(google::protobuf::Arena* arena,
       result = DoubleValue{legacy_value.DoubleOrDie()};
       return absl::OkStatus();
     case CelValue::Type::kString:
-      result = StringValue(Borrower::Arena(arena),
-                           legacy_value.StringOrDie().value());
+      result = StringValue::Wrap(legacy_value.StringOrDie().value(), nullptr);
       return absl::OkStatus();
     case CelValue::Type::kBytes:
-      result =
-          BytesValue(Borrower::Arena(arena), legacy_value.BytesOrDie().value());
+      result = BytesValue::Wrap(legacy_value.BytesOrDie().value(), nullptr);
       return absl::OkStatus();
     case CelValue::Type::kMessage: {
       auto message_wrapper = legacy_value.MessageWrapperOrDie();
@@ -1163,11 +1161,9 @@ absl::StatusOr<Value> FromLegacyValue(google::protobuf::Arena* arena,
     case CelValue::Type::kDouble:
       return DoubleValue(legacy_value.DoubleOrDie());
     case CelValue::Type::kString:
-      return StringValue(Borrower::Arena(arena),
-                         legacy_value.StringOrDie().value());
+      return StringValue::Wrap(legacy_value.StringOrDie().value(), nullptr);
     case CelValue::Type::kBytes:
-      return BytesValue(Borrower::Arena(arena),
-                        legacy_value.BytesOrDie().value());
+      return BytesValue::Wrap(legacy_value.BytesOrDie().value(), nullptr);
     case CelValue::Type::kMessage: {
       auto message_wrapper = legacy_value.MessageWrapperOrDie();
       return common_internal::MakeLegacyStructValue(

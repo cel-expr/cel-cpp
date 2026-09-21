@@ -716,7 +716,7 @@ class FlatExprVisitor : public cel::AstVisitor {
     }
 
     absl::StatusOr<cel::Value> converted_value =
-        ConvertConstant(const_expr, cel::NewDeleteAllocator());
+        ConvertConstant(const_expr, extension_context_.MutableArena());
 
     if (!converted_value.ok()) {
       SetProgressStatusIfError(converted_value.status());
@@ -995,7 +995,7 @@ class FlatExprVisitor : public cel::AstVisitor {
       return;
     }
 
-    StringValue field = cel::StringValue(select_expr.field());
+    std::string field = select_expr.field();
     std::optional<cel::StructType> struct_type;
     std::optional<cel::StructTypeField> field_type;
     if (options_.enable_typed_field_access) {

@@ -25,8 +25,6 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/variant.h"
-#include "common/allocator.h"
-#include "common/memory.h"
 #include "common/value.h"
 #include "internal/well_known_types.h"
 #include "google/protobuf/arena.h"
@@ -74,17 +72,20 @@ Value ParsedJsonValue(const google::protobuf::Message* absl_nonnull message,
                 }
                 if (string.data() == scratch.data() &&
                     string.size() == scratch.size()) {
-                  return StringValue(arena, std::move(scratch));
+                  return StringValue::From(std::move(scratch), arena);
                 } else {
-                  return StringValue(
-                      Borrower::Arena(MessageArenaOr(message, arena)), string);
+                  if (google::protobuf::Arena* message_arena = message->GetArena();
+                      message_arena != nullptr) {
+                    return StringValue::Wrap(string, message_arena);
+                  }
+                  return StringValue::From(string, arena);
                 }
               },
               [&](absl::Cord&& cord) -> StringValue {
                 if (cord.empty()) {
                   return StringValue();
                 }
-                return StringValue(std::move(cord));
+                return StringValue::From(std::move(cord), arena);
               }),
           AsVariant(reflection.GetStringValue(*message, scratch)));
     }

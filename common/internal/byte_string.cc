@@ -14,11 +14,11 @@
 
 #include "common/internal/byte_string.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
-#include <tuple>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -28,24 +28,60 @@
 #include "absl/log/absl_check.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/match.h"
+#include "absl/strings/resize_and_overwrite.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "common/allocator.h"
-#include "common/internal/metadata.h"
-#include "common/internal/reference_count.h"
-#include "common/memory.h"
 #include "google/protobuf/arena.h"
 
 namespace cel::common_internal {
 
 namespace {
 
-char* CopyCordToArray(const absl::Cord& cord, char* data) {
+char* CopyCordToArray(const absl::Cord& cord, size_t offset, size_t size,
+                      char* data) {
   for (auto chunk : cord.Chunks()) {
-    std::memcpy(data, chunk.data(), chunk.size());
-    data += chunk.size();
+    if (size == 0) {
+      break;
+    }
+    if (offset > 0) {
+      size_t min_offset = std::min(chunk.size(), offset);
+      offset -= min_offset;
+      if (offset > 0) {
+        continue;
+      }
+      chunk.remove_prefix(min_offset);
+    }
+    size_t min_size = std::min(size, chunk.size());
+    std::memcpy(data, chunk.data(), min_size);
+    data += min_size;
+    size -= min_size;
   }
   return data;
+}
+
+char* CopyCordToArray(const absl::Cord& cord, char* data) {
+  return (CopyCordToArray)(cord, 0, cord.size(), data);
+}
+
+void AppendCordToString(const absl::Cord& cord, size_t offset, size_t size,
+                        std::string& data) {
+  data.reserve(data.size() + size);
+  for (auto chunk : cord.Chunks()) {
+    if (size == 0) {
+      break;
+    }
+    if (offset > 0) {
+      size_t min_offset = std::min(chunk.size(), offset);
+      offset -= min_offset;
+      if (offset > 0) {
+        continue;
+      }
+      chunk.remove_prefix(min_offset);
+    }
+    size_t min_size = std::min(size, chunk.size());
+    data.append(absl::string_view(chunk.data(), min_size));
+    size -= min_size;
+  }
 }
 
 template <typename T>
@@ -56,6 +92,80 @@ T ConsumeAndDestroy(T& object) {
 }
 
 }  // namespace
+
+ByteString ByteString::From(const char* absl_nullable value,
+                            google::protobuf::Arena* absl_nonnull arena) {
+  return From(absl::NullSafeStringView(value), arena);
+}
+
+ByteString ByteString::From(absl::string_view value,
+                            google::protobuf::Arena* absl_nonnull arena) {
+  ABSL_DCHECK(arena != nullptr);
+  ByteString result(UninitializedTag{});
+  if (value.size() <= kSmallByteStringCapacity) {
+    result.SetSmall(arena, value);
+  } else {
+    char* arena_value =
+        reinterpret_cast<char*>(arena->AllocateAligned(value.size()));
+    std::memcpy(arena_value, value.data(), value.size());
+    result.SetMedium(arena, absl::string_view(arena_value, value.size()));
+  }
+  return result;
+}
+
+ByteString ByteString::From(const absl::Cord& value,
+                            google::protobuf::Arena* absl_nonnull arena) {
+  ABSL_DCHECK(arena != nullptr);
+  ByteString result(UninitializedTag{});
+  if (value.size() <= kSmallByteStringCapacity) {
+    result.SetSmall(arena, value);
+  } else {
+    result.SetLarge(arena, google::protobuf::Arena::Create<absl::Cord>(arena, value));
+  }
+  return result;
+}
+
+ByteString ByteString::From(std::string&& value,
+                            google::protobuf::Arena* absl_nonnull arena) {
+  ABSL_DCHECK(arena != nullptr);
+  ByteString result(UninitializedTag{});
+  if (value.size() <= kSmallByteStringCapacity) {
+    result.SetSmall(arena, value);
+  } else if (value.size() > sizeof(std::string)) {
+    value.shrink_to_fit();
+    result.SetMedium(
+        arena, google::protobuf::Arena::Create<std::string>(arena, std::move(value)));
+  } else {
+    char* arena_value =
+        reinterpret_cast<char*>(arena->AllocateAligned(value.size()));
+    std::memcpy(arena_value, value.data(), value.size());
+    result.SetMedium(arena, absl::string_view(arena_value, value.size()));
+  }
+  return result;
+}
+
+ByteString ByteString::Wrap(absl::string_view value,
+                            google::protobuf::Arena* absl_nullable arena) {
+  ByteString result(UninitializedTag{});
+  result.SetMedium(arena, value);
+  return result;
+}
+
+ByteString ByteString::Wrap(const absl::Cord* absl_nonnull value, size_t offset,
+                            size_t size, google::protobuf::Arena* absl_nullable arena) {
+  ByteString result(UninitializedTag{});
+  result.SetLarge(arena, value, offset, size);
+  return result;
+}
+
+ByteString ByteString::WrapUnsafe(absl::string_view value) {
+  return Wrap(value, static_cast<google::protobuf::Arena*>(nullptr));
+}
+
+ByteString ByteString::WrapUnsafe(const absl::Cord* absl_nonnull value,
+                                  size_t offset, size_t size) {
+  return Wrap(value, offset, size, static_cast<google::protobuf::Arena*>(nullptr));
+}
 
 ByteString ByteString::Concat(const ByteString& lhs, const ByteString& rhs,
                               google::protobuf::Arena* absl_nonnull arena) {
@@ -72,17 +182,18 @@ ByteString ByteString::Concat(const ByteString& lhs, const ByteString& rhs,
       rhs.GetKind() == ByteStringKind::kLarge) {
     // If either the left or right are absl::Cord, use absl::Cord.
     absl::Cord result;
-    result.Append(lhs.ToCord());
-    result.Append(rhs.ToCord());
-    return ByteString(std::move(result));
+    lhs.AppendToCord(&result);
+    rhs.AppendToCord(&result);
+    return From(result, arena);
   }
 
   const size_t lhs_size = lhs.size();
   const size_t rhs_size = rhs.size();
   const size_t result_size = lhs_size + rhs_size;
-  ByteString result;
+  ByteString result(UninitializedTag{});
   if (result_size <= kSmallByteStringCapacity) {
     // If the resulting string fits in inline storage, do it.
+    result.rep_.header.kind = ByteStringKind::kSmall;
     result.rep_.small.size = result_size;
     result.rep_.small.arena = arena;
     lhs.CopyToArray(result.rep_.small.data);
@@ -93,98 +204,12 @@ ByteString ByteString::Concat(const ByteString& lhs, const ByteString& rhs,
         reinterpret_cast<char*>(arena->AllocateAligned(result_size));
     lhs.CopyToArray(result_data);
     rhs.CopyToArray(result_data + lhs_size);
+    result.rep_.header.kind = ByteStringKind::kMedium;
     result.rep_.medium.data = result_data;
     result.rep_.medium.size = result_size;
-    result.rep_.medium.owner =
-        reinterpret_cast<uintptr_t>(arena) | kMetadataOwnerArenaBit;
-    result.rep_.header.kind = ByteStringKind::kMedium;
+    result.rep_.medium.arena = arena;
   }
   return result;
-}
-
-ByteString::ByteString(Allocator<> allocator, absl::string_view string) {
-  ABSL_DCHECK_LE(string.size(), max_size());
-  auto* arena = allocator.arena();
-  if (string.size() <= kSmallByteStringCapacity) {
-    SetSmall(arena, string);
-  } else {
-    SetMedium(arena, string);
-  }
-}
-
-ByteString::ByteString(Allocator<> allocator, const std::string& string) {
-  ABSL_DCHECK_LE(string.size(), max_size());
-  auto* arena = allocator.arena();
-  if (string.size() <= kSmallByteStringCapacity) {
-    SetSmall(arena, string);
-  } else {
-    SetMedium(arena, string);
-  }
-}
-
-ByteString::ByteString(Allocator<> allocator, std::string&& string) {
-  ABSL_DCHECK_LE(string.size(), max_size());
-  auto* arena = allocator.arena();
-  if (string.size() <= kSmallByteStringCapacity) {
-    SetSmall(arena, string);
-  } else {
-    SetMedium(arena, std::move(string));
-  }
-}
-
-ByteString::ByteString(Allocator<> allocator, const absl::Cord& cord) {
-  ABSL_DCHECK_LE(cord.size(), max_size());
-  auto* arena = allocator.arena();
-  if (cord.size() <= kSmallByteStringCapacity) {
-    SetSmall(arena, cord);
-  } else if (arena != nullptr) {
-    SetMedium(arena, cord);
-  } else {
-    SetLarge(cord);
-  }
-}
-
-ByteString ByteString::Borrowed(Borrower borrower, absl::string_view string) {
-  ABSL_DCHECK(borrower != Borrower::None()) << "Borrowing from Owner::None()";
-  auto* arena = borrower.arena();
-  if (string.size() <= kSmallByteStringCapacity || arena != nullptr) {
-    return ByteString(arena, string);
-  }
-  const auto* refcount = BorrowerRelease(borrower);
-  // A nullptr refcount indicates somebody called us to borrow something that
-  // has no owner. If this is the case, we fallback to assuming operator
-  // new/delete and convert it to a reference count.
-  if (refcount == nullptr) {
-    std::tie(refcount, string) = MakeReferenceCountedString(string);
-  } else {
-    StrongRef(*refcount);
-  }
-  return ByteString(refcount, string);
-}
-
-ByteString ByteString::Borrowed(Borrower borrower, const absl::Cord& cord) {
-  ABSL_DCHECK(borrower != Borrower::None()) << "Borrowing from Owner::None()";
-  return ByteString(borrower.arena(), cord);
-}
-
-ByteString::ByteString(const ReferenceCount* absl_nonnull refcount,
-                       absl::string_view string) {
-  ABSL_DCHECK_LE(string.size(), max_size());
-  SetMedium(string, reinterpret_cast<uintptr_t>(refcount) |
-                        kMetadataOwnerReferenceCountBit);
-}
-
-ByteString::ByteString(ByteString::ExternalStringTag,
-                       absl::string_view string) {
-  if (string.size() <= kSmallByteStringCapacity) {
-    SetSmall(nullptr, string);
-  } else {
-    SetExternalMedium(string);
-  }
-}
-
-ByteString ByteString::FromExternal(absl::string_view string) {
-  return ByteString(ExternalStringTag{}, string);
 }
 
 google::protobuf::Arena* absl_nullable ByteString::GetArena() const {
@@ -194,7 +219,7 @@ google::protobuf::Arena* absl_nullable ByteString::GetArena() const {
     case ByteStringKind::kMedium:
       return GetMediumArena();
     case ByteStringKind::kLarge:
-      return nullptr;
+      return GetLargeArena();
   }
 }
 
@@ -205,7 +230,7 @@ bool ByteString::empty() const {
     case ByteStringKind::kMedium:
       return rep_.medium.size == 0;
     case ByteStringKind::kLarge:
-      return GetLarge().empty();
+      return rep_.large.size == 0;
   }
 }
 
@@ -216,18 +241,7 @@ size_t ByteString::size() const {
     case ByteStringKind::kMedium:
       return rep_.medium.size;
     case ByteStringKind::kLarge:
-      return GetLarge().size();
-  }
-}
-
-absl::string_view ByteString::Flatten() {
-  switch (GetKind()) {
-    case ByteStringKind::kSmall:
-      return GetSmall();
-    case ByteStringKind::kMedium:
-      return GetMedium();
-    case ByteStringKind::kLarge:
-      return GetLarge().Flatten();
+      return rep_.large.size;
   }
 }
 
@@ -237,8 +251,12 @@ absl::optional<absl::string_view> ByteString::TryFlat() const {
       return GetSmall();
     case ByteStringKind::kMedium:
       return GetMedium();
-    case ByteStringKind::kLarge:
-      return GetLarge().TryFlat();
+    case ByteStringKind::kLarge: {
+      if (auto flat = rep_.large.data->TryFlat(); flat.has_value()) {
+        return flat->substr(rep_.large.offset, rep_.large.offset);
+      }
+      return absl::nullopt;
+    }
   }
 }
 
@@ -380,22 +398,20 @@ ByteString ByteString::Substring(size_t pos, size_t npos) const {
 
   switch (GetKind()) {
     case ByteStringKind::kSmall: {
-      ByteString result;
-      result.rep_.header.kind = ByteStringKind::kSmall;
-      result.rep_.small.size = npos - pos;
-      std::memcpy(result.rep_.small.data, rep_.small.data + pos,
-                  result.rep_.small.size);
-      result.rep_.small.arena = GetSmallArena();
+      ByteString result(UninitializedTag{});
+      result.SetSmall(GetSmallArena(), GetSmall().substr(pos, npos - pos));
       return result;
     }
     case ByteStringKind::kMedium: {
-      ByteString result(*this);
-      result.rep_.medium.data += pos;
-      result.rep_.medium.size = npos - pos;
+      ByteString result(UninitializedTag{});
+      result.SetMedium(GetMediumArena(), GetMedium().substr(pos, npos - pos));
       return result;
     }
     case ByteStringKind::kLarge:
-      return ByteString(GetLarge().Subcord(pos, npos - pos));
+      ByteString result(UninitializedTag{});
+      result.SetLarge(GetLargeArena(), rep_.large.data, rep_.large.offset + pos,
+                      npos - pos);
+      return result;
   }
 }
 
@@ -407,29 +423,16 @@ void ByteString::RemovePrefix(size_t n) {
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       std::memmove(rep_.small.data, rep_.small.data + n, rep_.small.size - n);
-      rep_.small.size -= n;
+      rep_.small.size = rep_.small.size - n;
       break;
     case ByteStringKind::kMedium:
-      rep_.medium.data += n;
-      rep_.medium.size -= n;
-      if (rep_.medium.size <= kSmallByteStringCapacity) {
-        const auto* refcount = GetMediumReferenceCount();
-        SetSmall(GetMediumArena(), GetMedium());
-        StrongUnref(refcount);
-      }
+      rep_.medium.data = rep_.medium.data + n;
+      rep_.medium.size = rep_.medium.size - n;
       break;
-    case ByteStringKind::kLarge: {
-      auto& large = GetLarge();
-      const auto large_size = large.size();
-      const auto new_large_pos = n;
-      const auto new_large_size = large_size - n;
-      large = large.Subcord(new_large_pos, new_large_size);
-      if (new_large_size <= kSmallByteStringCapacity) {
-        auto large_copy = std::move(large);
-        DestroyLarge();
-        SetSmall(nullptr, large_copy);
-      }
-    } break;
+    case ByteStringKind::kLarge:
+      rep_.large.offset = rep_.large.offset + n;
+      rep_.large.size = rep_.large.size - n;
+      break;
   }
 }
 
@@ -440,34 +443,19 @@ void ByteString::RemoveSuffix(size_t n) {
   }
   switch (GetKind()) {
     case ByteStringKind::kSmall:
-      rep_.small.size -= n;
+      rep_.small.size = rep_.small.size - n;
       break;
     case ByteStringKind::kMedium:
-      rep_.medium.size -= n;
-      if (rep_.medium.size <= kSmallByteStringCapacity) {
-        const auto* refcount = GetMediumReferenceCount();
-        SetSmall(GetMediumArena(), GetMedium());
-        StrongUnref(refcount);
-      }
+      rep_.medium.size = rep_.medium.size - n;
       break;
-    case ByteStringKind::kLarge: {
-      auto& large = GetLarge();
-      const auto large_size = large.size();
-      const auto new_large_pos = 0;
-      const auto new_large_size = large_size - n;
-      large = large.Subcord(new_large_pos, new_large_size);
-      if (new_large_size <= kSmallByteStringCapacity) {
-        auto large_copy = std::move(large);
-        DestroyLarge();
-        SetSmall(nullptr, large_copy);
-      }
-    } break;
+    case ByteStringKind::kLarge:
+      rep_.large.size = rep_.large.size - n;
+      break;
   }
 }
 
 void ByteString::CopyToArray(char* absl_nonnull out) const {
   ABSL_DCHECK(out != nullptr);
-
   switch (GetKind()) {
     case ByteStringKind::kSmall: {
       absl::string_view small = GetSmall();
@@ -478,8 +466,8 @@ void ByteString::CopyToArray(char* absl_nonnull out) const {
       std::memcpy(out, medium.data(), medium.size());
     } break;
     case ByteStringKind::kLarge: {
-      const absl::Cord& large = GetLarge();
-      (CopyCordToArray)(large, out);
+      (CopyCordToArray)(*rep_.large.data, rep_.large.offset, rep_.large.size,
+                        out);
     } break;
   }
 }
@@ -490,14 +478,22 @@ std::string ByteString::ToString() const {
       return std::string(GetSmall());
     case ByteStringKind::kMedium:
       return std::string(GetMedium());
-    case ByteStringKind::kLarge:
-      return static_cast<std::string>(GetLarge());
+    case ByteStringKind::kLarge: {
+      std::string result;
+      absl::StringResizeAndOverwrite(
+          result, rep_.large.size,
+          [this](char* buffer, size_t buffer_size) -> size_t {
+            (CopyCordToArray)(*rep_.large.data, rep_.large.offset,
+                              rep_.large.size, buffer);
+            return rep_.large.size;
+          });
+      return result;
+    }
   }
 }
 
 void ByteString::CopyToString(std::string* absl_nonnull out) const {
   ABSL_DCHECK(out != nullptr);
-
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       out->assign(GetSmall());
@@ -506,14 +502,19 @@ void ByteString::CopyToString(std::string* absl_nonnull out) const {
       out->assign(GetMedium());
       break;
     case ByteStringKind::kLarge:
-      absl::CopyCordToString(GetLarge(), out);
+      absl::StringResizeAndOverwrite(
+          *out, rep_.large.size,
+          [this](char* buffer, size_t buffer_size) -> size_t {
+            (CopyCordToArray)(*rep_.large.data, rep_.large.offset,
+                              rep_.large.size, buffer);
+            return rep_.large.size;
+          });
       break;
   }
 }
 
 void ByteString::AppendToString(std::string* absl_nonnull out) const {
   ABSL_DCHECK(out != nullptr);
-
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       out->append(GetSmall());
@@ -522,34 +523,18 @@ void ByteString::AppendToString(std::string* absl_nonnull out) const {
       out->append(GetMedium());
       break;
     case ByteStringKind::kLarge:
-      absl::AppendCordToString(GetLarge(), out);
+      (AppendCordToString)(*rep_.large.data, rep_.large.offset, rep_.large.size,
+                           *out);
       break;
   }
 }
-
-namespace {
-
-struct ReferenceCountReleaser {
-  const ReferenceCount* absl_nonnull refcount;
-
-  void operator()() const { StrongUnref(*refcount); }
-};
-
-}  // namespace
 
 absl::Cord ByteString::ToCord() const& {
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       return absl::Cord(GetSmall());
-    case ByteStringKind::kMedium: {
-      const auto* refcount = GetMediumReferenceCount();
-      if (refcount != nullptr) {
-        StrongRef(*refcount);
-        return absl::MakeCordFromExternal(GetMedium(),
-                                          ReferenceCountReleaser{refcount});
-      }
+    case ByteStringKind::kMedium:
       return absl::Cord(GetMedium());
-    }
     case ByteStringKind::kLarge:
       return GetLarge();
   }
@@ -559,16 +544,8 @@ absl::Cord ByteString::ToCord() && {
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       return absl::Cord(GetSmall());
-    case ByteStringKind::kMedium: {
-      const auto* refcount = GetMediumReferenceCount();
-      if (refcount != nullptr) {
-        auto medium = GetMedium();
-        SetSmallEmpty(nullptr);
-        return absl::MakeCordFromExternal(medium,
-                                          ReferenceCountReleaser{refcount});
-      }
+    case ByteStringKind::kMedium:
       return absl::Cord(GetMedium());
-    }
     case ByteStringKind::kLarge:
       return GetLarge();
   }
@@ -576,21 +553,13 @@ absl::Cord ByteString::ToCord() && {
 
 void ByteString::CopyToCord(absl::Cord* absl_nonnull out) const {
   ABSL_DCHECK(out != nullptr);
-
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       *out = absl::Cord(GetSmall());
       break;
-    case ByteStringKind::kMedium: {
-      const auto* refcount = GetMediumReferenceCount();
-      if (refcount != nullptr) {
-        StrongRef(*refcount);
-        *out = absl::MakeCordFromExternal(GetMedium(),
-                                          ReferenceCountReleaser{refcount});
-      } else {
-        *out = absl::Cord(GetMedium());
-      }
-    } break;
+    case ByteStringKind::kMedium:
+      *out = absl::Cord(GetMedium());
+      break;
     case ByteStringKind::kLarge:
       *out = GetLarge();
       break;
@@ -599,21 +568,13 @@ void ByteString::CopyToCord(absl::Cord* absl_nonnull out) const {
 
 void ByteString::AppendToCord(absl::Cord* absl_nonnull out) const {
   ABSL_DCHECK(out != nullptr);
-
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       out->Append(GetSmall());
       break;
-    case ByteStringKind::kMedium: {
-      const auto* refcount = GetMediumReferenceCount();
-      if (refcount != nullptr) {
-        StrongRef(*refcount);
-        out->Append(absl::MakeCordFromExternal(
-            GetMedium(), ReferenceCountReleaser{refcount}));
-      } else {
-        out->Append(GetMedium());
-      }
-    } break;
+    case ByteStringKind::kMedium:
+      out->Append(GetMedium());
+      break;
     case ByteStringKind::kLarge:
       out->Append(GetLarge());
       break;
@@ -623,17 +584,22 @@ void ByteString::AppendToCord(absl::Cord* absl_nonnull out) const {
 absl::string_view ByteString::ToStringView(
     std::string* absl_nonnull scratch) const {
   ABSL_DCHECK(scratch != nullptr);
-
   switch (GetKind()) {
     case ByteStringKind::kSmall:
       return GetSmall();
     case ByteStringKind::kMedium:
       return GetMedium();
     case ByteStringKind::kLarge:
-      if (auto flat = GetLarge().TryFlat(); flat) {
-        return *flat;
+      if (auto flat = rep_.large.data->TryFlat(); flat.has_value()) {
+        return flat->substr(rep_.large.offset, rep_.large.size);
       }
-      absl::CopyCordToString(GetLarge(), scratch);
+      absl::StringResizeAndOverwrite(
+          *scratch, rep_.large.size,
+          [this](char* buffer, size_t buffer_size) -> size_t {
+            (CopyCordToArray)(*rep_.large.data, rep_.large.offset,
+                              rep_.large.size, buffer);
+            return rep_.large.size;
+          });
       return absl::string_view(*scratch);
   }
 }
@@ -652,203 +618,28 @@ absl::string_view ByteString::AsStringView() const {
   }
 }
 
-google::protobuf::Arena* absl_nullable ByteString::GetMediumArena(
-    const MediumByteStringRep& rep) {
-  if ((rep.owner & kMetadataOwnerBits) == kMetadataOwnerArenaBit) {
-    return reinterpret_cast<google::protobuf::Arena*>(rep.owner &
-                                            kMetadataOwnerPointerMask);
-  }
-  return nullptr;
-}
-
-const ReferenceCount* absl_nullable ByteString::GetMediumReferenceCount(
-    const MediumByteStringRep& rep) {
-  if ((rep.owner & kMetadataOwnerBits) == kMetadataOwnerReferenceCountBit) {
-    return reinterpret_cast<const ReferenceCount*>(rep.owner &
-                                                   kMetadataOwnerPointerMask);
-  }
-  return nullptr;
-}
-
-void ByteString::Construct(const ByteString& other,
-                           absl::optional<Allocator<>> allocator) {
-  switch (other.GetKind()) {
-    case ByteStringKind::kSmall:
-      rep_.small = other.rep_.small;
-      if (allocator.has_value()) {
-        rep_.small.arena = allocator->arena();
-      }
-      break;
-    case ByteStringKind::kMedium:
-      if (allocator.has_value() &&
-          allocator->arena() != other.GetMediumArena()) {
-        SetMedium(allocator->arena(), other.GetMedium());
-      } else {
-        rep_.medium = other.rep_.medium;
-        StrongRef(GetMediumReferenceCount());
-      }
-      break;
-    case ByteStringKind::kLarge:
-      if (allocator.has_value() && allocator->arena() != nullptr) {
-        SetMedium(allocator->arena(), other.GetLarge());
-      } else {
-        SetLarge(other.GetLarge());
-      }
-      break;
-  }
-}
-
-void ByteString::Construct(ByteString& other,
-                           absl::optional<Allocator<>> allocator) {
-  switch (other.GetKind()) {
-    case ByteStringKind::kSmall:
-      rep_.small = other.rep_.small;
-      if (allocator.has_value()) {
-        rep_.small.arena = allocator->arena();
-      }
-      break;
-    case ByteStringKind::kMedium:
-      if (allocator.has_value() &&
-          allocator->arena() != other.GetMediumArena()) {
-        SetMedium(allocator->arena(), other.GetMedium());
-      } else {
-        rep_.medium = other.rep_.medium;
-        other.rep_.medium.owner = 0;
-      }
-      break;
-    case ByteStringKind::kLarge:
-      if (allocator.has_value() && allocator->arena() != nullptr) {
-        SetMedium(allocator->arena(), other.GetLarge());
-      } else {
-        SetLarge(std::move(other.GetLarge()));
-      }
-      break;
-  }
-}
-
-void ByteString::CopyFrom(const ByteString& other) {
-  ABSL_DCHECK_NE(&other, this);
-
-  switch (other.GetKind()) {
-    case ByteStringKind::kSmall:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          break;
-        case ByteStringKind::kMedium:
-          DestroyMedium();
-          break;
-        case ByteStringKind::kLarge:
-          DestroyLarge();
-          break;
-      }
-      rep_.small = other.rep_.small;
-      break;
-    case ByteStringKind::kMedium:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          rep_.medium = other.rep_.medium;
-          StrongRef(GetMediumReferenceCount());
-          break;
-        case ByteStringKind::kMedium:
-          StrongRef(other.GetMediumReferenceCount());
-          DestroyMedium();
-          rep_.medium = other.rep_.medium;
-          break;
-        case ByteStringKind::kLarge:
-          DestroyLarge();
-          rep_.medium = other.rep_.medium;
-          StrongRef(GetMediumReferenceCount());
-          break;
-      }
-      break;
-    case ByteStringKind::kLarge:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          SetLarge(other.GetLarge());
-          break;
-        case ByteStringKind::kMedium:
-          DestroyMedium();
-          SetLarge(other.GetLarge());
-          break;
-        case ByteStringKind::kLarge:
-          GetLarge() = other.GetLarge();
-          break;
-      }
-      break;
-  }
-}
-
-void ByteString::MoveFrom(ByteString& other) {
-  ABSL_DCHECK_NE(&other, this);
-
-  switch (other.GetKind()) {
-    case ByteStringKind::kSmall:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          break;
-        case ByteStringKind::kMedium:
-          DestroyMedium();
-          break;
-        case ByteStringKind::kLarge:
-          DestroyLarge();
-          break;
-      }
-      rep_.small = other.rep_.small;
-      break;
-    case ByteStringKind::kMedium:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          rep_.medium = other.rep_.medium;
-          break;
-        case ByteStringKind::kMedium:
-          DestroyMedium();
-          rep_.medium = other.rep_.medium;
-          break;
-        case ByteStringKind::kLarge:
-          DestroyLarge();
-          rep_.medium = other.rep_.medium;
-          break;
-      }
-      other.rep_.medium.owner = 0;
-      break;
-    case ByteStringKind::kLarge:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          SetLarge(std::move(other.GetLarge()));
-          break;
-        case ByteStringKind::kMedium:
-          DestroyMedium();
-          SetLarge(std::move(other.GetLarge()));
-          break;
-        case ByteStringKind::kLarge:
-          GetLarge() = std::move(other.GetLarge());
-          break;
-      }
-      break;
-  }
-}
-
 ByteString ByteString::Clone(google::protobuf::Arena* absl_nonnull arena) const {
   ABSL_DCHECK(arena != nullptr);
-
   switch (GetKind()) {
-    case ByteStringKind::kSmall:
-      return ByteString(arena, GetSmall());
+    case ByteStringKind::kSmall: {
+      ByteString result(UninitializedTag{});
+      result.SetSmall(arena, GetSmall());
+      return result;
+    }
     case ByteStringKind::kMedium: {
       google::protobuf::Arena* absl_nullable other_arena = GetMediumArena();
-      if (arena != nullptr) {
-        if (arena == other_arena) {
-          return *this;
-        }
-        return ByteString(arena, GetMedium());
-      }
-      if (other_arena != nullptr) {
-        return ByteString(arena, GetMedium());
+      if (other_arena != arena) {
+        return From(GetMedium(), arena);
       }
       return *this;
     }
-    case ByteStringKind::kLarge:
-      return ByteString(arena, GetLarge());
+    case ByteStringKind::kLarge: {
+      google::protobuf::Arena* absl_nullable other_arena = GetLargeArena();
+      if (other_arena != arena) {
+        return From(GetLarge(), arena);
+      }
+      return *this;
+    }
   }
 }
 
@@ -862,80 +653,6 @@ void ByteString::HashValue(absl::HashState state) const {
       break;
     case ByteStringKind::kLarge:
       absl::HashState::combine(std::move(state), GetLarge());
-      break;
-  }
-}
-
-void ByteString::Swap(ByteString& other) {
-  ABSL_DCHECK_NE(&other, this);
-  using std::swap;
-
-  switch (other.GetKind()) {
-    case ByteStringKind::kSmall:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          // small <=> small
-          swap(rep_.small, other.rep_.small);
-          break;
-        case ByteStringKind::kMedium:
-          // medium <=> small
-          swap(rep_, other.rep_);
-          break;
-        case ByteStringKind::kLarge: {
-          absl::Cord cord = std::move(GetLarge());
-          DestroyLarge();
-          rep_ = other.rep_;
-          other.SetLarge(std::move(cord));
-        } break;
-      }
-      break;
-    case ByteStringKind::kMedium:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall:
-          swap(rep_, other.rep_);
-          break;
-        case ByteStringKind::kMedium:
-          swap(rep_.medium, other.rep_.medium);
-          break;
-        case ByteStringKind::kLarge: {
-          absl::Cord cord = std::move(GetLarge());
-          DestroyLarge();
-          rep_ = other.rep_;
-          other.SetLarge(std::move(cord));
-        } break;
-      }
-      break;
-    case ByteStringKind::kLarge:
-      switch (GetKind()) {
-        case ByteStringKind::kSmall: {
-          absl::Cord cord = std::move(other.GetLarge());
-          other.DestroyLarge();
-          other.rep_.small = rep_.small;
-          SetLarge(std::move(cord));
-        } break;
-        case ByteStringKind::kMedium: {
-          absl::Cord cord = std::move(other.GetLarge());
-          other.DestroyLarge();
-          other.rep_.medium = rep_.medium;
-          SetLarge(std::move(cord));
-        } break;
-        case ByteStringKind::kLarge:
-          swap(GetLarge(), other.GetLarge());
-          break;
-      }
-      break;
-  }
-}
-
-void ByteString::Destroy() {
-  switch (GetKind()) {
-    case ByteStringKind::kSmall:
-      break;
-    case ByteStringKind::kMedium:
-      DestroyMedium();
-      break;
-    case ByteStringKind::kLarge:
-      DestroyLarge();
       break;
   }
 }
@@ -962,82 +679,27 @@ void ByteString::SetSmall(google::protobuf::Arena* absl_nullable arena,
 
 void ByteString::SetMedium(google::protobuf::Arena* absl_nullable arena,
                            absl::string_view string) {
-  ABSL_DCHECK_GT(string.size(), kSmallByteStringCapacity);
-  rep_.header.kind = ByteStringKind::kMedium;
-  rep_.medium.size = string.size();
-  if (arena != nullptr) {
-    char* data = static_cast<char*>(
-        arena->AllocateAligned(rep_.medium.size, alignof(char)));
-    std::memcpy(data, string.data(), rep_.medium.size);
-    rep_.medium.data = data;
-    rep_.medium.owner =
-        reinterpret_cast<uintptr_t>(arena) | kMetadataOwnerArenaBit;
-  } else {
-    auto pair = MakeReferenceCountedString(string);
-    rep_.medium.data = pair.second.data();
-    rep_.medium.owner = reinterpret_cast<uintptr_t>(pair.first) |
-                        kMetadataOwnerReferenceCountBit;
-  }
-}
-
-void ByteString::SetExternalMedium(absl::string_view string) {
-  ABSL_DCHECK_GT(string.size(), kSmallByteStringCapacity);
   rep_.header.kind = ByteStringKind::kMedium;
   rep_.medium.size = string.size();
   rep_.medium.data = string.data();
-  rep_.medium.owner = 0;
+  rep_.medium.arena = arena;
 }
 
-void ByteString::SetMedium(google::protobuf::Arena* absl_nullable arena,
-                           std::string&& string) {
-  ABSL_DCHECK_GT(string.size(), kSmallByteStringCapacity);
-  rep_.header.kind = ByteStringKind::kMedium;
-  rep_.medium.size = string.size();
-  if (arena != nullptr) {
-    auto* data = google::protobuf::Arena::Create<std::string>(arena, std::move(string));
-    rep_.medium.data = data->data();
-    rep_.medium.owner =
-        reinterpret_cast<uintptr_t>(arena) | kMetadataOwnerArenaBit;
-  } else {
-    auto pair = MakeReferenceCountedString(std::move(string));
-    rep_.medium.data = pair.second.data();
-    rep_.medium.owner = reinterpret_cast<uintptr_t>(pair.first) |
-                        kMetadataOwnerReferenceCountBit;
+void ByteString::SetLarge(google::protobuf::Arena* absl_nullable arena,
+                          const absl::Cord* absl_nonnull cord, size_t offset,
+                          size_t size) {
+  ABSL_DCHECK_LE(offset, cord->size());
+  ABSL_DCHECK_LE(offset, kLargeByteStringMaxSize);
+  rep_.header.kind = ByteStringKind::kLarge;
+  rep_.large.offset = offset;
+  if (size == static_cast<size_t>(-1)) {
+    size = cord->size() - offset;
   }
-}
-
-void ByteString::SetMedium(google::protobuf::Arena* absl_nonnull arena,
-                           const absl::Cord& cord) {
-  ABSL_DCHECK_GT(cord.size(), kSmallByteStringCapacity);
-  rep_.header.kind = ByteStringKind::kMedium;
-  rep_.medium.size = cord.size();
-  char* data = static_cast<char*>(
-      arena->AllocateAligned(rep_.medium.size, alignof(char)));
-  (CopyCordToArray)(cord, data);
-  rep_.medium.data = data;
-  rep_.medium.owner =
-      reinterpret_cast<uintptr_t>(arena) | kMetadataOwnerArenaBit;
-}
-
-void ByteString::SetMedium(absl::string_view string, uintptr_t owner) {
-  ABSL_DCHECK_GT(string.size(), kSmallByteStringCapacity);
-  ABSL_DCHECK_NE(owner, 0);
-  rep_.header.kind = ByteStringKind::kMedium;
-  rep_.medium.size = string.size();
-  rep_.medium.data = string.data();
-  rep_.medium.owner = owner;
-}
-
-void ByteString::SetLarge(const absl::Cord& cord) {
-  ABSL_DCHECK_GT(cord.size(), kSmallByteStringCapacity);
-  rep_.header.kind = ByteStringKind::kLarge;
-  ::new (static_cast<void*>(&rep_.large.data[0])) absl::Cord(cord);
-}
-
-void ByteString::SetLarge(absl::Cord&& cord) {
-  ABSL_DCHECK_GT(cord.size(), kSmallByteStringCapacity);
-  rep_.header.kind = ByteStringKind::kLarge;
-  ::new (static_cast<void*>(&rep_.large.data[0])) absl::Cord(std::move(cord));
+  ABSL_DCHECK_LE(size, cord->size() - offset);
+  ABSL_DCHECK_LE(size, kLargeByteStringMaxSize);
+  rep_.large.size = size;
+  rep_.large.data = cord;
+  rep_.large.arena = arena;
 }
 
 absl::string_view LegacyByteString(const ByteString& string, bool stable,

@@ -2941,6 +2941,9 @@ absl::StatusOr<RepeatedFieldAccessor> RepeatedFieldAccessorFor(
 
 }  // namespace common_internal
 
+inline BytesValue::BytesValue(const StringValue& other)
+    : BytesValue(other.value_) {}
+
 }  // namespace cel
 
 #pragma pop_macro("GetMessage")

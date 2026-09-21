@@ -589,10 +589,7 @@ CustomMapValue CustomMapValue::Clone(google::protobuf::Arena* absl_nonnull arena
     CustomMapValueInterface::Content content =
         content_.To<CustomMapValueInterface::Content>();
     ABSL_DCHECK(content.interface != nullptr);
-    if (content.arena != arena) {
-      return content.interface->Clone(arena);
-    }
-    return *this;
+    return content.interface->Clone(arena);
   }
   return dispatcher_->clone(dispatcher_, content_, arena);
 }

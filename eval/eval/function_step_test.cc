@@ -1186,7 +1186,7 @@ TEST_F(DirectFunctionStepTest, NoOverload) {
 
   std::vector<std::unique_ptr<DirectExpressionStep>> deps;
   deps.push_back(CreateConstValueDirectStep(cel::IntValue(1)));
-  deps.push_back(CreateConstValueDirectStep(cel::StringValue("2")));
+  deps.push_back(CreateConstValueDirectStep(cel::StringValue::WrapUnsafe("2")));
 
   auto expr = CreateDirectFunctionStep(-1, call, std::move(deps),
                                        GetOverloads(cel::builtin::kAdd, 2));

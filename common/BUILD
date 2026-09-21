@@ -789,7 +789,6 @@ cc_library(
         ":value_kind",
         "//base:attributes",
         "//common/internal:byte_string",
-        "//common/internal:reference_count",
         "//eval/internal:cel_value_equal",
         "//eval/public:cel_value",
         "//eval/public:message_wrapper",

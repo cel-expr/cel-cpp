@@ -52,7 +52,9 @@ TEST_F(MutableMapValueTest, IsEmpty) {
   auto mutable_map_value = NewMutableMapValue(arena());
   mutable_map_value->Reserve(1);
   EXPECT_TRUE(CustomMapValue(mutable_map_value, arena()).IsEmpty());
-  EXPECT_THAT(mutable_map_value->Put(StringValue("foo"), IntValue(1)), IsOk());
+  EXPECT_THAT(
+      mutable_map_value->Put(StringValue::WrapUnsafe("foo"), IntValue(1)),
+      IsOk());
   EXPECT_FALSE(CustomMapValue(mutable_map_value, arena()).IsEmpty());
 }
 
@@ -60,7 +62,9 @@ TEST_F(MutableMapValueTest, Size) {
   auto mutable_map_value = NewMutableMapValue(arena());
   mutable_map_value->Reserve(1);
   EXPECT_THAT(CustomMapValue(mutable_map_value, arena()).Size(), 0);
-  EXPECT_THAT(mutable_map_value->Put(StringValue("foo"), IntValue(1)), IsOk());
+  EXPECT_THAT(
+      mutable_map_value->Put(StringValue::WrapUnsafe("foo"), IntValue(1)),
+      IsOk());
   EXPECT_THAT(CustomMapValue(mutable_map_value, arena()).Size(), 1);
 }
 
@@ -68,7 +72,9 @@ TEST_F(MutableMapValueTest, ListKeys) {
   auto mutable_map_value = NewMutableMapValue(arena());
   mutable_map_value->Reserve(1);
   ListValue keys;
-  EXPECT_THAT(mutable_map_value->Put(StringValue("foo"), IntValue(1)), IsOk());
+  EXPECT_THAT(
+      mutable_map_value->Put(StringValue::WrapUnsafe("foo"), IntValue(1)),
+      IsOk());
   EXPECT_THAT(
       CustomMapValue(mutable_map_value, arena())
           .ListKeys(descriptor_pool(), message_factory(), arena(), &keys),
@@ -92,7 +98,9 @@ TEST_F(MutableMapValueTest, ForEach) {
                            message_factory(), arena()),
               IsOk());
   EXPECT_THAT(entries, IsEmpty());
-  EXPECT_THAT(mutable_map_value->Put(StringValue("foo"), IntValue(1)), IsOk());
+  EXPECT_THAT(
+      mutable_map_value->Put(StringValue::WrapUnsafe("foo"), IntValue(1)),
+      IsOk());
   EXPECT_THAT(CustomMapValue(mutable_map_value, arena())
                   .ForEach(for_each_callback, descriptor_pool(),
                            message_factory(), arena()),
@@ -109,7 +117,9 @@ TEST_F(MutableMapValueTest, NewIterator) {
   EXPECT_FALSE(iterator->HasNext());
   EXPECT_THAT(iterator->Next(descriptor_pool(), message_factory(), arena()),
               StatusIs(absl::StatusCode::kFailedPrecondition));
-  EXPECT_THAT(mutable_map_value->Put(StringValue("foo"), IntValue(1)), IsOk());
+  EXPECT_THAT(
+      mutable_map_value->Put(StringValue::WrapUnsafe("foo"), IntValue(1)),
+      IsOk());
   ASSERT_OK_AND_ASSIGN(
       iterator, CustomMapValue(mutable_map_value, arena()).NewIterator());
   EXPECT_TRUE(iterator->HasNext());
@@ -125,24 +135,26 @@ TEST_F(MutableMapValueTest, FindHas) {
   mutable_map_value->Reserve(1);
   Value value;
   EXPECT_THAT(CustomMapValue(mutable_map_value, arena())
-                  .Find(StringValue("foo"), descriptor_pool(),
+                  .Find(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                         message_factory(), arena(), &value),
               IsOkAndHolds(IsFalse()));
   EXPECT_THAT(value, IsNullValue());
   EXPECT_THAT(CustomMapValue(mutable_map_value, arena())
-                  .Has(StringValue("foo"), descriptor_pool(), message_factory(),
-                       arena(), &value),
+                  .Has(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                       message_factory(), arena(), &value),
               IsOk());
   EXPECT_THAT(value, BoolValueIs(false));
-  EXPECT_THAT(mutable_map_value->Put(StringValue("foo"), IntValue(1)), IsOk());
+  EXPECT_THAT(
+      mutable_map_value->Put(StringValue::WrapUnsafe("foo"), IntValue(1)),
+      IsOk());
   EXPECT_THAT(CustomMapValue(mutable_map_value, arena())
-                  .Find(StringValue("foo"), descriptor_pool(),
+                  .Find(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                         message_factory(), arena(), &value),
               IsOkAndHolds(IsTrue()));
   EXPECT_THAT(value, IntValueIs(1));
   EXPECT_THAT(CustomMapValue(mutable_map_value, arena())
-                  .Has(StringValue("foo"), descriptor_pool(), message_factory(),
-                       arena(), &value),
+                  .Has(StringValue::WrapUnsafe("foo"), descriptor_pool(),
+                       message_factory(), arena(), &value),
               IsOk());
   EXPECT_THAT(value, BoolValueIs(true));
 }

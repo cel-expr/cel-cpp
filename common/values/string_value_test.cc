@@ -40,185 +40,212 @@ using ::testing::Optional;
 using StringValueTest = common_internal::ValueTest<>;
 
 TEST_F(StringValueTest, Kind) {
-  EXPECT_EQ(StringValue("foo").kind(), StringValue::kKind);
-  EXPECT_EQ(Value(StringValue(absl::Cord("foo"))).kind(), StringValue::kKind);
+  EXPECT_EQ(StringValue::WrapUnsafe("foo").kind(), StringValue::kKind);
+  EXPECT_EQ(Value(StringValue::From(absl::Cord("foo"), arena())).kind(),
+            StringValue::kKind);
 }
 
 TEST_F(StringValueTest, DebugString) {
   {
     std::ostringstream out;
-    out << StringValue("foo");
+    out << StringValue::WrapUnsafe("foo");
     EXPECT_EQ(out.str(), "\"foo\"");
   }
   {
     std::ostringstream out;
-    out << StringValue(absl::MakeFragmentedCord({"f", "o", "o"}));
+    out << StringValue::From(absl::MakeFragmentedCord({"f", "o", "o"}),
+                             arena());
     EXPECT_EQ(out.str(), "\"foo\"");
   }
   {
     std::ostringstream out;
-    out << Value(StringValue(absl::Cord("foo")));
+    out << Value(StringValue::From(absl::Cord("foo"), arena()));
     EXPECT_EQ(out.str(), "\"foo\"");
   }
 }
 
 TEST_F(StringValueTest, ConvertToJson) {
   auto* message = NewArenaValueMessage();
-  EXPECT_THAT(StringValue("foo").ConvertToJson(descriptor_pool(),
-                                               message_factory(), message),
+  EXPECT_THAT(StringValue::WrapUnsafe("foo").ConvertToJson(
+                  descriptor_pool(), message_factory(), message),
               IsOk());
   EXPECT_THAT(*message, EqualsValueTextProto(R"pb(string_value: "foo")pb"));
 }
 
 TEST_F(StringValueTest, NativeValue) {
   std::string scratch;
-  EXPECT_EQ(StringValue("foo").NativeString(), "foo");
-  EXPECT_EQ(StringValue("foo").NativeString(scratch), "foo");
-  EXPECT_EQ(StringValue("foo").NativeCord(), "foo");
+  EXPECT_EQ(StringValue::WrapUnsafe("foo").NativeString(), "foo");
+  EXPECT_EQ(StringValue::WrapUnsafe("foo").NativeString(scratch), "foo");
+  EXPECT_EQ(StringValue::WrapUnsafe("foo").NativeCord(), "foo");
 }
 
 TEST_F(StringValueTest, TryFlat) {
-  EXPECT_THAT(StringValue("foo").TryFlat(), Optional(Eq("foo")));
+  EXPECT_THAT(StringValue::WrapUnsafe("foo").TryFlat(), Optional(Eq("foo")));
   EXPECT_THAT(
-      StringValue(absl::MakeFragmentedCord({"Hello, World!", "World, Hello!"}))
+      StringValue::From(
+          absl::MakeFragmentedCord({"Hello, World!", "World, Hello!"}), arena())
           .TryFlat(),
       Eq(std::nullopt));
 }
 
 TEST_F(StringValueTest, ToString) {
-  EXPECT_EQ(StringValue("foo").ToString(), "foo");
-  EXPECT_EQ(StringValue(absl::MakeFragmentedCord({"f", "o", "o"})).ToString(),
-            "foo");
+  EXPECT_EQ(StringValue::WrapUnsafe("foo").ToString(), "foo");
+  EXPECT_EQ(
+      StringValue::From(absl::MakeFragmentedCord({"f", "o", "o"}), arena())
+          .ToString(),
+      "foo");
 }
 
 TEST_F(StringValueTest, CopyToString) {
   std::string out;
-  StringValue("foo").CopyToString(&out);
+  StringValue::WrapUnsafe("foo").CopyToString(&out);
   EXPECT_EQ(out, "foo");
-  StringValue(absl::MakeFragmentedCord({"f", "o", "o"})).CopyToString(&out);
+  StringValue::From(absl::MakeFragmentedCord({"f", "o", "o"}), arena())
+      .CopyToString(&out);
   EXPECT_EQ(out, "foo");
 }
 
 TEST_F(StringValueTest, AppendToString) {
   std::string out;
-  StringValue("foo").AppendToString(&out);
+  StringValue::WrapUnsafe("foo").AppendToString(&out);
   EXPECT_EQ(out, "foo");
-  StringValue(absl::MakeFragmentedCord({"f", "o", "o"})).AppendToString(&out);
+  StringValue::From(absl::MakeFragmentedCord({"f", "o", "o"}), arena())
+      .AppendToString(&out);
   EXPECT_EQ(out, "foofoo");
 }
 
 TEST_F(StringValueTest, ToCord) {
-  EXPECT_EQ(StringValue("foo").ToCord(), "foo");
-  EXPECT_EQ(StringValue(absl::MakeFragmentedCord({"f", "o", "o"})).ToCord(),
-            "foo");
+  EXPECT_EQ(StringValue::WrapUnsafe("foo").ToCord(), "foo");
+  EXPECT_EQ(
+      StringValue::From(absl::MakeFragmentedCord({"f", "o", "o"}), arena())
+          .ToCord(),
+      "foo");
 }
 
 TEST_F(StringValueTest, CopyToCord) {
   absl::Cord out;
-  StringValue("foo").CopyToCord(&out);
+  StringValue::WrapUnsafe("foo").CopyToCord(&out);
   EXPECT_EQ(out, "foo");
-  StringValue(absl::MakeFragmentedCord({"f", "o", "o"})).CopyToCord(&out);
+  StringValue::From(absl::MakeFragmentedCord({"f", "o", "o"}), arena())
+      .CopyToCord(&out);
   EXPECT_EQ(out, "foo");
 }
 
 TEST_F(StringValueTest, AppendToCord) {
   absl::Cord out;
-  StringValue("foo").AppendToCord(&out);
+  StringValue::WrapUnsafe("foo").AppendToCord(&out);
   EXPECT_EQ(out, "foo");
-  StringValue(absl::MakeFragmentedCord({"f", "o", "o"})).AppendToCord(&out);
+  StringValue::From(absl::MakeFragmentedCord({"f", "o", "o"}), arena())
+      .AppendToCord(&out);
   EXPECT_EQ(out, "foofoo");
 }
 
 TEST_F(StringValueTest, NativeTypeId) {
-  EXPECT_EQ(NativeTypeId::Of(StringValue("foo")),
+  EXPECT_EQ(NativeTypeId::Of(StringValue::WrapUnsafe("foo")),
             NativeTypeId::For<StringValue>());
-  EXPECT_EQ(NativeTypeId::Of(Value(StringValue(absl::Cord("foo")))),
-            NativeTypeId::For<StringValue>());
+  EXPECT_EQ(
+      NativeTypeId::Of(Value(StringValue::From(absl::Cord("foo"), arena()))),
+      NativeTypeId::For<StringValue>());
 }
 
 TEST_F(StringValueTest, HashValue) {
-  EXPECT_EQ(absl::HashOf(StringValue("foo")),
+  EXPECT_EQ(absl::HashOf(StringValue::WrapUnsafe("foo")),
             absl::HashOf(absl::string_view("foo")));
-  EXPECT_EQ(absl::HashOf(StringValue(absl::string_view("foo"))),
+  EXPECT_EQ(absl::HashOf(StringValue::WrapUnsafe(absl::string_view("foo"))),
             absl::HashOf(absl::string_view("foo")));
-  EXPECT_EQ(absl::HashOf(StringValue(absl::Cord("foo"))),
+  EXPECT_EQ(absl::HashOf(StringValue::From(absl::Cord("foo"), arena())),
             absl::HashOf(absl::string_view("foo")));
 }
 
 TEST_F(StringValueTest, Equality) {
-  EXPECT_NE(StringValue("foo"), "bar");
-  EXPECT_NE("bar", StringValue("foo"));
-  EXPECT_NE(StringValue("foo"), StringValue("bar"));
-  EXPECT_NE(StringValue("foo"), absl::Cord("bar"));
-  EXPECT_NE(absl::Cord("bar"), StringValue("foo"));
+  EXPECT_NE(StringValue::WrapUnsafe("foo"), "bar");
+  EXPECT_NE("bar", StringValue::WrapUnsafe("foo"));
+  EXPECT_NE(StringValue::WrapUnsafe("foo"), StringValue::WrapUnsafe("bar"));
+  EXPECT_NE(StringValue::WrapUnsafe("foo"), absl::Cord("bar"));
+  EXPECT_NE(absl::Cord("bar"), StringValue::WrapUnsafe("foo"));
 }
 
 TEST_F(StringValueTest, LessThan) {
-  EXPECT_LT(StringValue("bar"), "foo");
-  EXPECT_LT("bar", StringValue("foo"));
-  EXPECT_LT(StringValue("bar"), StringValue("foo"));
-  EXPECT_LT(StringValue("bar"), absl::Cord("foo"));
-  EXPECT_LT(absl::Cord("bar"), StringValue("foo"));
+  EXPECT_LT(StringValue::WrapUnsafe("bar"), "foo");
+  EXPECT_LT("bar", StringValue::WrapUnsafe("foo"));
+  EXPECT_LT(StringValue::WrapUnsafe("bar"), StringValue::WrapUnsafe("foo"));
+  EXPECT_LT(StringValue::WrapUnsafe("bar"), absl::Cord("foo"));
+  EXPECT_LT(absl::Cord("bar"), StringValue::WrapUnsafe("foo"));
 }
 
 TEST_F(StringValueTest, StartsWith) {
   EXPECT_TRUE(
-      StringValue("This string is large enough to not be stored inline!")
-          .StartsWith(StringValue("This string is large enough")));
+      StringValue::WrapUnsafe(
+          "This string is large enough to not be stored inline!")
+          .StartsWith(StringValue::WrapUnsafe("This string is large enough")));
+  EXPECT_TRUE(StringValue::WrapUnsafe(
+                  "This string is large enough to not be stored inline!")
+                  .StartsWith(StringValue::From(
+                      absl::Cord("This string is large enough"), arena())));
   EXPECT_TRUE(
-      StringValue("This string is large enough to not be stored inline!")
-          .StartsWith(StringValue(absl::Cord("This string is large enough"))));
+      StringValue::From(
+          absl::Cord("This string is large enough to not be stored inline!"),
+          arena())
+          .StartsWith(StringValue::WrapUnsafe("This string is large enough")));
   EXPECT_TRUE(
-      StringValue(
-          absl::Cord("This string is large enough to not be stored inline!"))
-          .StartsWith(StringValue("This string is large enough")));
-  EXPECT_TRUE(
-      StringValue(
-          absl::Cord("This string is large enough to not be stored inline!"))
-          .StartsWith(StringValue(absl::Cord("This string is large enough"))));
+      StringValue::From(
+          absl::Cord("This string is large enough to not be stored inline!"),
+          arena())
+          .StartsWith(StringValue::From(
+              absl::Cord("This string is large enough"), arena())));
 }
 
 TEST_F(StringValueTest, EndsWith) {
   EXPECT_TRUE(
-      StringValue("This string is large enough to not be stored inline!")
-          .EndsWith(StringValue("to not be stored inline!")));
+      StringValue::WrapUnsafe(
+          "This string is large enough to not be stored inline!")
+          .EndsWith(StringValue::WrapUnsafe("to not be stored inline!")));
+  EXPECT_TRUE(StringValue::WrapUnsafe(
+                  "This string is large enough to not be stored inline!")
+                  .EndsWith(StringValue::From(
+                      absl::Cord("to not be stored inline!"), arena())));
   EXPECT_TRUE(
-      StringValue("This string is large enough to not be stored inline!")
-          .EndsWith(StringValue(absl::Cord("to not be stored inline!"))));
+      StringValue::From(
+          absl::Cord("This string is large enough to not be stored inline!"),
+          arena())
+          .EndsWith(StringValue::WrapUnsafe("to not be stored inline!")));
   EXPECT_TRUE(
-      StringValue(
-          absl::Cord("This string is large enough to not be stored inline!"))
-          .EndsWith(StringValue("to not be stored inline!")));
-  EXPECT_TRUE(
-      StringValue(
-          absl::Cord("This string is large enough to not be stored inline!"))
-          .EndsWith(StringValue(absl::Cord("to not be stored inline!"))));
+      StringValue::From(
+          absl::Cord("This string is large enough to not be stored inline!"),
+          arena())
+          .EndsWith(StringValue::From(absl::Cord("to not be stored inline!"),
+                                      arena())));
 }
 
 TEST_F(StringValueTest, Contains) {
+  EXPECT_TRUE(StringValue::WrapUnsafe(
+                  "This string is large enough to not be stored inline!")
+                  .Contains(StringValue::WrapUnsafe("string is large enough")));
+  EXPECT_TRUE(StringValue::WrapUnsafe(
+                  "This string is large enough to not be stored inline!")
+                  .Contains(StringValue::From(
+                      absl::Cord("string is large enough"), arena())));
   EXPECT_TRUE(
-      StringValue("This string is large enough to not be stored inline!")
-          .Contains(StringValue("string is large enough")));
+      StringValue::From(
+          absl::Cord("This string is large enough to not be stored inline!"),
+          arena())
+          .Contains(StringValue::WrapUnsafe("string is large enough")));
   EXPECT_TRUE(
-      StringValue("This string is large enough to not be stored inline!")
-          .Contains(StringValue(absl::Cord("string is large enough"))));
-  EXPECT_TRUE(
-      StringValue(
-          absl::Cord("This string is large enough to not be stored inline!"))
-          .Contains(StringValue("string is large enough")));
-  EXPECT_TRUE(
-      StringValue(
-          absl::Cord("This string is large enough to not be stored inline!"))
-          .Contains(StringValue(absl::Cord("string is large enough"))));
+      StringValue::From(
+          absl::Cord("This string is large enough to not be stored inline!"),
+          arena())
+          .Contains(StringValue::From(absl::Cord("string is large enough"),
+                                      arena())));
 }
 
 TEST_F(StringValueTest, IndexOf) {
-  StringValue big_string =
-      StringValue("This string is large enough to not be stored inline!");
-  StringValue big_string_cord = StringValue(
-      absl::Cord("This string is large enough to not be stored inline!"));
-  StringValue small_string = StringValue("is");
-  StringValue small_string_cord = StringValue(absl::Cord("is"));
+  StringValue big_string = StringValue::WrapUnsafe(
+      "This string is large enough to not be stored inline!");
+  StringValue big_string_cord = StringValue::From(
+      absl::Cord("This string is large enough to not be stored inline!"),
+      arena());
+  StringValue small_string = StringValue::WrapUnsafe("is");
+  StringValue small_string_cord = StringValue::From(absl::Cord("is"), arena());
 
   EXPECT_THAT(big_string.IndexOf(small_string), Optional(Eq(2)));
   EXPECT_THAT(big_string.IndexOf(small_string_cord), Optional(Eq(2)));
@@ -249,66 +276,81 @@ TEST_F(StringValueTest, IndexOf) {
 }
 
 TEST_F(StringValueTest, LowerAscii) {
-  EXPECT_EQ(StringValue("UPPER lower").LowerAscii(arena()), "upper lower");
-  EXPECT_EQ(StringValue(absl::Cord("UPPER lower")).LowerAscii(arena()),
+  EXPECT_EQ(StringValue::WrapUnsafe("UPPER lower").LowerAscii(arena()),
             "upper lower");
-  EXPECT_EQ(StringValue("upper lower").LowerAscii(arena()), "upper lower");
-  EXPECT_EQ(StringValue(absl::Cord("upper lower")).LowerAscii(arena()),
+  EXPECT_EQ(
+      StringValue::From(absl::Cord("UPPER lower"), arena()).LowerAscii(arena()),
+      "upper lower");
+  EXPECT_EQ(StringValue::WrapUnsafe("upper lower").LowerAscii(arena()),
             "upper lower");
-  EXPECT_EQ(StringValue("").LowerAscii(arena()), "");
-  EXPECT_EQ(StringValue(absl::Cord("")).LowerAscii(arena()), "");
+  EXPECT_EQ(
+      StringValue::From(absl::Cord("upper lower"), arena()).LowerAscii(arena()),
+      "upper lower");
+  EXPECT_EQ(StringValue::WrapUnsafe("").LowerAscii(arena()), "");
+  EXPECT_EQ(StringValue::From(absl::Cord(""), arena()).LowerAscii(arena()), "");
   const std::string kLongMixed =
       "A long STRING with MiXeD case to test conversion to lower case!";
   const std::string kLongLower =
       "a long string with mixed case to test conversion to lower case!";
-  EXPECT_EQ(StringValue(absl::Cord(kLongMixed)).LowerAscii(arena()),
-            kLongLower);
+  EXPECT_EQ(
+      StringValue::From(absl::Cord(kLongMixed), arena()).LowerAscii(arena()),
+      kLongLower);
   std::string very_long_mixed(10000, 'A');
   std::string very_long_lower(10000, 'a');
-  EXPECT_EQ(
-      StringValue(absl::MakeFragmentedCord({very_long_mixed.substr(0, 5000),
-                                            very_long_mixed.substr(5000)}))
-          .LowerAscii(arena()),
-      very_long_lower);
-  EXPECT_EQ(StringValue(absl::MakeFragmentedCord({"hello", "WORLD"}))
+  EXPECT_EQ(StringValue::From(
+                absl::MakeFragmentedCord({very_long_mixed.substr(0, 5000),
+                                          very_long_mixed.substr(5000)}),
+                arena())
                 .LowerAscii(arena()),
-            "helloworld");
+            very_long_lower);
+  EXPECT_EQ(
+      StringValue::From(absl::MakeFragmentedCord({"hello", "WORLD"}), arena())
+          .LowerAscii(arena()),
+      "helloworld");
 }
 
 TEST_F(StringValueTest, UpperAscii) {
-  EXPECT_EQ(StringValue("UPPER lower").UpperAscii(arena()), "UPPER LOWER");
-  EXPECT_EQ(StringValue(absl::Cord("UPPER lower")).UpperAscii(arena()),
+  EXPECT_EQ(StringValue::WrapUnsafe("UPPER lower").UpperAscii(arena()),
             "UPPER LOWER");
-  EXPECT_EQ(StringValue("UPPER LOWER").UpperAscii(arena()), "UPPER LOWER");
-  EXPECT_EQ(StringValue(absl::Cord("UPPER LOWER")).UpperAscii(arena()),
+  EXPECT_EQ(
+      StringValue::From(absl::Cord("UPPER lower"), arena()).UpperAscii(arena()),
+      "UPPER LOWER");
+  EXPECT_EQ(StringValue::WrapUnsafe("UPPER LOWER").UpperAscii(arena()),
             "UPPER LOWER");
-  EXPECT_EQ(StringValue("").UpperAscii(arena()), "");
-  EXPECT_EQ(StringValue(absl::Cord("")).UpperAscii(arena()), "");
+  EXPECT_EQ(
+      StringValue::From(absl::Cord("UPPER LOWER"), arena()).UpperAscii(arena()),
+      "UPPER LOWER");
+  EXPECT_EQ(StringValue::WrapUnsafe("").UpperAscii(arena()), "");
+  EXPECT_EQ(StringValue::From(absl::Cord(""), arena()).UpperAscii(arena()), "");
   const std::string kLongMixed =
       "A long STRING with MiXeD case to test conversion to UPPER case!";
   const std::string kLongUpper =
       "A LONG STRING WITH MIXED CASE TO TEST CONVERSION TO UPPER CASE!";
-  EXPECT_EQ(StringValue(absl::Cord(kLongMixed)).UpperAscii(arena()),
-            kLongUpper);
+  EXPECT_EQ(
+      StringValue::From(absl::Cord(kLongMixed), arena()).UpperAscii(arena()),
+      kLongUpper);
   std::string very_long_mixed(10000, 'a');
   std::string very_long_upper(10000, 'A');
-  EXPECT_EQ(
-      StringValue(absl::MakeFragmentedCord({very_long_mixed.substr(0, 5000),
-                                            very_long_mixed.substr(5000)}))
-          .UpperAscii(arena()),
-      very_long_upper);
-  EXPECT_EQ(StringValue(absl::MakeFragmentedCord({"HELLO", "world"}))
+  EXPECT_EQ(StringValue::From(
+                absl::MakeFragmentedCord({very_long_mixed.substr(0, 5000),
+                                          very_long_mixed.substr(5000)}),
+                arena())
                 .UpperAscii(arena()),
-            "HELLOWORLD");
+            very_long_upper);
+  EXPECT_EQ(
+      StringValue::From(absl::MakeFragmentedCord({"HELLO", "world"}), arena())
+          .UpperAscii(arena()),
+      "HELLOWORLD");
 }
 
 TEST_F(StringValueTest, LastIndexOf) {
-  StringValue big_string =
-      StringValue("This string is large enough to not be stored inline!");
-  StringValue big_string_cord = StringValue(
-      absl::Cord("This string is large enough to not be stored inline!"));
-  StringValue small_string = StringValue("is");
-  StringValue small_string_cord = StringValue(absl::Cord("is"));
+  StringValue big_string = StringValue::WrapUnsafe(
+      "This string is large enough to not be stored inline!");
+  StringValue big_string_cord = StringValue::From(
+      absl::Cord("This string is large enough to not be stored inline!"),
+      arena());
+  StringValue small_string = StringValue::WrapUnsafe("is");
+  StringValue small_string_cord = StringValue::From(absl::Cord("is"), arena());
 
   EXPECT_THAT(big_string.LastIndexOf(small_string), Optional(Eq(12)));
   EXPECT_THAT(big_string.LastIndexOf(small_string_cord), Optional(Eq(12)));
@@ -346,12 +388,12 @@ TEST_F(StringValueTest, LastIndexOf) {
 
 TEST_F(StringValueTest, Trim) {
   using ::cel::test::StringValueIs;
-  StringValue unpadded = StringValue("no padding");
-  StringValue front_padded = StringValue(" \t\r\nno padding");
-  StringValue back_padded = StringValue("no padding \t\r\n");
-  StringValue both_padded = StringValue(" \t\r\nno padding \t\r\n");
-  StringValue whitespace = StringValue(" \t\r\n");
-  StringValue empty = StringValue("");
+  StringValue unpadded = StringValue::WrapUnsafe("no padding");
+  StringValue front_padded = StringValue::WrapUnsafe(" \t\r\nno padding");
+  StringValue back_padded = StringValue::WrapUnsafe("no padding \t\r\n");
+  StringValue both_padded = StringValue::WrapUnsafe(" \t\r\nno padding \t\r\n");
+  StringValue whitespace = StringValue::WrapUnsafe(" \t\r\n");
+  StringValue empty = StringValue::WrapUnsafe("");
 
   EXPECT_THAT(unpadded.Trim(), StringValueIs("no padding"));
   EXPECT_THAT(front_padded.Trim(), StringValueIs("no padding"));
@@ -360,13 +402,17 @@ TEST_F(StringValueTest, Trim) {
   EXPECT_THAT(whitespace.Trim(), StringValueIs(""));
   EXPECT_THAT(empty.Trim(), StringValueIs(""));
 
-  StringValue unpadded_cord = StringValue(absl::Cord("no padding"));
-  StringValue front_padded_cord = StringValue(absl::Cord(" \t\r\nno padding"));
-  StringValue back_padded_cord = StringValue(absl::Cord("no padding \t\r\n"));
+  StringValue unpadded_cord =
+      StringValue::From(absl::Cord("no padding"), arena());
+  StringValue front_padded_cord =
+      StringValue::From(absl::Cord(" \t\r\nno padding"), arena());
+  StringValue back_padded_cord =
+      StringValue::From(absl::Cord("no padding \t\r\n"), arena());
   StringValue both_padded_cord =
-      StringValue(absl::Cord(" \t\r\nno padding \t\r\n"));
-  StringValue whitespace_cord = StringValue(absl::Cord(" \t\r\n"));
-  StringValue empty_cord = StringValue(absl::Cord(""));
+      StringValue::From(absl::Cord(" \t\r\nno padding \t\r\n"), arena());
+  StringValue whitespace_cord =
+      StringValue::From(absl::Cord(" \t\r\n"), arena());
+  StringValue empty_cord = StringValue::From(absl::Cord(""), arena());
 
   EXPECT_THAT(unpadded_cord.Trim(), StringValueIs("no padding"));
   EXPECT_THAT(front_padded_cord.Trim(), StringValueIs("no padding"));
@@ -379,14 +425,16 @@ TEST_F(StringValueTest, Trim) {
 TEST_F(StringValueTest, CharAt) {
   using ::cel::test::ErrorValueIs;
   using ::cel::test::StringValueIs;
-  StringValue big_string =
-      StringValue("This string is large enough to not be stored inline!");
-  StringValue big_string_cord = StringValue(
-      absl::Cord("This string is large enough to not be stored inline!"));
-  StringValue small_string = StringValue("abc");
-  StringValue small_string_cord = StringValue(absl::Cord("abc"));
-  StringValue unicode_string = StringValue("aμc");
-  StringValue unicode_string_cord = StringValue(absl::Cord("aμc"));
+  StringValue big_string = StringValue::WrapUnsafe(
+      "This string is large enough to not be stored inline!");
+  StringValue big_string_cord = StringValue::From(
+      absl::Cord("This string is large enough to not be stored inline!"),
+      arena());
+  StringValue small_string = StringValue::WrapUnsafe("abc");
+  StringValue small_string_cord = StringValue::From(absl::Cord("abc"), arena());
+  StringValue unicode_string = StringValue::WrapUnsafe("aμc");
+  StringValue unicode_string_cord =
+      StringValue::From(absl::Cord("aμc"), arena());
 
   EXPECT_THAT(big_string.CharAt(0), StringValueIs("T"));
   EXPECT_THAT(big_string_cord.CharAt(0), StringValueIs("T"));
@@ -419,8 +467,8 @@ TEST_F(StringValueTest, Substring) {
   // as a large (cord-backed) value. The substring length must be measured in
   // code units, not code points, otherwise the cord overload truncates a
   // multi-byte character or underflows the length.
-  StringValue unicode_cord = StringValue(absl::Cord("€€€€€€"));
-  StringValue unicode_view = StringValue("€€€€€€");
+  StringValue unicode_cord = StringValue::From(absl::Cord("€€€€€€"), arena());
+  StringValue unicode_view = StringValue::WrapUnsafe("€€€€€€");
 
   EXPECT_THAT(unicode_cord.Substring(0, 2), StringValueIs("€€"));
   EXPECT_THAT(unicode_view.Substring(0, 2), StringValueIs("€€"));
@@ -445,7 +493,7 @@ TEST_F(StringValueTest, Join) {
   using ::cel::test::ErrorValueIs;
   using ::cel::test::StringValueIs;
 
-  StringValue separator(",");
+  StringValue separator = StringValue::WrapUnsafe(",");
   Value result;
 
   // Empty list.
@@ -458,7 +506,7 @@ TEST_F(StringValueTest, Join) {
 
   // Single element list.
   auto list_builder1 = NewListValueBuilder(arena());
-  ASSERT_THAT(list_builder1->Add(StringValue("foo")), IsOk());
+  ASSERT_THAT(list_builder1->Add(StringValue::WrapUnsafe("foo")), IsOk());
   auto list1 = std::move(*list_builder1).Build();
   EXPECT_THAT(separator.Join(list1, descriptor_pool(), message_factory(),
                              arena(), &result),
@@ -467,9 +515,9 @@ TEST_F(StringValueTest, Join) {
 
   // Multi element list.
   auto list_builder2 = NewListValueBuilder(arena());
-  ASSERT_THAT(list_builder2->Add(StringValue("foo")), IsOk());
-  ASSERT_THAT(list_builder2->Add(StringValue("bar")), IsOk());
-  ASSERT_THAT(list_builder2->Add(StringValue("baz")), IsOk());
+  ASSERT_THAT(list_builder2->Add(StringValue::WrapUnsafe("foo")), IsOk());
+  ASSERT_THAT(list_builder2->Add(StringValue::WrapUnsafe("bar")), IsOk());
+  ASSERT_THAT(list_builder2->Add(StringValue::WrapUnsafe("baz")), IsOk());
   auto list2 = std::move(*list_builder2).Build();
   EXPECT_THAT(separator.Join(list2, descriptor_pool(), message_factory(),
                              arena(), &result),
@@ -487,7 +535,7 @@ TEST_F(StringValueTest, Join) {
 
   // List with string and non-string.
   auto list_builder4 = NewListValueBuilder(arena());
-  ASSERT_THAT(list_builder4->Add(StringValue("foo")), IsOk());
+  ASSERT_THAT(list_builder4->Add(StringValue::WrapUnsafe("foo")), IsOk());
   ASSERT_THAT(list_builder4->Add(IntValue(1)), IsOk());
   auto list4 = std::move(*list_builder4).Build();
   EXPECT_THAT(separator.Join(list4, descriptor_pool(), message_factory(),
@@ -500,20 +548,24 @@ TEST_F(StringValueTest, Reverse) {
   using ::cel::test::StringValueIs;
 
   EXPECT_THAT(StringValue().Reverse(arena()), StringValueIs(""));
-  EXPECT_THAT(StringValue("").Reverse(arena()), StringValueIs(""));
-  EXPECT_THAT(StringValue("hello").Reverse(arena()), StringValueIs("olleh"));
-  EXPECT_THAT(StringValue("aμc").Reverse(arena()), StringValueIs("cμa"));
-  EXPECT_THAT(
-      StringValue("This string is large enough to not be stored inline!")
-          .Reverse(arena()),
-      StringValueIs("!enilni derots eb ton ot hguone egral si gnirts sihT"));
-  EXPECT_THAT(StringValue(absl::Cord("hello")).Reverse(arena()),
+  EXPECT_THAT(StringValue::WrapUnsafe("").Reverse(arena()), StringValueIs(""));
+  EXPECT_THAT(StringValue::WrapUnsafe("hello").Reverse(arena()),
               StringValueIs("olleh"));
-  EXPECT_THAT(StringValue(absl::Cord("aμc")).Reverse(arena()),
+  EXPECT_THAT(StringValue::WrapUnsafe("aμc").Reverse(arena()),
               StringValueIs("cμa"));
   EXPECT_THAT(
-      StringValue(
-          absl::Cord("This string is large enough to not be stored inline!"))
+      StringValue::WrapUnsafe(
+          "This string is large enough to not be stored inline!")
+          .Reverse(arena()),
+      StringValueIs("!enilni derots eb ton ot hguone egral si gnirts sihT"));
+  EXPECT_THAT(StringValue::From(absl::Cord("hello"), arena()).Reverse(arena()),
+              StringValueIs("olleh"));
+  EXPECT_THAT(StringValue::From(absl::Cord("aμc"), arena()).Reverse(arena()),
+              StringValueIs("cμa"));
+  EXPECT_THAT(
+      StringValue::From(
+          absl::Cord("This string is large enough to not be stored inline!"),
+          arena())
           .Reverse(arena()),
       StringValueIs("!enilni derots eb ton ot hguone egral si gnirts sihT"));
 }

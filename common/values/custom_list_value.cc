@@ -486,10 +486,7 @@ CustomListValue CustomListValue::Clone(
     CustomListValueInterface::Content content =
         content_.To<CustomListValueInterface::Content>();
     ABSL_DCHECK(content.interface != nullptr);
-    if (content.arena != arena) {
-      return content.interface->Clone(arena);
-    }
-    return *this;
+    return content.interface->Clone(arena);
   }
   return dispatcher_->clone(dispatcher_, content_, arena);
 }

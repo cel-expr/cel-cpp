@@ -49,27 +49,31 @@ class BytesValueInputStream final : public google::protobuf::io::ZeroCopyInputSt
   bool Next(const void** data, int* size) override {
     return absl::visit(
         [&data, &size](auto& alternative) -> bool {
-          return alternative.Next(data, size);
+          return alternative.stream.Next(data, size);
         },
         AsVariant());
   }
 
   void BackUp(int count) override {
     absl::visit(
-        [&count](auto& alternative) -> void { alternative.BackUp(count); },
+        [&count](auto& alternative) -> void {
+          alternative.stream.BackUp(count);
+        },
         AsVariant());
   }
 
   bool Skip(int count) override {
     return absl::visit(
-        [&count](auto& alternative) -> bool { return alternative.Skip(count); },
+        [&count](auto& alternative) -> bool {
+          return alternative.stream.Skip(count);
+        },
         AsVariant());
   }
 
   int64_t ByteCount() const override {
     return absl::visit(
         [](const auto& alternative) -> int64_t {
-          return alternative.ByteCount();
+          return alternative.stream.ByteCount();
         },
         AsVariant());
   }
@@ -77,14 +81,25 @@ class BytesValueInputStream final : public google::protobuf::io::ZeroCopyInputSt
   bool ReadCord(absl::Cord* cord, int count) override {
     return absl::visit(
         [&cord, &count](auto& alternative) -> bool {
-          return alternative.ReadCord(cord, count);
+          return alternative.stream.ReadCord(cord, count);
         },
         AsVariant());
   }
 
  private:
-  using Variant =
-      absl::variant<google::protobuf::io::ArrayInputStream, google::protobuf::io::CordInputStream>;
+  struct ArrayStream {
+    ArrayStream(const char* data, int size) : stream(data, size) {}
+
+    google::protobuf::io::ArrayInputStream stream;
+  };
+  struct CordStream {
+    explicit CordStream(const absl::Cord& cord)
+        : cord(cord), stream(&this->cord) {}
+
+    absl::Cord cord;
+    google::protobuf::io::CordInputStream stream;
+  };
+  using Variant = absl::variant<ArrayStream, CordStream>;
 
   void Construct(const BytesValue* absl_nonnull value) {
     ABSL_DCHECK(value != nullptr);
@@ -97,7 +112,7 @@ class BytesValueInputStream final : public google::protobuf::io::ZeroCopyInputSt
         Construct(value->value_.GetMedium());
         break;
       case common_internal::ByteStringKind::kLarge:
-        Construct(&value->value_.GetLarge());
+        Construct(value->value_.GetLarge());
         break;
     }
   }
@@ -106,13 +121,13 @@ class BytesValueInputStream final : public google::protobuf::io::ZeroCopyInputSt
     ABSL_DCHECK_LE(value.size(),
                    static_cast<size_t>(std::numeric_limits<int>::max()));
     ::new (static_cast<void*>(&impl_[0]))
-        Variant(absl::in_place_type<google::protobuf::io::ArrayInputStream>, value.data(),
+        Variant(absl::in_place_type<ArrayStream>, value.data(),
                 static_cast<int>(value.size()));
   }
 
-  void Construct(const absl::Cord* absl_nonnull value) {
+  void Construct(const absl::Cord& value) {
     ::new (static_cast<void*>(&impl_[0]))
-        Variant(absl::in_place_type<google::protobuf::io::CordInputStream>, value);
+        Variant(absl::in_place_type<CordStream>, value);
   }
 
   void Destruct() { AsVariant().~variant(); }

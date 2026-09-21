@@ -38,7 +38,7 @@ TEST(ComprehensionSlots, Basic) {
   ComprehensionSlots::Slot* slot0 = slots.Get(0);
   EXPECT_FALSE(slot0->Has());
 
-  slots.Set(0, cel::StringValue("abcd"),
+  slots.Set(0, cel::StringValue::WrapUnsafe("abcd"),
             AttributeTrail(Attribute("fake_attr")));
 
   ASSERT_TRUE(slot0->Has());
@@ -55,7 +55,7 @@ TEST(ComprehensionSlots, Basic) {
   slots.ClearSlot(0);
   EXPECT_FALSE(slot0->Has());
 
-  slots.Set(3, cel::StringValue("abcd"),
+  slots.Set(3, cel::StringValue::WrapUnsafe("abcd"),
             AttributeTrail(Attribute("fake_attr")));
 
   auto* slot3 = slots.Get(3);

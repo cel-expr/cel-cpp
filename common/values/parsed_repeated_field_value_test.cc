@@ -438,10 +438,10 @@ TEST_F(ParsedRepeatedFieldValueTest, Contains) {
   EXPECT_THAT(value.Contains(DoubleValue(1.0), descriptor_pool(),
                              message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(value.Contains(StringValue("bar"), descriptor_pool(),
+  EXPECT_THAT(value.Contains(StringValue::WrapUnsafe("bar"), descriptor_pool(),
                              message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
-  EXPECT_THAT(value.Contains(StringValue("foo"), descriptor_pool(),
+  EXPECT_THAT(value.Contains(StringValue::WrapUnsafe("foo"), descriptor_pool(),
                              message_factory(), arena()),
               IsOkAndHolds(BoolValueIs(false)));
   EXPECT_THAT(

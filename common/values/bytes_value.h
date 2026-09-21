@@ -26,15 +26,11 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
-#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "common/allocator.h"
-#include "common/arena.h"
 #include "common/internal/byte_string.h"
-#include "common/memory.h"
 #include "common/type.h"
 #include "common/value_kind.h"
 #include "common/values/values.h"
@@ -62,74 +58,60 @@ class BytesValue final : private common_internal::ValueMixin<BytesValue> {
 
   static BytesValue From(const char* absl_nullable value,
                          google::protobuf::Arena* absl_nonnull arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return BytesValue(common_internal::ByteString::From(value, arena));
+  }
   static BytesValue From(absl::string_view value,
                          google::protobuf::Arena* absl_nonnull arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
-  static BytesValue From(const absl::Cord& value);
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return BytesValue(common_internal::ByteString::From(value, arena));
+  }
+  static BytesValue From(const absl::Cord& value,
+                         google::protobuf::Arena* absl_nonnull arena
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return BytesValue(common_internal::ByteString::From(value, arena));
+  }
   static BytesValue From(std::string&& value,
                          google::protobuf::Arena* absl_nonnull arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return BytesValue(
+        common_internal::ByteString::From(std::move(value), arena));
+  }
 
   static BytesValue Wrap(absl::string_view value,
                          google::protobuf::Arena* absl_nullable arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
-  static BytesValue Wrap(absl::string_view value) = delete;
-  static BytesValue Wrap(const absl::Cord& value);
-  static BytesValue Wrap(std::string&& value) = delete;
-  static BytesValue Wrap(std::string&& value,
-                         google::protobuf::Arena* absl_nullable arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND) = delete;
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return BytesValue(common_internal::ByteString::Wrap(value, arena));
+  }
+  static BytesValue Wrap(
+      const absl::Cord* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return BytesValue(common_internal::ByteString::Wrap(value, arena));
+  }
+  static BytesValue Wrap(std::nullptr_t, google::protobuf::Arena*) = delete;
+  static BytesValue Wrap(std::string&& value, google::protobuf::Arena*) = delete;
 
   // Returns a BytesValue that aliases the provided string. Caller must ensure
   // the provided string outlives the use of the returned BytesValue.
-  static BytesValue WrapUnsafe(absl::string_view value);
+  static BytesValue WrapUnsafe(absl::string_view value) {
+    return BytesValue(common_internal::ByteString::WrapUnsafe(value));
+  }
+  static BytesValue WrapUnsafe(const absl::Cord* absl_nonnull value) {
+    return BytesValue(common_internal::ByteString::WrapUnsafe(value));
+  }
+  static BytesValue WrapUnsafe(std::nullptr_t) = delete;
 
   static BytesValue Concat(const BytesValue& lhs, const BytesValue& rhs,
                            google::protobuf::Arena* absl_nonnull arena
                                ABSL_ATTRIBUTE_LIFETIME_BOUND);
-
-  ABSL_DEPRECATED("Use From")
-  explicit BytesValue(const char* absl_nullable value) : value_(value) {}
-
-  ABSL_DEPRECATED("Use From")
-  explicit BytesValue(absl::string_view value) : value_(value) {}
-
-  ABSL_DEPRECATED("Use From")
-  explicit BytesValue(const absl::Cord& value) : value_(value) {}
-
-  ABSL_DEPRECATED("Use From")
-  explicit BytesValue(std::string&& value) : value_(std::move(value)) {}
-
-  ABSL_DEPRECATED("Use From")
-  BytesValue(Allocator<> allocator, const char* absl_nullable value)
-      : value_(allocator, value) {}
-
-  ABSL_DEPRECATED("Use From")
-  BytesValue(Allocator<> allocator, absl::string_view value)
-      : value_(allocator, value) {}
-
-  ABSL_DEPRECATED("Use From")
-  BytesValue(Allocator<> allocator, const absl::Cord& value)
-      : value_(allocator, value) {}
-
-  ABSL_DEPRECATED("Use From")
-  BytesValue(Allocator<> allocator, std::string&& value)
-      : value_(allocator, std::move(value)) {}
-
-  ABSL_DEPRECATED("Use Wrap")
-  BytesValue(Borrower borrower, absl::string_view value)
-      : value_(borrower, value) {}
-
-  ABSL_DEPRECATED("Use Wrap")
-  BytesValue(Borrower borrower, const absl::Cord& value)
-      : value_(borrower, value) {}
 
   BytesValue() = default;
   BytesValue(const BytesValue&) = default;
   BytesValue(BytesValue&&) = default;
   BytesValue& operator=(const BytesValue&) = default;
   BytesValue& operator=(BytesValue&&) = default;
+
+  explicit BytesValue(const StringValue& other);
 
   constexpr ValueKind kind() const { return kKind; }
 
@@ -185,9 +167,9 @@ class BytesValue final : private common_internal::ValueMixin<BytesValue> {
     return value_.Visit(std::forward<Visitor>(visitor));
   }
 
-  void swap(BytesValue& other) noexcept {
+  friend void swap(BytesValue& lhs, BytesValue& rhs) noexcept {
     using std::swap;
-    swap(value_, other.value_);
+    swap(lhs.value_, rhs.value_);
   }
 
   size_t Size() const;
@@ -238,20 +220,18 @@ class BytesValue final : private common_internal::ValueMixin<BytesValue> {
   }
 
  private:
+  friend class StringValue;
   friend class common_internal::ValueMixin<BytesValue>;
   friend class BytesValueInputStream;
   friend class BytesValueOutputStream;
   friend absl::string_view common_internal::LegacyBytesValue(
       const BytesValue& value, bool stable, google::protobuf::Arena* absl_nonnull arena);
-  friend struct ArenaTraits<BytesValue>;
 
   explicit BytesValue(common_internal::ByteString value) noexcept
       : value_(std::move(value)) {}
 
   common_internal::ByteString value_;
 };
-
-inline void swap(BytesValue& lhs, BytesValue& rhs) noexcept { lhs.swap(rhs); }
 
 inline std::ostream& operator<<(std::ostream& out, const BytesValue& value) {
   return out << value.DebugString();
@@ -273,48 +253,6 @@ inline bool operator!=(absl::string_view lhs, const BytesValue& rhs) {
   return rhs != lhs;
 }
 
-inline BytesValue BytesValue::From(const char* absl_nullable value,
-                                   google::protobuf::Arena* absl_nonnull arena
-                                       ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  return From(absl::NullSafeStringView(value), arena);
-}
-
-inline BytesValue BytesValue::From(absl::string_view value,
-                                   google::protobuf::Arena* absl_nonnull arena
-                                       ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  ABSL_DCHECK(arena != nullptr);
-
-  return BytesValue(arena, value);
-}
-
-inline BytesValue BytesValue::From(const absl::Cord& value) {
-  return BytesValue(value);
-}
-
-inline BytesValue BytesValue::From(std::string&& value,
-                                   google::protobuf::Arena* absl_nonnull arena
-                                       ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  ABSL_DCHECK(arena != nullptr);
-
-  return BytesValue(arena, std::move(value));
-}
-
-inline BytesValue BytesValue::Wrap(absl::string_view value,
-                                   google::protobuf::Arena* absl_nullable arena
-                                       ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  ABSL_DCHECK(arena != nullptr);
-
-  return BytesValue(Borrower::Arena(arena), value);
-}
-
-inline BytesValue BytesValue::WrapUnsafe(absl::string_view value) {
-  return BytesValue(common_internal::ByteString::FromExternal(value));
-}
-
-inline BytesValue BytesValue::Wrap(const absl::Cord& value) {
-  return BytesValue(value);
-}
-
 namespace common_internal {
 
 inline absl::string_view LegacyBytesValue(const BytesValue& value, bool stable,
@@ -323,15 +261,6 @@ inline absl::string_view LegacyBytesValue(const BytesValue& value, bool stable,
 }
 
 }  // namespace common_internal
-
-template <>
-struct ArenaTraits<BytesValue> {
-  using constructible = std::true_type;
-
-  static bool trivially_destructible(const BytesValue& value) {
-    return ArenaTraits<>::trivially_destructible(value.value_);
-  }
-};
 
 }  // namespace cel
 

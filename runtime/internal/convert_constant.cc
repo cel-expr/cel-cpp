@@ -17,21 +17,22 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
 #include "absl/types/variant.h"
-#include "common/allocator.h"
 #include "common/constant.h"
 #include "common/value.h"
 #include "eval/internal/errors.h"
+#include "google/protobuf/arena.h"
 
 namespace cel::runtime_internal {
 namespace {
 using ::cel::Constant;
 
 struct ConvertVisitor {
-  Allocator<> allocator;
+  google::protobuf::Arena* const arena;
 
   absl::StatusOr<cel::Value> operator()(std::monostate) {
     return absl::InvalidArgumentError("unspecified constant");
@@ -48,10 +49,10 @@ struct ConvertVisitor {
     return DoubleValue(value);
   }
   absl::StatusOr<cel::Value> operator()(const cel::StringConstant& value) {
-    return StringValue(allocator, value);
+    return StringValue::From(value, arena);
   }
   absl::StatusOr<cel::Value> operator()(const cel::BytesConstant& value) {
-    return BytesValue(allocator, value);
+    return BytesValue::From(value, arena);
   }
   absl::StatusOr<cel::Value> operator()(const absl::Duration duration) {
     if (duration >= kDurationHigh || duration <= kDurationLow) {
@@ -71,8 +72,8 @@ struct ConvertVisitor {
 //
 // A status maybe returned if value creation fails.
 absl::StatusOr<Value> ConvertConstant(const Constant& constant,
-                                      Allocator<> allocator) {
-  return absl::visit(ConvertVisitor{allocator}, constant.constant_kind());
+                                      google::protobuf::Arena* absl_nonnull arena) {
+  return absl::visit(ConvertVisitor{arena}, constant.constant_kind());
 }
 
 }  // namespace cel::runtime_internal
