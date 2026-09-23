@@ -19,13 +19,13 @@ std::unique_ptr<DirectExpressionStep> CreateDirectSelectStep(
     bool enable_optional_types = false);
 
 // Factory method for Select stack machine based Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateSelectStep(
-    cel::StringValue field, bool test_only, int64_t expr_id,
-    bool enable_wrapper_type_null_unboxing, bool enable_optional_ytpes = false);
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateSelectStep(
+    cel::StringValue field, bool test_only,
+    bool enable_wrapper_type_null_unboxing, bool enable_optional_types = false);
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateTypedSelectStep(
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateTypedSelectStep(
     cel::StringValue field, cel::StructType resolved_operand_type,
-    cel::StructTypeField resolved_field, bool test_only, int64_t expr_id,
+    cel::StructTypeField resolved_field, bool test_only,
     bool enable_wrapper_type_null_unboxing, bool enable_optional_types);
 
 }  // namespace google::api::expr::runtime

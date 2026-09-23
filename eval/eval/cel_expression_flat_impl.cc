@@ -108,9 +108,12 @@ absl::StatusOr<std::unique_ptr<CelExpressionRecursiveImpl>>
 CelExpressionRecursiveImpl::Create(
     absl_nonnull std::shared_ptr<const RuntimeEnv> env,
     FlatExpression flat_expr) {
-  if (flat_expr.path().empty() ||
-      flat_expr.path().front()->GetNativeTypeId() !=
-          cel::NativeTypeId::For<WrappedDirectStep>()) {
+  const ExpressionStepLogic* logic = nullptr;
+  if (!flat_expr.path().empty() && flat_expr.path()[0].IsGenericStep()) {
+    logic = flat_expr.path()[0].GetGenericStep();
+  }
+  if (logic != nullptr &&
+      logic->GetNativeTypeId() != cel::NativeTypeId::For<WrappedDirectStep>()) {
     return absl::InvalidArgumentError(absl::StrCat(
         "Expected a recursive program step", flat_expr.path().size()));
   }

@@ -24,8 +24,8 @@ using ::cel::Value;
 
 class ShadowableValueStep : public ExpressionStepBase {
  public:
-  ShadowableValueStep(std::string identifier, cel::Value value, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
+  ShadowableValueStep(std::string identifier, cel::Value value)
+      : ExpressionStepBase(),
         identifier_(std::move(identifier)),
         value_(std::move(value)) {}
 
@@ -83,10 +83,10 @@ absl::Status DirectShadowableValueStep::Evaluate(
 
 }  // namespace
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateShadowableValueStep(
-    absl::string_view name, cel::Value value, int64_t expr_id) {
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateShadowableValueStep(
+    absl::string_view name, cel::Value value) {
   return std::make_unique<ShadowableValueStep>(std::string(name),
-                                               std::move(value), expr_id);
+                                               std::move(value));
 }
 
 std::unique_ptr<DirectExpressionStep> CreateDirectShadowableValueStep(

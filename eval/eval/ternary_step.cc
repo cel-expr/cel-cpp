@@ -124,7 +124,7 @@ class ShortcircuitingDirectTernaryStep : public DirectExpressionStep {
 class TernaryStep : public ExpressionStepBase {
  public:
   // Constructs FunctionStep that uses overloads specified.
-  explicit TernaryStep(int64_t expr_id) : ExpressionStepBase(expr_id) {}
+  TernaryStep() : ExpressionStepBase() {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 };
@@ -186,9 +186,8 @@ std::unique_ptr<DirectExpressionStep> CreateDirectTernaryStep(
       std::move(condition), std::move(left), std::move(right), expr_id);
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateTernaryStep(
-    int64_t expr_id) {
-  return std::make_unique<TernaryStep>(expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateTernaryStep() {
+  return std::make_unique<TernaryStep>();
 }
 
 }  // namespace google::api::expr::runtime

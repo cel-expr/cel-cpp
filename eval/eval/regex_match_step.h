@@ -29,9 +29,8 @@ std::unique_ptr<DirectExpressionStep> CreateDirectRegexMatchStep(
     int64_t expr_id, std::unique_ptr<DirectExpressionStep> subject,
     std::shared_ptr<const RE2> re2);
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateRegexMatchStep(
-    std::shared_ptr<const RE2> re2, int64_t expr_id);
-
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateRegexMatchStep(
+    std::shared_ptr<const RE2> re2);
 }
 
 #endif  // THIRD_PARTY_CEL_CPP_EVAL_EVAL_REGEX_MATCH_STEP_H_

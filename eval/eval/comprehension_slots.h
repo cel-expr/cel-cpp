@@ -16,6 +16,8 @@
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_COMPREHENSION_SLOTS_H_
 
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -110,7 +112,10 @@ class ComprehensionSlots final {
     return *instance;
   }
 
-  explicit ComprehensionSlots(size_t size) : slots_(size) {}
+  explicit ComprehensionSlots(size_t size) : slots_(size) {
+    ABSL_DCHECK_LT(size,
+                   static_cast<size_t>(std::numeric_limits<uint32_t>::max()));
+  }
 
   ComprehensionSlots(const ComprehensionSlots&) = delete;
   ComprehensionSlots& operator=(const ComprehensionSlots&) = delete;
