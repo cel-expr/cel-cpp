@@ -730,8 +730,8 @@ class FlatExprVisitor : public cel::AstVisitor {
       return;
     }
 
-    AddStep(
-        CreateConstValueStep(std::move(converted_value).value(), expr.id()));
+    AddStep(ExpressionStep::MakeConstant(std::move(converted_value).value(),
+                                         expr.id()));
   }
 
   struct SlotLookupResult {
@@ -855,8 +855,8 @@ class FlatExprVisitor : public cel::AstVisitor {
             program.depth + 1);
       } else {
         // Off by one since mainline expression will be index 0.
-        AddStep(
-            CreateLazyInitStep(slot.slot, slot.subexpression + 1, expr.id()));
+        AddStep(ExpressionStep::MakeLazyInitStep(
+            slot.slot, slot.subexpression + 1, expr.id()));
       }
       return;
     } else if (slot.slot >= 0) {
@@ -865,8 +865,8 @@ class FlatExprVisitor : public cel::AstVisitor {
             CreateDirectSlotIdentStep(ident_expr.name(), slot.slot, expr.id()),
             1);
       } else {
-        AddStep(
-            CreateIdentStepForSlot(ident_expr.name(), slot.slot, expr.id()));
+        AddStep(CreateIdentStepForSlot(ident_expr.name(), slot.slot),
+                expr.id());
       }
       return;
     }
@@ -918,8 +918,8 @@ class FlatExprVisitor : public cel::AstVisitor {
             1);
         return;
       }
-      AddStep(CreateShadowableValueStep(name, std::move(const_value).value(),
-                                        select_root_id));
+      AddStep(CreateShadowableValueStep(name, std::move(const_value).value()),
+              select_root_id);
       return;
     }
 
@@ -927,7 +927,7 @@ class FlatExprVisitor : public cel::AstVisitor {
     if (options_.max_recursion_depth != 0) {
       SetRecursiveStep(CreateDirectIdentStep(ident_name, expr.id()), 1);
     } else {
-      AddStep(CreateIdentStep(ident_name, expr.id()));
+      AddStep(CreateIdentStep(ident_name), expr.id());
     }
   }
 
@@ -1032,15 +1032,18 @@ class FlatExprVisitor : public cel::AstVisitor {
     }
 
     if (field_type.has_value()) {
-      AddStep(CreateTypedSelectStep(
-          std::move(field), *struct_type, *std::move(field_type),
-          select_expr.test_only(), expr.id(),
-          options_.enable_empty_wrapper_null_unboxing, enable_optional_types_));
+      AddStep(
+          CreateTypedSelectStep(std::move(field), *struct_type,
+                                *std::move(field_type), select_expr.test_only(),
+                                options_.enable_empty_wrapper_null_unboxing,
+                                enable_optional_types_),
+          expr.id());
       return;
     }
-    AddStep(CreateSelectStep(
-        std::move(field), select_expr.test_only(), expr.id(),
-        options_.enable_empty_wrapper_null_unboxing, enable_optional_types_));
+    AddStep(CreateSelectStep(std::move(field), select_expr.test_only(),
+                             options_.enable_empty_wrapper_null_unboxing,
+                             enable_optional_types_),
+            expr.id());
   }
 
   // Call node handler group.
@@ -1577,7 +1580,7 @@ class FlatExprVisitor : public cel::AstVisitor {
             SetRecursiveStep(CreateDirectMutableListStep(expr.id()), 1);
             return;
           }
-          AddStep(CreateMutableListStep(expr.id()));
+          AddStep(CreateMutableListStep(), expr.id());
           return;
         }
         if (GetOptimizableListAppendOperand(comprehension.comprehension) ==
@@ -1598,7 +1601,7 @@ class FlatExprVisitor : public cel::AstVisitor {
       SetRecursiveStep(std::move(step), *depth + 1);
       return;
     }
-    AddStep(CreateCreateListStep(list_expr, expr.id()));
+    AddStep(CreateCreateListStep(list_expr), expr.id());
   }
 
   // CreateStruct node handler.
@@ -1635,8 +1638,8 @@ class FlatExprVisitor : public cel::AstVisitor {
     }
 
     AddStep(CreateCreateStructStep(std::move(resolved_name), std::move(fields),
-                                   MakeOptionalIndicesSet(struct_expr),
-                                   expr.id()));
+                                   MakeOptionalIndicesSet(struct_expr)),
+            expr.id());
   }
 
   void PostVisitMap(const cel::Expr& expr,
@@ -1655,7 +1658,7 @@ class FlatExprVisitor : public cel::AstVisitor {
             SetRecursiveStep(CreateDirectMutableMapStep(expr.id()), 1);
             return;
           }
-          AddStep(CreateMutableMapStep(expr.id()));
+          AddStep(CreateMutableMapStep(), expr.id());
           return;
         }
       }
@@ -1674,8 +1677,8 @@ class FlatExprVisitor : public cel::AstVisitor {
       return;
     }
     AddStep(CreateCreateStructStepForMap(map_expr.entries().size(),
-                                         MakeOptionalIndicesSet(map_expr),
-                                         expr.id()));
+                                         MakeOptionalIndicesSet(map_expr)),
+            expr.id());
   }
 
   absl::Status progress_status() const { return progress_status_; }
@@ -1708,8 +1711,9 @@ class FlatExprVisitor : public cel::AstVisitor {
                          *depth + 1);
         return;
       }
-      AddStep(CreateFunctionStep(*call_expr, expr->id(),
-                                 std::move(lazy_overloads)));
+      AddStep(
+          CreateFunctionStep(*call_expr, expr->id(), std::move(lazy_overloads)),
+          expr->id());
       return;
     }
 
@@ -1743,7 +1747,8 @@ class FlatExprVisitor : public cel::AstVisitor {
           *recursion_depth + 1);
       return;
     }
-    AddStep(CreateFunctionStep(*call_expr, expr->id(), std::move(overloads)));
+    AddStep(CreateFunctionStep(*call_expr, expr->id(), std::move(overloads)),
+            expr->id());
   }
 
   // Add a step to the program, taking ownership. If successful, returns the
@@ -1752,21 +1757,32 @@ class FlatExprVisitor : public cel::AstVisitor {
   // Note: the pointer is only guaranteed to stay valid until the parent
   // subexpression is finalized. Optimizers may modify the program plan which
   // may free the step at that point.
-  ExpressionStep* AddStep(
-      absl::StatusOr<std::unique_ptr<ExpressionStep>> step) {
+  template <typename T>
+  std::enable_if_t<std::is_base_of_v<ExpressionStepLogic, T>, T*> AddStep(
+      std::unique_ptr<T> step, int64_t expr_id = -1) {
+    if (progress_status_.ok() && !PlanningSuppressed()) {
+      T* ptr = step.get();
+      program_builder_.AddStep(
+          ExpressionStep::MakeGenericStep(std::move(step), expr_id));
+      return ptr;
+    }
+    return nullptr;
+  }
+
+  template <typename T>
+  std::enable_if_t<std::is_base_of_v<ExpressionStepLogic, T>, T*> AddStep(
+      absl::StatusOr<std::unique_ptr<T>> step, int64_t expr_id = -1) {
     if (step.ok()) {
-      return AddStep(*std::move(step));
+      return AddStep(*std::move(step), expr_id);
     } else {
       SetProgressStatusIfError(step.status());
     }
     return nullptr;
   }
 
-  template <typename T>
-  std::enable_if_t<std::is_base_of_v<ExpressionStep, T>, T*> AddStep(
-      std::unique_ptr<T> step) {
+  ExpressionStep* AddStep(ExpressionStep step) {
     if (progress_status_.ok() && !PlanningSuppressed()) {
-      return static_cast<T*>(program_builder_.AddStep(std::move(step)));
+      return program_builder_.AddStep(std::move(step));
     }
     return nullptr;
   }
@@ -2026,8 +2042,8 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleIndex(
         *depth + 1);
     return CallHandlerResult::kIntercepted;
   }
-  AddStep(
-      CreateContainerAccessStep(call_expr, expr.id(), enable_optional_types_));
+  AddStep(CreateContainerAccessStep(call_expr, enable_optional_types_),
+          expr.id());
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2051,7 +2067,7 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleNot(
                      *depth + 1);
     return CallHandlerResult::kIntercepted;
   }
-  AddStep(CreateNotStep(expr.id()));
+  AddStep(ExpressionStep::MakeBooleanNotStep(expr.id()));
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2076,7 +2092,7 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleNotStrictlyFalse(
         *depth + 1);
     return CallHandlerResult::kIntercepted;
   }
-  AddStep(CreateNotStrictlyFalseStep(expr.id()));
+  AddStep(ExpressionStep::MakeNotStrictlyFalseStep(expr.id()));
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2118,7 +2134,8 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleBlock(
 
   // Otherwise, iterative plan.
   if (block.slot_count > 0) {
-    AddStep(CreateClearSlotsStep(block.index, block.slot_count, expr.id()));
+    AddStep(ExpressionStep::MakeClearSlotsStep(block.index, block.slot_count,
+                                               expr.id()));
   }
 
   return CallHandlerResult::kIntercepted;
@@ -2180,7 +2197,7 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleHeterogeneousEquality(
         *depth + 1);
     return CallHandlerResult::kIntercepted;
   }
-  AddStep(CreateEqualityStep(inequality, expr.id()));
+  AddStep(CreateEqualityStep(inequality), expr.id());
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2205,7 +2222,7 @@ FlatExprVisitor::HandleHeterogeneousEqualityIn(const cel::Expr& expr,
     return CallHandlerResult::kIntercepted;
   }
 
-  AddStep(CreateInStep(expr.id()));
+  AddStep(CreateInStep(), expr.id());
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2240,9 +2257,11 @@ void LogicalCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
   const size_t num_args = expr->call_expr().args().size();
   if (arg_num == last_arg_index) {
     if (is_or_) {
-      visitor_->AddStep(CreateOrStep(num_args, expr->id()));
+      visitor_->AddStep(
+          ExpressionStep::MakeBooleanOrStep(num_args, expr->id()));
     } else {
-      visitor_->AddStep(CreateAndStep(num_args, expr->id()));
+      visitor_->AddStep(
+          ExpressionStep::MakeBooleanAndStep(num_args, expr->id()));
     }
     if (short_circuiting_ && !jump_steps_.empty()) {
       for (auto& jump : jump_steps_) {
@@ -2254,10 +2273,9 @@ void LogicalCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
   if (short_circuiting_ && arg_num < last_arg_index) {
     std::unique_ptr<JumpStepBase> jump_step =
         is_or_
-            ? CreateCondJumpStep(true, {}, /*expected_stack_size=*/arg_num + 1,
-                                 expr->id())
-            : CreateCondJumpStep(false, {}, /*expected_stack_size=*/arg_num + 1,
-                                 expr->id());
+            ? CreateCondJumpStep(true, {}, /*expected_stack_size=*/arg_num + 1)
+            : CreateCondJumpStep(false, {},
+                                 /*expected_stack_size=*/arg_num + 1);
     ProgramStepIndex index = visitor_->GetCurrentIndex();
     if (JumpStepBase* jump_step_ptr = visitor_->AddStep(std::move(jump_step));
         jump_step_ptr) {
@@ -2289,7 +2307,7 @@ void OptionalOrCondVisitor::PostVisitTarget(const cel::Expr* expr) {
     // Retain a pointer to the jump step so we can update the target after
     // planning the second argument.
     std::unique_ptr<JumpStepBase> jump_step =
-        CreateOptionalHasValueJumpStep(is_or_value_, expr->id());
+        CreateOptionalHasValueJumpStep(is_or_value_);
     ProgramStepIndex index = visitor_->GetCurrentIndex();
     if (JumpStepBase* jump_step_ptr = visitor_->AddStep(std::move(jump_step));
         jump_step_ptr) {
@@ -2304,7 +2322,7 @@ void OptionalOrCondVisitor::PostVisit(const cel::Expr* expr) {
     return;
   }
 
-  visitor_->AddStep(CreateOptionalOrStep(is_or_value_, expr->id()));
+  visitor_->AddStep(CreateOptionalOrStep(is_or_value_), expr->id());
   if (short_circuiting_) {
     for (auto& jump : jump_steps_) {
       visitor_->SetProgressStatusIfError(
@@ -2338,8 +2356,7 @@ void TernaryCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
   if (arg_num == 0) {
     // Jump in case of error or non-bool
     ProgramStepIndex error_jump_pos = visitor_->GetCurrentIndex();
-    auto* error_jump =
-        visitor_->AddStep(CreateBoolCheckJumpStep({}, expr->id()));
+    auto* error_jump = visitor_->AddStep(CreateBoolCheckJumpStep());
     if (error_jump) {
       error_jump_ = Jump(error_jump_pos, error_jump);
     }
@@ -2347,8 +2364,7 @@ void TernaryCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
     // Jump to the second branch of execution
     // Value is to be removed from the stack.
     ProgramStepIndex cond_jump_pos = visitor_->GetCurrentIndex();
-    auto* jump_to_second =
-        visitor_->AddStep(CreateTernaryCondJumpStep({}, expr->id()));
+    auto* jump_to_second = visitor_->AddStep(CreateTernaryCondJumpStep());
     if (jump_to_second) {
       jump_to_second_ =
           Jump(cond_jump_pos, static_cast<JumpStepBase*>(jump_to_second));
@@ -2357,7 +2373,7 @@ void TernaryCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
     // Jump after the first and over the second branch of execution.
     // Value is to be removed from the stack.
     ProgramStepIndex jump_pos = visitor_->GetCurrentIndex();
-    auto* jump_after_first = visitor_->AddStep(CreateJumpStep({}, expr->id()));
+    auto* jump_after_first = visitor_->AddStep(CreateJumpStep());
     if (!jump_after_first) {
       return;
     }
@@ -2406,7 +2422,7 @@ void ExhaustiveTernaryCondVisitor::PostVisit(const cel::Expr* expr) {
     visitor_->MakeTernaryRecursive(expr);
     return;
   }
-  visitor_->AddStep(CreateTernaryStep(expr->id()));
+  visitor_->AddStep(CreateTernaryStep(), expr->id());
 }
 
 void ComprehensionVisitor::PreVisit(const cel::Expr* expr) {
@@ -2425,25 +2441,24 @@ absl::Status ComprehensionVisitor::PostVisitArgDefault(
   switch (arg_num) {
     case cel::ITER_RANGE: {
       init_step_pos_ = visitor_->GetCurrentIndex();
-      init_step_ = visitor_->AddStep(
-          std::make_unique<ComprehensionInitStep>(expr->id()));
+      init_step_ = visitor_->AddStep(std::make_unique<ComprehensionInitStep>());
       break;
     }
     case cel::ACCU_INIT: {
       next_step_pos_ = visitor_->GetCurrentIndex();
       next_step_ = visitor_->AddStep(std::make_unique<ComprehensionNextStep>(
-          iter_slot_, iter2_slot_, accu_slot_, expr->id()));
+          iter_slot_, iter2_slot_, accu_slot_));
       break;
     }
     case cel::LOOP_CONDITION: {
       cond_step_pos_ = visitor_->GetCurrentIndex();
       cond_step_ = visitor_->AddStep(std::make_unique<ComprehensionCondStep>(
-          iter_slot_, iter2_slot_, accu_slot_, short_circuiting_, expr->id()));
+          iter_slot_, iter2_slot_, accu_slot_, short_circuiting_));
       break;
     }
     case cel::LOOP_STEP: {
       ProgramStepIndex index = visitor_->GetCurrentIndex();
-      auto* jump_to_next = visitor_->AddStep(CreateJumpStep({}, expr->id()));
+      auto* jump_to_next = visitor_->AddStep(CreateJumpStep());
       if (!jump_to_next) {
         break;
       }
@@ -2473,7 +2488,7 @@ absl::Status ComprehensionVisitor::PostVisitArgDefault(
         // Encountered an error earlier. Can't determine where to jump.
         break;
       }
-      visitor_->AddStep(CreateComprehensionFinishStep(accu_slot_, expr->id()));
+      visitor_->AddStep(CreateComprehensionFinishStep(accu_slot_), expr->id());
       // Set offsets jumping past the result step in case of errors.
       CEL_ASSIGN_OR_RETURN(
           int jump_from_init,
@@ -2506,7 +2521,7 @@ void ComprehensionVisitor::PostVisitArgTrivial(cel::ComprehensionArg arg_num,
     }
     case cel::ACCU_INIT: {
       if (!accu_init_extracted_) {
-        visitor_->AddStep(CreateAssignSlotAndPopStep(accu_slot_));
+        visitor_->AddStep(ExpressionStep::MakeAssignSlotAndPopStep(accu_slot_));
       }
       break;
     }
@@ -2517,7 +2532,8 @@ void ComprehensionVisitor::PostVisitArgTrivial(cel::ComprehensionArg arg_num,
       break;
     }
     case cel::RESULT: {
-      visitor_->AddStep(CreateClearSlotStep(accu_slot_, expr->id()));
+      visitor_->AddStep(
+          ExpressionStep::MakeClearSlotStep(accu_slot_, expr->id()));
       break;
     }
   }
@@ -2643,6 +2659,15 @@ absl::StatusOr<FlatExpression> FlatExprBuilder::CreateExpressionImpl(
 
   if (!visitor.progress_status().ok()) {
     return visitor.progress_status();
+  }
+
+  if (visitor.slot_count() > std::numeric_limits<uint32_t>::max() ||
+      program_builder.ExtractedSubexpressionCount() >
+          std::numeric_limits<uint32_t>::max()) {
+    // Impractical to trigger (we'd run out of memory first), but assuming this
+    // allows us to pack references to slots and subexpressions.
+    return absl::InternalError(
+        "Expression too large to be executed, exceeds uint32_t limits.");
   }
 
   if (issues != nullptr) {

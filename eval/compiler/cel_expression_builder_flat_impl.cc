@@ -100,7 +100,12 @@ CelExpressionBuilderFlatImpl::CreateExpressionImpl(
       !impl.subexpressions().empty() &&
       // mainline expression is exactly one recursive step.
       impl.subexpressions().front().size() == 1 &&
-      impl.subexpressions().front().front()->GetNativeTypeId() ==
+      impl.subexpressions().front().front().IsGenericStep() &&
+      impl.subexpressions()
+              .front()
+              .front()
+              .GetGenericStep()
+              ->GetNativeTypeId() ==
           cel::NativeTypeId::For<WrappedDirectStep>()) {
     return CelExpressionRecursiveImpl::Create(env_, std::move(impl));
   }

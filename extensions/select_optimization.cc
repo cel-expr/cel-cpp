@@ -84,6 +84,7 @@ using ::google::api::expr::runtime::CelValue;
 using ::google::api::expr::runtime::DirectExpressionStep;
 using ::google::api::expr::runtime::ExecutionFrame;
 using ::google::api::expr::runtime::ExecutionFrameBase;
+using ::google::api::expr::runtime::ExpressionStep;
 using ::google::api::expr::runtime::ExpressionStepBase;
 using ::google::api::expr::runtime::GetGenericProtoTypeInfoInstance;
 using ::google::api::expr::runtime::PlannerContext;
@@ -969,8 +970,9 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
   CEL_ASSIGN_OR_RETURN(auto operand_subplan, context.ExtractSubplan(operand));
   absl::c_move(operand_subplan, std::back_inserter(path));
 
-  path.push_back(
-      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)),
+      node.id()));
 
   return context.ReplaceSubplan(node, std::move(path));
 }

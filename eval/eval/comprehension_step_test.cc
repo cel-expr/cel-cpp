@@ -40,6 +40,7 @@
 namespace google::api::expr::runtime {
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::BoolValue;
 using ::cel::Expr;
@@ -86,7 +87,7 @@ class ListKeysStepTest : public testing::Test {
 
 class GetListKeysResultStep : public ExpressionStepBase {
  public:
-  GetListKeysResultStep() : ExpressionStepBase(-1, false) {}
+  GetListKeysResultStep() : ExpressionStepBase() {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     frame->value_stack().Pop(1);
@@ -102,13 +103,12 @@ MATCHER_P(CelStringValue, val, "") {
 
 TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
   ExecutionPath path;
-  auto result = CreateIdentStep("var", 0);
-  ASSERT_OK(result);
-  path.push_back(*std::move(result));
-  ComprehensionInitStep* init_step = new ComprehensionInitStep(1);
+  path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("var")));
+  auto init_step = std::make_unique<ComprehensionInitStep>();
   init_step->set_error_jump_offset(1);
-  path.push_back(absl::WrapUnique(init_step));
-  path.push_back(std::make_unique<GetListKeysResultStep>());
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<GetListKeysResultStep>()));
 
   auto expression =
       MakeExpression(std::move(path), /*unknown_attributes=*/true);
@@ -129,7 +129,7 @@ TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
 
   auto eval_result = expression->Evaluate(activation, &arena);
 
-  ASSERT_OK(eval_result);
+  ASSERT_THAT(eval_result, IsOk());
   ASSERT_TRUE(eval_result->IsUnknownSet());
   const auto& attrs = eval_result->UnknownSetOrDie()->unknown_attributes();
 
@@ -140,13 +140,12 @@ TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
 
 TEST_F(ListKeysStepTest, ErrorPassedThrough) {
   ExecutionPath path;
-  auto result = CreateIdentStep("var", 0);
-  ASSERT_OK(result);
-  path.push_back(*std::move(result));
-  ComprehensionInitStep* init_step = new ComprehensionInitStep(1);
+  path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("var")));
+  auto init_step = std::make_unique<ComprehensionInitStep>();
   init_step->set_error_jump_offset(1);
-  path.push_back(absl::WrapUnique(init_step));
-  path.push_back(std::make_unique<GetListKeysResultStep>());
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<GetListKeysResultStep>()));
 
   auto expression = MakeExpression(std::move(path));
 
@@ -156,7 +155,7 @@ TEST_F(ListKeysStepTest, ErrorPassedThrough) {
   // Var not in activation, turns into cel error at eval time.
   auto eval_result = expression->Evaluate(activation, &arena);
 
-  ASSERT_OK(eval_result);
+  ASSERT_THAT(eval_result, IsOk());
   ASSERT_TRUE(eval_result->IsError());
   EXPECT_THAT(eval_result->ErrorOrDie()->message(),
               testing::HasSubstr("\"var\""));
@@ -165,13 +164,12 @@ TEST_F(ListKeysStepTest, ErrorPassedThrough) {
 
 TEST_F(ListKeysStepTest, UnknownSetPassedThrough) {
   ExecutionPath path;
-  auto result = CreateIdentStep("var", 0);
-  ASSERT_OK(result);
-  path.push_back(*std::move(result));
-  ComprehensionInitStep* init_step = new ComprehensionInitStep(1);
+  path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("var")));
+  auto init_step = std::make_unique<ComprehensionInitStep>();
   init_step->set_error_jump_offset(1);
-  path.push_back(absl::WrapUnique(init_step));
-  path.push_back(std::make_unique<GetListKeysResultStep>());
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<GetListKeysResultStep>()));
 
   auto expression =
       MakeExpression(std::move(path), /*unknown_attributes=*/true);
@@ -183,7 +181,7 @@ TEST_F(ListKeysStepTest, UnknownSetPassedThrough) {
 
   auto eval_result = expression->Evaluate(activation, &arena);
 
-  ASSERT_OK(eval_result);
+  ASSERT_THAT(eval_result, IsOk());
   ASSERT_TRUE(eval_result->IsUnknownSet());
   EXPECT_THAT(eval_result->UnknownSetOrDie()->unknown_attributes(), SizeIs(1));
 }
@@ -412,7 +410,7 @@ TEST_F(DirectComprehensionTest, Shortcircuit) {
 
   Value result;
   AttributeTrail trail;
-  ASSERT_OK(compre_step->Evaluate(frame, result, trail));
+  ASSERT_THAT(compre_step->Evaluate(frame, result, trail), IsOk());
   EXPECT_THAT(result, BoolValueIs(false));
 }
 
@@ -484,7 +482,7 @@ TEST_F(DirectComprehensionTest, Exhaustive) {
 
   Value result;
   AttributeTrail trail;
-  ASSERT_OK(compre_step->Evaluate(frame, result, trail));
+  ASSERT_THAT(compre_step->Evaluate(frame, result, trail), IsOk());
   EXPECT_THAT(result, BoolValueIs(false));
 }
 

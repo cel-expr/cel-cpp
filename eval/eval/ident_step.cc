@@ -29,8 +29,7 @@ using ::cel::runtime_internal::CreateError;
 
 class IdentStep : public ExpressionStepBase {
  public:
-  IdentStep(absl::string_view name, int64_t expr_id)
-      : ExpressionStepBase(expr_id), name_(name) {}
+  explicit IdentStep(absl::string_view name) : name_(name) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 
@@ -95,8 +94,8 @@ absl::StatusOr<ComprehensionSlots::Slot* absl_nonnull> LookupSlot(
 
 class SlotStep : public ExpressionStepBase {
  public:
-  SlotStep(absl::string_view name, size_t slot_index, int64_t expr_id)
-      : ExpressionStepBase(expr_id), name_(name), slot_index_(slot_index) {}
+  SlotStep(absl::string_view name, size_t slot_index)
+      : name_(name), slot_index_(slot_index) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     CEL_ASSIGN_OR_RETURN(const ComprehensionSlots::Slot* slot,
@@ -161,14 +160,14 @@ std::unique_ptr<DirectExpressionStep> CreateDirectSlotIdentStep(
   return std::make_unique<DirectSlotStep>(identifier, slot_index, expr_id);
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateIdentStep(
-    const absl::string_view name, int64_t expr_id) {
-  return std::make_unique<IdentStep>(name, expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateIdentStep(
+    const absl::string_view name) {
+  return std::make_unique<IdentStep>(name);
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateIdentStepForSlot(
-    const absl::string_view name, size_t slot_index, int64_t expr_id) {
-  return std::make_unique<SlotStep>(name, slot_index, expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateIdentStepForSlot(
+    const absl::string_view name, size_t slot_index) {
+  return std::make_unique<SlotStep>(name, slot_index);
 }
 
 }  // namespace google::api::expr::runtime

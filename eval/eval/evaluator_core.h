@@ -17,11 +17,13 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -33,8 +35,11 @@
 #include "common/value.h"
 #include "eval/eval/attribute_utility.h"
 #include "eval/eval/comprehension_slots.h"
+#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_stack.h"
 #include "eval/eval/iterator_stack.h"
+#include "eval/eval/lazy_init_step.h"
+#include "eval/eval/logic_step.h"
 #include "runtime/activation_interface.h"
 #include "runtime/internal/activation_attribute_matcher_access.h"
 #include "runtime/runtime.h"
@@ -54,16 +59,177 @@ class ExecutionFrame;
 
 using EvaluationListener = cel::TraceableProgram::EvaluationListener;
 
-// Class Expression represents single execution step.
+class ExpressionStepLogic;
+
+enum class ExpressionStepKind : uint16_t {
+  kMovedFrom = 0,
+  kGenericLogic = 1,
+  kIntConstant = 2,
+  kBoolConstant = 3,
+  kDoubleConstant = 4,
+  kNullConstant = 5,
+  kUintConstant = 6,
+  // Any constant that can't be inlined.
+  kOtherConstant = 7,
+  kLazyInit = 8,
+  kAssignSlotAndPop = 9,
+  kClearSlots = 10,
+  kBooleanNot = 11,
+  kNotStrictlyFalse = 12,
+  kBooleanOr = 13,
+  kBooleanAnd = 14,
+};
+
 class ExpressionStep {
  public:
-  explicit ExpressionStep(int64_t id, bool comes_from_ast = true)
-      : id_(id), comes_from_ast_(comes_from_ast) {}
-
+  // Move-only.
   ExpressionStep(const ExpressionStep&) = delete;
   ExpressionStep& operator=(const ExpressionStep&) = delete;
+  ExpressionStep(ExpressionStep&&);
+  ExpressionStep& operator=(ExpressionStep&&);
 
-  virtual ~ExpressionStep() = default;
+  ~ExpressionStep();
+
+  // Returns corresponding expression object ID.
+  // Requires that the input expression has IDs assigned to sub-expressions,
+  // e.g. via a checker. The default value 0 is returned if there is no
+  // expression associated (e.g. a jump step), or if there is no ID assigned to
+  // the corresponding expression. Useful for error scenarios where information
+  // from Expr object is needed to create CelError.
+  int64_t id() const {
+    return header_.id >= 0 ? static_cast<int64_t>(header_.id) : -1;
+  }
+
+  // Returns if the execution step comes from AST.
+  bool comes_from_ast() const { return header_.id >= 0; }
+
+  void Evaluate(ExecutionFrame* context) const;
+
+  const ExpressionStepLogic* GetGenericStep() const;
+  bool IsGenericStep() const;
+
+  static ExpressionStep MakeGenericStep(
+      std::unique_ptr<ExpressionStepLogic> logic, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kGenericLogic, id);
+    step.u_.logic = std::move(logic);
+    return step;
+  }
+
+  static ExpressionStep MakeConstant(const cel::Value& value, int64_t id = -1);
+
+  static ExpressionStep MakeLazyInitStep(size_t slot_index,
+                                         size_t subexpression_index,
+                                         int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kLazyInit, id);
+    ABSL_DCHECK_LT(slot_index, std::numeric_limits<uint32_t>::max());
+    ABSL_DCHECK_LT(subexpression_index, std::numeric_limits<uint32_t>::max());
+    step.u_.lazy_init = LazyInitStepInfo{slot_index, subexpression_index};
+    return step;
+  }
+
+  static ExpressionStep MakeAssignSlotAndPopStep(size_t slot_index,
+                                                 int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kAssignSlotAndPop, id);
+    ABSL_DCHECK_LT(slot_index, std::numeric_limits<uint32_t>::max());
+    step.u_.slot_index = slot_index;
+    return step;
+  }
+
+  static ExpressionStep MakeClearSlotStep(size_t slot_index, int64_t id = -1) {
+    return MakeClearSlotsStep(slot_index, 1, id);
+  }
+
+  static ExpressionStep MakeClearSlotsStep(size_t slot_index, size_t slot_count,
+                                           int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kClearSlots, id);
+    ABSL_DCHECK_LT(slot_index, std::numeric_limits<uint32_t>::max());
+    ABSL_DCHECK_LT(slot_count, std::numeric_limits<uint32_t>::max());
+    step.u_.clear_slots = ClearSlotStepInfo{slot_index, slot_count};
+    return step;
+  }
+
+  static ExpressionStep MakeBooleanNotStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kBooleanNot, id);
+  }
+
+  static ExpressionStep MakeNotStrictlyFalseStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kNotStrictlyFalse, id);
+  }
+
+  static ExpressionStep MakeBooleanOrStep(size_t num_args, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBooleanOr, id);
+    ABSL_DCHECK_LT(num_args, std::numeric_limits<uint32_t>::max());
+    step.u_.arg_count = num_args;
+    return step;
+  }
+
+  static ExpressionStep MakeBooleanAndStep(size_t num_args, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBooleanAnd, id);
+    ABSL_DCHECK_LT(num_args, std::numeric_limits<uint32_t>::max());
+    step.u_.arg_count = num_args;
+    return step;
+  }
+
+ private:
+  struct Header {
+    ExpressionStepKind kind;
+    uint16_t reserved;
+    int32_t id;
+  };
+
+  ExpressionStep() : header_{ExpressionStepKind::kMovedFrom, 0, -1} {}
+  ExpressionStep(ExpressionStepKind kind, int32_t id) : header_{kind, 0, id} {
+    header_ = {kind, 0, id};
+  }
+  ExpressionStep(ExpressionStepKind kind, int64_t id) : ExpressionStep() {
+    if (id < 0 || id > std::numeric_limits<int32_t>::max()) {
+      id = -1;
+    }
+    header_ = {kind, 0, static_cast<int32_t>(id)};
+  }
+  ExpressionStep(ExpressionStepKind kind, int32_t id,
+                 std::unique_ptr<ExpressionStepLogic> logic)
+      : ExpressionStep(kind, id) {
+    u_.logic = std::move(logic);
+  }
+
+  static void SwapToEmpty(ExpressionStep& step, ExpressionStep& empty_step);
+
+  friend void swap(ExpressionStep& lhs, ExpressionStep& rhs) {
+    ExpressionStep tmp;
+    SwapToEmpty(lhs, tmp);
+    SwapToEmpty(rhs, lhs);
+    SwapToEmpty(tmp, rhs);
+  }
+
+  friend bool GetIfConstant(const ExpressionStep& step, cel::Value& out);
+  friend bool IsConstant(const ExpressionStep& step);
+
+  Header header_;
+  union Data {
+    std::nullptr_t empty;
+    std::unique_ptr<ExpressionStepLogic> logic;
+    int64_t int_val;
+    uint64_t uint_val;
+    double double_val;
+    bool bool_val;
+    std::unique_ptr<cel::Value> other_val;
+    LazyInitStepInfo lazy_init;
+    size_t slot_index;
+    ClearSlotStepInfo clear_slots;
+    size_t arg_count;
+
+    Data() : empty(nullptr) {}
+    ~Data() {}
+  } u_;
+};
+
+static_assert(sizeof(ExpressionStep) == 16);
+
+// Class Expression represents single execution step.
+class ExpressionStepLogic {
+ public:
+  virtual ~ExpressionStepLogic() = default;
 
   // Performs actual evaluation.
   // Values are passed between Expression objects via EvaluatorStack, which is
@@ -74,32 +240,35 @@ class ExpressionStep {
   // modify execution order(perform jumps).
   virtual absl::Status Evaluate(ExecutionFrame* context) const = 0;
 
-  // Returns corresponding expression object ID.
-  // Requires that the input expression has IDs assigned to sub-expressions,
-  // e.g. via a checker. The default value 0 is returned if there is no
-  // expression associated (e.g. a jump step), or if there is no ID assigned to
-  // the corresponding expression. Useful for error scenarios where information
-  // from Expr object is needed to create CelError.
-  int64_t id() const { return id_; }
-
-  // Returns if the execution step comes from AST.
-  bool comes_from_ast() const { return comes_from_ast_; }
-
   // Return the type of the underlying expression step for special handling in
   // the planning phase. This should only be overridden by special cases, and
   // callers must not make any assumptions about the default case.
   virtual cel::NativeTypeId GetNativeTypeId() const {
     return cel::NativeTypeId();
   }
-
- private:
-  const int64_t id_;
-  const bool comes_from_ast_;
 };
 
-using ExecutionPath = std::vector<std::unique_ptr<const ExpressionStep>>;
-using ExecutionPathView =
-    absl::Span<const std::unique_ptr<const ExpressionStep>>;
+// Wrapper for direct steps to work with the stack machine impl.
+class WrappedDirectStep : public ExpressionStepLogic {
+ public:
+  explicit WrappedDirectStep(std::unique_ptr<DirectExpressionStep> impl,
+                             int64_t expr_id = -1)
+      : impl_(std::move(impl)) {}
+
+  absl::Status Evaluate(ExecutionFrame* frame) const override;
+
+  cel::NativeTypeId GetNativeTypeId() const override {
+    return cel::NativeTypeId::For<WrappedDirectStep>();
+  }
+
+  const DirectExpressionStep* wrapped() const { return impl_.get(); }
+
+ private:
+  std::unique_ptr<DirectExpressionStep> impl_;
+};
+
+using ExecutionPath = std::vector<ExpressionStep>;
+using ExecutionPathView = absl::Span<const ExpressionStep>;
 
 // Class that wraps the state that needs to be allocated for expression
 // evaluation. This can be reused to save on allocations.
@@ -281,6 +450,8 @@ class ExecutionFrameBase {
     return absl::OkStatus();
   }
 
+  absl::Status& abort_status() { return abort_status_; }
+
  protected:
   const cel::ActivationInterface* absl_nonnull activation_;
   EvaluationListener callback_;
@@ -294,6 +465,7 @@ class ExecutionFrameBase {
   ComprehensionSlots* absl_nonnull slots_;
   const int max_iterations_;
   int iterations_;
+  absl::Status abort_status_;
 };
 
 // ExecutionFrame manages the context needed for expression evaluation.
@@ -318,7 +490,7 @@ class ExecutionFrame : public ExecutionFrameBase {
         execution_path_(flat),
         value_stack_(&state.value_stack()),
         iterator_stack_(&state.iterator_stack()),
-        subexpressions_() {}
+        subexpressions_(&execution_path_, 1) {}
 
   ExecutionFrame(
       absl::Span<const ExecutionPathView> subexpressions,
@@ -375,7 +547,7 @@ class ExecutionFrame : public ExecutionFrameBase {
   void Call(size_t slot_index, size_t subexpression_index) {
     ABSL_DCHECK_LT(subexpression_index, subexpressions_.size());
     ExecutionPathView subexpression = subexpressions_[subexpression_index];
-    ABSL_DCHECK(subexpression != execution_path_);
+    ABSL_DCHECK(subexpression.data() != execution_path_.data());
     size_t return_pc = pc_;
     // return pc == size() is supported (a tail call).
     ABSL_DCHECK_LE(return_pc, execution_path_.size());
@@ -416,6 +588,15 @@ class ExecutionFrame : public ExecutionFrameBase {
   // Returns reference to the modern API activation.
   const cel::ActivationInterface& modern_activation() const {
     return *activation_;
+  }
+
+  void Abort(absl::Status status) {
+    ABSL_DCHECK(!subexpressions_.empty());
+    ABSL_DCHECK(!status.ok());
+    abort_status_.Update(std::move(status));
+    call_stack_.clear();
+    execution_path_ = subexpressions_[0];
+    pc_ = execution_path_.size();
   }
 
  private:
@@ -510,6 +691,68 @@ class FlatExpression {
   // kept alive.
   absl_nullable std::shared_ptr<google::protobuf::Arena> arena_;
 };
+
+// Helper functions for checking ExpressionStep kinds. Used for program
+// optimization.
+
+// Checks if the step is a constant and if so, writes the value into `out`.
+// Returns true if the step is a constant, false otherwise.
+bool GetIfConstant(const ExpressionStep& step, cel::Value& out);
+
+// Checks if the step is a constant.
+bool IsConstant(const ExpressionStep& step);
+
+// Implementation details.
+
+inline ExpressionStep::~ExpressionStep() {
+  switch (header_.kind) {
+    case ExpressionStepKind::kGenericLogic:
+      u_.logic.reset();
+      break;
+    case ExpressionStepKind::kOtherConstant:
+      u_.other_val.reset();
+      break;
+    case ExpressionStepKind::kMovedFrom:
+    case ExpressionStepKind::kIntConstant:
+    case ExpressionStepKind::kBoolConstant:
+    case ExpressionStepKind::kDoubleConstant:
+    case ExpressionStepKind::kNullConstant:
+    case ExpressionStepKind::kUintConstant:
+    case ExpressionStepKind::kLazyInit:
+    case ExpressionStepKind::kAssignSlotAndPop:
+    case ExpressionStepKind::kClearSlots:
+    case ExpressionStepKind::kBooleanNot:
+    case ExpressionStepKind::kNotStrictlyFalse:
+    case ExpressionStepKind::kBooleanOr:
+    case ExpressionStepKind::kBooleanAnd:
+      break;
+    default:
+      ABSL_UNREACHABLE();
+  }
+  header_.kind = ExpressionStepKind::kMovedFrom;
+  u_.empty = nullptr;
+}
+
+inline const ExpressionStepLogic* ExpressionStep::GetGenericStep() const {
+  ABSL_DCHECK_EQ(header_.kind, ExpressionStepKind::kGenericLogic);
+  return u_.logic.get();
+}
+
+inline bool ExpressionStep::IsGenericStep() const {
+  return header_.kind == ExpressionStepKind::kGenericLogic;
+}
+
+inline ExpressionStep::ExpressionStep(ExpressionStep&& other)
+    : ExpressionStep() {
+  SwapToEmpty(other, *this);
+}
+
+inline ExpressionStep& ExpressionStep::operator=(ExpressionStep&& other) {
+  ExpressionStep temp;
+  SwapToEmpty(*this, temp);
+  SwapToEmpty(other, *this);
+  return *this;
+}
 
 }  // namespace google::api::expr::runtime
 
