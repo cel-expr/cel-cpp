@@ -1,8 +1,10 @@
 #include "eval/eval/evaluator_core.h"
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "cel/expr/syntax.pb.h"
 #include "absl/status/status.h"
@@ -25,6 +27,7 @@
 
 namespace google::api::expr::runtime {
 
+using ::absl_testing::IsOk;
 using ::cel::IntValue;
 using ::cel::TypeProvider;
 using ::cel::interop_internal::CreateIntValue;
@@ -32,13 +35,14 @@ using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::expr::Expr;
 using ::google::api::expr::runtime::RegisterBuiltinFunctions;
 using ::testing::_;
+using ::testing::ElementsAre;
 using ::testing::Eq;
 
 // Fake expression implementation
 // Pushes int64(0) on top of value stack.
-class FakeConstExpressionStep : public ExpressionStep {
+class FakeConstExpressionStep : public ExpressionStepLogic {
  public:
-  FakeConstExpressionStep() : ExpressionStep(0, true) {}
+  FakeConstExpressionStep() = default;
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     frame->value_stack().Push(CreateIntValue(0));
@@ -48,9 +52,9 @@ class FakeConstExpressionStep : public ExpressionStep {
 
 // Fake expression implementation
 // Increments argument on top of the stack.
-class FakeIncrementExpressionStep : public ExpressionStep {
+class FakeIncrementExpressionStep : public ExpressionStepLogic {
  public:
-  FakeIncrementExpressionStep() : ExpressionStep(0, true) {}
+  FakeIncrementExpressionStep() = default;
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     auto value = frame->value_stack().Peek();
@@ -67,15 +71,13 @@ TEST(EvaluatorCoreTest, ExecutionFrameNext) {
   google::protobuf::Arena arena;
   cel::runtime_internal::RuntimeTypeProvider type_provider(
       cel::internal::GetTestingDescriptorPool());
-  auto const_step = std::make_unique<const FakeConstExpressionStep>();
-  auto incr_step1 = std::make_unique<const FakeIncrementExpressionStep>();
-  auto incr_step2 = std::make_unique<const FakeIncrementExpressionStep>();
 
-  path.push_back(std::move(const_step));
-  path.push_back(std::move(incr_step1));
-  path.push_back(std::move(incr_step2));
-
-  auto dummy_expr = std::make_unique<Expr>();
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeConstExpressionStep>()));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>()));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>()));
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
@@ -87,21 +89,20 @@ TEST(EvaluatorCoreTest, ExecutionFrameNext) {
       cel::internal::GetTestingMessageFactory(), &arena);
   ExecutionFrame frame(path, activation, options, state);
 
-  EXPECT_THAT(frame.Next(), Eq(path[0].get()));
-  EXPECT_THAT(frame.Next(), Eq(path[1].get()));
-  EXPECT_THAT(frame.Next(), Eq(path[2].get()));
+  EXPECT_THAT(frame.Next(), Eq(&path[0]));
+  EXPECT_THAT(frame.Next(), Eq(&path[1]));
+  EXPECT_THAT(frame.Next(), Eq(&path[2]));
   EXPECT_THAT(frame.Next(), Eq(nullptr));
 }
 
 TEST(EvaluatorCoreTest, SimpleEvaluatorTest) {
   ExecutionPath path;
-  auto const_step = std::make_unique<FakeConstExpressionStep>();
-  auto incr_step1 = std::make_unique<FakeIncrementExpressionStep>();
-  auto incr_step2 = std::make_unique<FakeIncrementExpressionStep>();
-
-  path.push_back(std::move(const_step));
-  path.push_back(std::move(incr_step1));
-  path.push_back(std::move(incr_step2));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeConstExpressionStep>()));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>()));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>()));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
@@ -113,11 +114,59 @@ TEST(EvaluatorCoreTest, SimpleEvaluatorTest) {
   google::protobuf::Arena arena;
 
   auto status = impl.Evaluate(activation, &arena);
-  EXPECT_OK(status);
+  ASSERT_THAT(status, IsOk());
 
   auto value = status.value();
   EXPECT_TRUE(value.IsInt64());
   EXPECT_THAT(value.Int64OrDie(), Eq(2));
+}
+
+TEST(EvaluatorCoreTest, MakeConstant) {
+  cel::runtime_internal::RuntimeTypeProvider type_provider(
+      cel::internal::GetTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  cel::Activation activation;
+  cel::RuntimeOptions options;
+
+  auto evaluate_constant =
+      [&](const cel::Value& value) -> absl::StatusOr<cel::Value> {
+    ExecutionPath path;
+    path.push_back(ExpressionStep::MakeConstant(value));
+    FlatExpression expr(std::move(path), 0, type_provider, options);
+    auto state = expr.MakeEvaluatorState(
+        cel::internal::GetTestingDescriptorPool(),
+        cel::internal::GetTestingMessageFactory(), &arena);
+    return expr.EvaluateWithCallback(activation, nullptr, nullptr, state);
+  };
+
+  ASSERT_OK_AND_ASSIGN(auto bool_val, evaluate_constant(cel::BoolValue(true)));
+  EXPECT_TRUE(bool_val.IsBool());
+  EXPECT_TRUE(bool_val.GetBool().NativeValue());
+
+  ASSERT_OK_AND_ASSIGN(auto int_val, evaluate_constant(cel::IntValue(42)));
+  EXPECT_TRUE(int_val.IsInt());
+  EXPECT_EQ(int_val.GetInt().NativeValue(), 42);
+
+  ASSERT_OK_AND_ASSIGN(auto uint_val, evaluate_constant(cel::UintValue(100)));
+  EXPECT_TRUE(uint_val.IsUint());
+  EXPECT_EQ(uint_val.GetUint().NativeValue(), 100);
+
+  ASSERT_OK_AND_ASSIGN(auto double_val,
+                       evaluate_constant(cel::DoubleValue(3.14)));
+  EXPECT_TRUE(double_val.IsDouble());
+  EXPECT_DOUBLE_EQ(double_val.GetDouble().NativeValue(), 3.14);
+
+  ASSERT_OK_AND_ASSIGN(auto null_val, evaluate_constant(cel::NullValue()));
+  EXPECT_TRUE(null_val.IsNull());
+
+  ASSERT_OK_AND_ASSIGN(auto str_val,
+                       evaluate_constant(cel::StringValue("hello")));
+  EXPECT_TRUE(str_val.IsString());
+  EXPECT_EQ(str_val.GetString().ToString(), "hello");
+
+  auto step_with_id = ExpressionStep::MakeConstant(cel::IntValue(1), 123);
+  EXPECT_EQ(step_with_id.id(), 123);
+  EXPECT_TRUE(step_with_id.comes_from_ast());
 }
 
 class MockTraceCallback {
@@ -125,6 +174,44 @@ class MockTraceCallback {
   MOCK_METHOD(void, Call,
               (int64_t expr_id, const CelValue& value, google::protobuf::Arena*));
 };
+
+TEST(EvaluatorCoreTest, TraceFilterById) {
+  ExecutionPath path;
+  // Step with ID 0 should trigger trace callback.
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeConstExpressionStep>(), /*id=*/0));
+  // Steps with large IDs (> int32_t max) should not trigger trace callback.
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>(),
+      /*id=*/static_cast<int64_t>(std::numeric_limits<int32_t>::max()) + 1));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>(),
+      /*id=*/std::numeric_limits<int64_t>::max()));
+  // Steps with negative IDs should not trigger trace callback.
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>(), /*id=*/-1));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>(), /*id=*/-100));
+
+  auto env = NewTestingRuntimeEnv();
+  CelExpressionFlatImpl impl(
+      env, FlatExpression(std::move(path), 0,
+                          env->type_registry.GetComposedTypeProvider(),
+                          cel::RuntimeOptions{}));
+
+  Activation activation;
+  google::protobuf::Arena arena;
+
+  std::vector<int64_t> traced_ids;
+  auto eval_status = impl.Trace(
+      activation, &arena,
+      [&](int64_t expr_id, const CelValue& value, google::protobuf::Arena* arena) {
+        traced_ids.push_back(expr_id);
+        return absl::OkStatus();
+      });
+  ASSERT_THAT(eval_status, IsOk());
+  EXPECT_THAT(traced_ids, ElementsAre(0));
+}
 
 TEST(EvaluatorCoreTest, TraceTest) {
   Expr expr;
@@ -186,7 +273,7 @@ TEST(EvaluatorCoreTest, TraceTest) {
   cel::RuntimeOptions options;
   options.short_circuiting = false;
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
-  ASSERT_OK(RegisterBuiltinFunctions(builder.GetRegistry()));
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder.CreateExpression(&expr, &source_info));
 
@@ -218,7 +305,7 @@ TEST(EvaluatorCoreTest, TraceTest) {
         callback.Call(expr_id, value, arena);
         return absl::OkStatus();
       });
-  ASSERT_OK(eval_status);
+  ASSERT_THAT(eval_status, IsOk());
 }
 
 }  // namespace google::api::expr::runtime

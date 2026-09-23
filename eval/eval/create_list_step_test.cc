@@ -80,16 +80,13 @@ absl::StatusOr<CelValue> RunExpression(
   for (auto value : values) {
     auto& expr0 = create_list.mutable_elements().emplace_back().mutable_expr();
     expr0.mutable_const_expr().set_int64_value(value);
-    CEL_ASSIGN_OR_RETURN(
-        auto const_step,
-        CreateConstValueStep(cel::interop_internal::CreateIntValue(value),
-                             /*expr_id=*/-1));
-    path.push_back(std::move(const_step));
+    path.push_back(ExpressionStep::MakeConstant(
+        cel::interop_internal::CreateIntValue(value)));
   }
 
-  CEL_ASSIGN_OR_RETURN(auto step,
-                       CreateCreateListStep(create_list, dummy_expr.id()));
-  path.push_back(std::move(step));
+  CEL_ASSIGN_OR_RETURN(auto step, CreateCreateListStep(create_list));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::move(step), dummy_expr.id()));
   cel::RuntimeOptions options;
   if (enable_unknowns) {
     options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
@@ -122,15 +119,13 @@ absl::StatusOr<CelValue> RunExpressionWithCelValues(
     expr0.set_id(ind);
     expr0.mutable_ident_expr().set_name(var_name);
 
-    CEL_ASSIGN_OR_RETURN(auto ident_step,
-                         CreateIdentStep(var_name, /*expr_id=*/-1));
-    path.push_back(std::move(ident_step));
+    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep(var_name)));
     activation.InsertValue(var_name, value);
   }
 
-  CEL_ASSIGN_OR_RETURN(auto step0,
-                       CreateCreateListStep(create_list, dummy_expr.id()));
-  path.push_back(std::move(step0));
+  CEL_ASSIGN_OR_RETURN(auto step0, CreateCreateListStep(create_list));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::move(step0), dummy_expr.id()));
 
   cel::RuntimeOptions options;
   if (enable_unknowns) {
@@ -164,9 +159,9 @@ TEST(CreateListStepTest, TestCreateListStackUnderflow) {
   auto& expr0 = create_list.mutable_elements().emplace_back().mutable_expr();
   expr0.mutable_const_expr().set_int64_value(1);
 
-  ASSERT_OK_AND_ASSIGN(auto step0,
-                       CreateCreateListStep(create_list, dummy_expr.id()));
-  path.push_back(std::move(step0));
+  ASSERT_OK_AND_ASSIGN(auto step0, CreateCreateListStep(create_list));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::move(step0), dummy_expr.id()));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl cel_expr(
@@ -292,7 +287,7 @@ TEST(CreateDirectListStep, Basic) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<ListValue>(result));
   EXPECT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(2));
@@ -320,7 +315,7 @@ TEST(CreateDirectListStep, ForwardFirstError) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<ErrorValue>(result));
   EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
@@ -332,9 +327,10 @@ std::vector<std::string> UnknownAttrNames(const UnknownValue& v) {
   names.reserve(v.ToAttributeSet().size());
 
   for (const auto& attr : v.ToAttributeSet()) {
-    EXPECT_OK(attr.AsString().status());
+    EXPECT_THAT(attr.AsString().status(), IsOk());
     names.push_back(attr.AsString().value_or("<empty>"));
   }
+
   return names;
 }
 
@@ -368,7 +364,7 @@ TEST(CreateDirectListStep, MergeUnknowns) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<UnknownValue>(result));
   EXPECT_THAT(UnknownAttrNames(Cast<UnknownValue>(result)),
@@ -399,7 +395,7 @@ TEST(CreateDirectListStep, ErrorBeforeUnknown) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<ErrorValue>(result));
   EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
@@ -447,7 +443,7 @@ TEST(CreateDirectListStep, MissingAttribute) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<ErrorValue>(result));
   EXPECT_THAT(
@@ -476,7 +472,7 @@ TEST(CreateDirectListStep, OptionalPresentSet) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<ListValue>(result));
   auto list = Cast<ListValue>(result);
@@ -509,7 +505,7 @@ TEST(CreateDirectListStep, OptionalAbsentNotSet) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<ListValue>(result));
   auto list = Cast<ListValue>(result);
@@ -542,7 +538,7 @@ TEST(CreateDirectListStep, PartialUnknown) {
   cel::Value result;
   AttributeTrail attr;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr));
+  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
   ASSERT_TRUE(InstanceOf<UnknownValue>(result));
   EXPECT_THAT(UnknownAttrNames(Cast<UnknownValue>(result)),

@@ -27,8 +27,15 @@ namespace cel::runtime_internal {
 
 class IteratorStack final {
  public:
+  struct Entry {
+    absl_nonnull ValueIteratorPtr iterator;
+    size_t iter_slot;
+    size_t iter2_slot;
+    size_t accu_slot;
+  };
+
   explicit IteratorStack(size_t max_size) : max_size_(max_size) {
-    iterators_.reserve(max_size_);
+    entries_.reserve(max_size_);
   }
 
   IteratorStack(const IteratorStack&) = delete;
@@ -37,38 +44,55 @@ class IteratorStack final {
   IteratorStack& operator=(const IteratorStack&) = delete;
   IteratorStack& operator=(IteratorStack&&) = delete;
 
-  size_t size() const { return iterators_.size(); }
+  size_t size() const { return entries_.size(); }
 
-  bool empty() const { return iterators_.empty(); }
+  bool empty() const { return entries_.empty(); }
 
-  bool full() const { return iterators_.size() == max_size_; }
+  bool full() const { return entries_.size() == max_size_; }
 
   size_t max_size() const { return max_size_; }
 
-  void Clear() { iterators_.clear(); }
+  void Clear() { entries_.clear(); }
 
-  void Push(absl_nonnull ValueIteratorPtr iterator) {
+  void Push(absl_nonnull ValueIteratorPtr iterator, size_t iter_slot,
+            size_t iter2_slot, size_t accu_slot) {
     ABSL_DCHECK(!full());
     ABSL_DCHECK(iterator != nullptr);
 
-    iterators_.push_back(std::move(iterator));
+    entries_.push_back(
+        Entry{std::move(iterator), iter_slot, iter2_slot, accu_slot});
   }
 
-  ValueIterator* absl_nonnull Peek() {
-    ABSL_DCHECK(!empty());
-    ABSL_DCHECK(iterators_.back() != nullptr);
+  void Push(absl_nonnull ValueIteratorPtr iterator, size_t iter_slot,
+            size_t accu_slot) {
+    ABSL_DCHECK(!full());
+    ABSL_DCHECK(iterator != nullptr);
 
-    return iterators_.back().get();
+    entries_.push_back(Entry{std::move(iterator), iter_slot, 0, accu_slot});
+  }
+
+  ValueIterator* absl_nonnull PeekIterator() {
+    ABSL_DCHECK(!empty());
+
+    return entries_.back().iterator.get();
+  }
+
+  // Returns a pointer to the top entry in the stack.
+  // Invalidated by Pop() and Push().
+  Entry* absl_nonnull Peek() {
+    ABSL_DCHECK(!empty());
+
+    return &entries_.back();
   }
 
   void Pop() {
     ABSL_DCHECK(!empty());
 
-    iterators_.pop_back();
+    entries_.pop_back();
   }
 
  private:
-  std::vector<absl_nonnull ValueIteratorPtr> iterators_;
+  std::vector<Entry> entries_;
   size_t max_size_;
 };
 

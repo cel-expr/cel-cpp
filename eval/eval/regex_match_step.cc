@@ -59,9 +59,8 @@ struct MatchesVisitor final {
 
 class RegexMatchStep final : public ExpressionStepBase {
  public:
-  RegexMatchStep(int64_t expr_id, std::shared_ptr<const RE2> re2)
-      : ExpressionStepBase(expr_id, /*comes_from_ast=*/true),
-        re2_(std::move(re2)) {}
+  explicit RegexMatchStep(std::shared_ptr<const RE2> re2)
+      : ExpressionStepBase(), re2_(std::move(re2)) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     if (!frame->value_stack().HasEnough(kNumRegexMatchArguments)) {
@@ -127,9 +126,9 @@ std::unique_ptr<DirectExpressionStep> CreateDirectRegexMatchStep(
                                                 std::move(re2));
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateRegexMatchStep(
-    std::shared_ptr<const RE2> re2, int64_t expr_id) {
-  return std::make_unique<RegexMatchStep>(expr_id, std::move(re2));
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateRegexMatchStep(
+    std::shared_ptr<const RE2> re2) {
+  return std::make_unique<RegexMatchStep>(std::move(re2));
 }
 
 }  // namespace google::api::expr::runtime
