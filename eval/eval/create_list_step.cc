@@ -35,11 +35,8 @@ using ::cel::common_internal::NewListValueBuilder;
 
 class CreateListStep : public ExpressionStepBase {
  public:
-  CreateListStep(int64_t expr_id, int list_size,
-                 absl::flat_hash_set<int> optional_indices)
-      : ExpressionStepBase(expr_id),
-        list_size_(list_size),
-        optional_indices_(std::move(optional_indices)) {}
+  CreateListStep(int list_size, absl::flat_hash_set<int> optional_indices)
+      : list_size_(list_size), optional_indices_(std::move(optional_indices)) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 
@@ -226,7 +223,7 @@ class CreateListDirectStep : public DirectExpressionStep {
 
 class MutableListStep : public ExpressionStepBase {
  public:
-  explicit MutableListStep(int64_t expr_id) : ExpressionStepBase(expr_id) {}
+  MutableListStep() = default;
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
 };
@@ -247,9 +244,9 @@ class DirectMutableListStep : public DirectExpressionStep {
                         AttributeTrail& attribute) const override;
 };
 
-absl::Status DirectMutableListStep::Evaluate(
-    ExecutionFrameBase& frame, Value& result,
-    AttributeTrail& attribute_trail) const {
+absl::Status DirectMutableListStep::Evaluate(ExecutionFrameBase& frame,
+                                             Value& result,
+                                             AttributeTrail& attribute) const {
   result = cel::CustomListValue(
       cel::common_internal::NewMutableListValue(frame.arena()), frame.arena());
   return absl::OkStatus();
@@ -264,15 +261,15 @@ std::unique_ptr<DirectExpressionStep> CreateDirectListStep(
       std::move(deps), std::move(optional_indices), expr_id);
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateCreateListStep(
-    const cel::ListExpr& create_list_expr, int64_t expr_id) {
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateCreateListStep(
+    const cel::ListExpr& create_list_expr) {
   return std::make_unique<CreateListStep>(
-      expr_id, create_list_expr.elements().size(),
+      create_list_expr.elements().size(),
       MakeOptionalIndicesSet(create_list_expr));
 }
 
-std::unique_ptr<ExpressionStep> CreateMutableListStep(int64_t expr_id) {
-  return std::make_unique<MutableListStep>(expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateMutableListStep() {
+  return std::make_unique<MutableListStep>();
 }
 
 std::unique_ptr<DirectExpressionStep> CreateDirectMutableListStep(

@@ -35,9 +35,9 @@ std::unique_ptr<DirectExpressionStep> CreateDirectCreateStructStep(
 
 // Creates an `ExpressionStep` which performs `CreateStruct` for a
 // message/struct.
-std::unique_ptr<ExpressionStep> CreateCreateStructStep(
+std::unique_ptr<ExpressionStepLogic> CreateCreateStructStep(
     std::string name, std::vector<std::string> field_keys,
-    absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id);
+    absl::flat_hash_set<int32_t> optional_indices);
 
 }  // namespace google::api::expr::runtime
 

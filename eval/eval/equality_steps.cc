@@ -107,8 +107,7 @@ class DirectEqualityStep : public DirectExpressionStep {
 
 class IterativeEqualityStep : public ExpressionStepBase {
  public:
-  explicit IterativeEqualityStep(bool negation, int64_t expr_id)
-      : ExpressionStepBase(expr_id), negation_(negation) {}
+  explicit IterativeEqualityStep(bool negation) : negation_(negation) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     if (!frame->value_stack().HasEnough(2)) {
@@ -244,7 +243,7 @@ class DirectInStep : public DirectExpressionStep {
 
 class IterativeInStep : public ExpressionStepBase {
  public:
-  explicit IterativeInStep(int64_t expr_id) : ExpressionStepBase(expr_id) {}
+  IterativeInStep() = default;
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     if (!frame->value_stack().HasEnough(2)) {
@@ -272,9 +271,8 @@ std::unique_ptr<DirectExpressionStep> CreateDirectEqualityStep(
 }
 
 // Factory method for iterative _==_ and _!=_ Execution step
-std::unique_ptr<ExpressionStep> CreateEqualityStep(bool negation,
-                                                   int64_t expr_id) {
-  return std::make_unique<IterativeEqualityStep>(negation, expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateEqualityStep(bool negation) {
+  return std::make_unique<IterativeEqualityStep>(negation);
 }
 
 // Factory method for recursive @in Execution step
@@ -286,8 +284,8 @@ std::unique_ptr<DirectExpressionStep> CreateDirectInStep(
 }
 
 // Factory method for iterative @in Execution step
-std::unique_ptr<ExpressionStep> CreateInStep(int64_t expr_id) {
-  return std::make_unique<IterativeInStep>(expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateInStep() {
+  return std::make_unique<IterativeInStep>();
 }
 
 }  // namespace google::api::expr::runtime

@@ -38,8 +38,8 @@ using ::cel::runtime_internal::CreateNoMatchingOverloadError;
 class JumpStep : public JumpStepBase {
  public:
   // Constructs FunctionStep that uses overloads specified.
-  JumpStep(absl::optional<int> jump_offset, int64_t expr_id)
-      : JumpStepBase(jump_offset, expr_id) {}
+  explicit JumpStep(absl::optional<int> jump_offset)
+      : JumpStepBase(jump_offset) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     return Jump(frame);
@@ -49,8 +49,8 @@ class JumpStep : public JumpStepBase {
 class CondJumpStep : public JumpStepBase {
  public:
   CondJumpStep(bool jump_condition, absl::optional<int> jump_offset,
-               size_t stack_size, int64_t expr_id)
-      : JumpStepBase(jump_offset, expr_id),
+               size_t stack_size)
+      : JumpStepBase(jump_offset),
         jump_condition_(jump_condition),
         stack_size_(stack_size) {}
 
@@ -79,8 +79,8 @@ class CondJumpStep : public JumpStepBase {
 
 class TernaryCondJumpStep : public JumpStepBase {
  public:
-  TernaryCondJumpStep(absl::optional<int> jump_offset, int64_t expr_id)
-      : JumpStepBase(jump_offset, expr_id) {}
+  explicit TernaryCondJumpStep(absl::optional<int> jump_offset)
+      : JumpStepBase(jump_offset) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     // Peek the top value
@@ -109,8 +109,8 @@ class BoolCheckJumpStep : public JumpStepBase {
   // - jump to the label if it is unknown value
   // - jump to the label if it is neither an error nor a boolean, pops it and
   // pushes "no matching overload" error
-  BoolCheckJumpStep(absl::optional<int> jump_offset, int64_t expr_id)
-      : JumpStepBase(jump_offset, expr_id) {}
+  explicit BoolCheckJumpStep(absl::optional<int> jump_offset)
+      : JumpStepBase(jump_offset) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     // Peek the top value
@@ -144,29 +144,28 @@ class BoolCheckJumpStep : public JumpStepBase {
 // Factory method for Conditional Jump step.
 std::unique_ptr<JumpStepBase> CreateCondJumpStep(
     bool jump_condition, absl::optional<int> jump_offset,
-    size_t expected_stack_size, int64_t expr_id) {
+    size_t expected_stack_size) {
   return std::make_unique<CondJumpStep>(jump_condition, jump_offset,
-                                        expected_stack_size, expr_id);
+                                        expected_stack_size);
 }
 
 // Factory method for Ternary Conditional Jump step.
 std::unique_ptr<JumpStepBase> CreateTernaryCondJumpStep(
-    absl::optional<int> jump_offset, int64_t expr_id) {
-  return std::make_unique<TernaryCondJumpStep>(jump_offset, expr_id);
+    absl::optional<int> jump_offset) {
+  return std::make_unique<TernaryCondJumpStep>(jump_offset);
 }
 
 // Factory method for Jump step.
-std::unique_ptr<JumpStepBase> CreateJumpStep(absl::optional<int> jump_offset,
-                                             int64_t expr_id) {
-  return std::make_unique<JumpStep>(jump_offset, expr_id);
+std::unique_ptr<JumpStepBase> CreateJumpStep(absl::optional<int> jump_offset) {
+  return std::make_unique<JumpStep>(jump_offset);
 }
 
 // Factory method for Conditional Jump step.
 // Conditional Jump requires a value to sit on the stack.
 // If this value is an error or unknown, a jump is performed.
 std::unique_ptr<JumpStepBase> CreateBoolCheckJumpStep(
-    absl::optional<int> jump_offset, int64_t expr_id) {
-  return std::make_unique<BoolCheckJumpStep>(jump_offset, expr_id);
+    absl::optional<int> jump_offset) {
+  return std::make_unique<BoolCheckJumpStep>(jump_offset);
 }
 
 }  // namespace google::api::expr::runtime

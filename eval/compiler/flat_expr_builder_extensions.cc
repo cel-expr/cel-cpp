@@ -205,7 +205,7 @@ void Subexpression::Flatten() {
     return;
   }
 
-  std::vector<std::unique_ptr<const ExpressionStep>> flat;
+  ExecutionPath flat;
 
   std::vector<Record> flatten_stack;
 
@@ -221,8 +221,10 @@ void Subexpression::Flatten() {
       elements.clear();
       continue;
     } else if (subexpr->IsRecursive()) {
-      flat.push_back(std::make_unique<WrappedDirectStep>(
-          std::move(subexpr->ExtractRecursiveProgram().step),
+      flat.push_back(ExpressionStep::MakeGenericStep(
+          std::make_unique<WrappedDirectStep>(
+              std::move(subexpr->ExtractRecursiveProgram().step),
+              subexpr->self_->id()),
           subexpr->self_->id()));
       continue;
     }
@@ -237,8 +239,7 @@ void Subexpression::Flatten() {
         flatten_stack.push_back({subexpr, i + 1});
         flatten_stack.push_back({*child, 0});
         break;
-      } else if (auto* step =
-                     absl::get_if<std::unique_ptr<ExpressionStep>>(&element);
+      } else if (auto* step = absl::get_if<ExpressionStep>(&element);
                  step != nullptr) {
         flat.push_back(std::move(*step));
       } else {
@@ -259,8 +260,7 @@ Subexpression::RecursiveProgram Subexpression::ExtractRecursiveProgram() {
   return result;
 }
 
-bool Subexpression::ExtractTo(
-    std::vector<std::unique_ptr<const ExpressionStep>>& out) {
+bool Subexpression::ExtractTo(ExecutionPath& out) {
   if (!IsFlattened()) {
     return false;
   }
@@ -272,9 +272,8 @@ bool Subexpression::ExtractTo(
   return true;
 }
 
-std::vector<std::unique_ptr<const ExpressionStep>>
-ProgramBuilder::FlattenSubexpression(Subexpression* expr) {
-  std::vector<std::unique_ptr<const ExpressionStep>> out;
+ExecutionPath ProgramBuilder::FlattenSubexpression(Subexpression* expr) {
+  ExecutionPath out;
 
   if (!expr) {
     return out;
@@ -347,13 +346,19 @@ Subexpression* absl_nullable ProgramBuilder::GetSubexpression(
   return it->second.get();
 }
 
-ExpressionStep* absl_nullable ProgramBuilder::AddStep(
-    std::unique_ptr<ExpressionStep> step) {
+ExpressionStep* absl_nullable ProgramBuilder::AddStep(ExpressionStep step) {
   if (current_ == nullptr) {
     return nullptr;
   }
-  auto* step_ptr = step.get();
-  return current_->AddStep(std::move(step)) ? step_ptr : nullptr;
+  if (current_->IsRecursive()) {
+    return nullptr;
+  }
+  if (current_->IsFlattened()) {
+    current_->flattened_elements().push_back(std::move(step));
+    return &current_->flattened_elements().back();
+  }
+  auto& elem = current_->elements().emplace_back(std::move(step));
+  return absl::get_if<ExpressionStep>(&elem);
 }
 
 int ProgramBuilder::ExtractSubexpression(const cel::Expr* expr) {
@@ -457,8 +462,8 @@ absl::Status PlannerContext::ReplaceSubplan(
   return absl::OkStatus();
 }
 
-absl::Status PlannerContext::AddSubplanStep(
-    const cel::Expr& node, std::unique_ptr<ExpressionStep> step) {
+absl::Status PlannerContext::AddSubplanStep(const cel::Expr& node,
+                                            ExpressionStep step) {
   auto* subexpression = program_builder_.GetSubexpression(&node);
 
   if (subexpression == nullptr) {
