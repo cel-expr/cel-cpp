@@ -339,11 +339,7 @@ absl::StatusOr<google::protobuf::MapValueConstRef> ProtoQualifyState::CheckMapIn
                      qualifier));
 
   if (!value_ref.has_value()) {
-    std::string key_string;
-    absl::StatusOr<std::string> key_string_or = qualifier.AsString();
-    if (key_string_or.ok()) {
-      key_string = *key_string_or;
-    }
+    std::string key_string = qualifier.ToString();
     return runtime_internal::CreateNoSuchKeyError(key_string);
   }
   return std::move(value_ref).value();

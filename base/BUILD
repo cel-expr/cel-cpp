@@ -38,12 +38,25 @@ cc_library(
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:btree",
+        "@com_google_absl//absl/functional:overload",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
+        "@com_google_absl//absl/types:optional_ref",
         "@com_google_absl//absl/types:span",
         "@com_google_absl//absl/types:variant",
+    ],
+)
+
+cc_test(
+    name = "attribute_test",
+    srcs = ["attribute_test.cc"],
+    deps = [
+        ":attributes",
+        "//internal:testing",
+        "@com_google_absl//absl/types:optional",
     ],
 )
 
