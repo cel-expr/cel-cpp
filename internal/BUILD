@@ -43,6 +43,26 @@ cc_test(
 )
 
 cc_library(
+    name = "arena_tree",
+    srcs = ["arena_tree.cc"],
+    hdrs = ["arena_tree.h"],
+    deps = [
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_test(
+    name = "arena_tree_test",
+    srcs = ["arena_tree_test.cc"],
+    deps = [
+        ":arena_tree",
+        ":testing",
+    ],
+)
+
+cc_library(
     name = "new",
     srcs = ["new.cc"],
     hdrs = ["new.h"],

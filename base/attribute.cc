@@ -17,12 +17,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 
 #include "absl/base/macros.h"
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/variant.h"
 #include "base/kind.h"
 #include "internal/status_macros.h"
@@ -36,14 +39,10 @@ class AttributeStringPrinter {
  public:
   // String representation for the given qualifier is appended to output.
   // output must be non-null.
-  explicit AttributeStringPrinter(std::string* output, Kind type)
-      : output_(*output), type_(type) {}
+  explicit AttributeStringPrinter(std::string* output) : output_(*output) {}
 
-  absl::Status operator()(const Kind& ignored) const {
-    // Attributes are represented as a variant, with illegal attribute
-    // qualifiers represented with their type as the first alternative.
-    return absl::InvalidArgumentError(
-        absl::StrCat("Unsupported attribute qualifier ", KindToString(type_)));
+  absl::Status operator()(absl::monostate) const {
+    return absl::InvalidArgumentError("bad attribute qualifier");
   }
 
   absl::Status operator()(int64_t index) {
@@ -68,22 +67,19 @@ class AttributeStringPrinter {
 
  private:
   std::string& output_;
-  Kind type_;
 };
 
 // Visitor for appending string representation for different qualifier kinds.
 class AttributeQualifierStringPrinter {
  public:
   // String representation for the given qualifier is appended to output.
-  explicit AttributeQualifierStringPrinter(std::string* absl_nonnull output,
-                                           Kind type)
-      : output_(*output), type_(type) {}
+  explicit AttributeQualifierStringPrinter(std::string* absl_nonnull output)
+      : output_(*output) {}
 
-  absl::Status operator()(const Kind& ignored) const {
+  absl::Status operator()(absl::monostate) const {
     // Attributes are represented as a variant, with illegal attribute
     // qualifiers represented with their type as the first alternative.
-    return absl::InvalidArgumentError(
-        absl::StrCat("Unsupported attribute qualifier ", KindToString(type_)));
+    return absl::InvalidArgumentError("bad attribute qualifier");
   }
 
   absl::Status operator()(int64_t index) {
@@ -108,140 +104,24 @@ class AttributeQualifierStringPrinter {
 
  private:
   std::string& output_;
-  Kind type_;
 };
 
 struct AttributeQualifierTypeVisitor final {
-  Kind operator()(const Kind& type) const { return type; }
+  Kind operator()(absl::monostate) const { return Kind::kNull; }
 
-  Kind operator()(int64_t ignored) const {
-    static_cast<void>(ignored);
-    return Kind::kInt64;
-  }
+  Kind operator()(int64_t) const { return Kind::kInt64; }
 
-  Kind operator()(uint64_t ignored) const {
-    static_cast<void>(ignored);
-    return Kind::kUint64;
-  }
+  Kind operator()(uint64_t) const { return Kind::kUint64; }
 
-  Kind operator()(const std::string& ignored) const {
-    static_cast<void>(ignored);
-    return Kind::kString;
-  }
+  Kind operator()(const std::string&) const { return Kind::kString; }
 
-  Kind operator()(bool ignored) const {
-    static_cast<void>(ignored);
-    return Kind::kBool;
-  }
-};
-
-struct AttributeQualifierTypeComparator final {
-  const Kind lhs;
-
-  bool operator()(const Kind& rhs) const {
-    return static_cast<int>(lhs) < static_cast<int>(rhs);
-  }
-
-  bool operator()(int64_t) const { return false; }
-
-  bool operator()(uint64_t other) const { return false; }
-
-  bool operator()(const std::string&) const { return false; }
-
-  bool operator()(bool other) const { return false; }
-};
-
-struct AttributeQualifierIntComparator final {
-  const int64_t lhs;
-
-  bool operator()(const Kind&) const { return true; }
-
-  bool operator()(int64_t rhs) const { return lhs < rhs; }
-
-  bool operator()(uint64_t) const { return true; }
-
-  bool operator()(const std::string&) const { return true; }
-
-  bool operator()(bool) const { return false; }
-};
-
-struct AttributeQualifierUintComparator final {
-  const uint64_t lhs;
-
-  bool operator()(const Kind&) const { return true; }
-
-  bool operator()(int64_t) const { return false; }
-
-  bool operator()(uint64_t rhs) const { return lhs < rhs; }
-
-  bool operator()(const std::string&) const { return true; }
-
-  bool operator()(bool) const { return false; }
-};
-
-struct AttributeQualifierStringComparator final {
-  const std::string& lhs;
-
-  bool operator()(const Kind&) const { return true; }
-
-  bool operator()(int64_t) const { return false; }
-
-  bool operator()(uint64_t) const { return false; }
-
-  bool operator()(const std::string& rhs) const { return lhs < rhs; }
-
-  bool operator()(bool) const { return false; }
-};
-
-struct AttributeQualifierBoolComparator final {
-  const bool lhs;
-
-  bool operator()(const Kind&) const { return true; }
-
-  bool operator()(int64_t) const { return true; }
-
-  bool operator()(uint64_t) const { return true; }
-
-  bool operator()(const std::string&) const { return true; }
-
-  bool operator()(bool rhs) const { return lhs < rhs; }
+  Kind operator()(bool) const { return Kind::kBool; }
 };
 
 }  // namespace
 
-struct AttributeQualifier::ComparatorVisitor final {
-  const AttributeQualifier::Variant& rhs;
-
-  bool operator()(const Kind& lhs) const {
-    return absl::visit(AttributeQualifierTypeComparator{lhs}, rhs);
-  }
-
-  bool operator()(int64_t lhs) const {
-    return absl::visit(AttributeQualifierIntComparator{lhs}, rhs);
-  }
-
-  bool operator()(uint64_t lhs) const {
-    return absl::visit(AttributeQualifierUintComparator{lhs}, rhs);
-  }
-
-  bool operator()(const std::string& lhs) const {
-    return absl::visit(AttributeQualifierStringComparator{lhs}, rhs);
-  }
-
-  bool operator()(bool lhs) const {
-    return absl::visit(AttributeQualifierBoolComparator{lhs}, rhs);
-  }
-};
-
 Kind AttributeQualifier::kind() const {
   return absl::visit(AttributeQualifierTypeVisitor{}, value_);
-}
-
-bool AttributeQualifier::operator<(const AttributeQualifier& other) const {
-  // The order is not publicly documented because it is subject to change.
-  // Currently we sort in the following order, with each type being sorted
-  // against itself: bool, int, uint, string, type.
-  return absl::visit(ComparatorVisitor{other.value_}, value_);
 }
 
 bool Attribute::operator==(const Attribute& other) const {
@@ -296,7 +176,7 @@ bool Attribute::operator<(const Attribute& other) const {
   return false;
 }
 
-const absl::StatusOr<std::string> Attribute::AsString() const {
+absl::StatusOr<std::string> Attribute::AsString() const {
   if (variable_name().empty()) {
     return absl::InvalidArgumentError(
         "Only ident rooted attributes are supported.");
@@ -305,26 +185,335 @@ const absl::StatusOr<std::string> Attribute::AsString() const {
   std::string result = std::string(variable_name());
 
   for (const auto& qualifier : qualifier_path()) {
-    CEL_RETURN_IF_ERROR(absl::visit(
-        AttributeStringPrinter(&result, qualifier.kind()), qualifier.value_));
+    CEL_RETURN_IF_ERROR(absl::visit(AttributeStringPrinter(&result),
+                                    common_internal::AsVariant(qualifier)));
   }
 
+  return result;
+}
+
+std::string AttributeQualifier::ToString() const {
+  std::string result;
+  absl::Status status =
+      absl::visit(AttributeQualifierStringPrinter{&result}, value_);
+  ABSL_DCHECK_OK(status) << "bad attribute qualifier";
+  status.IgnoreError();
   return result;
 }
 
 bool AttributeQualifier::IsMatch(const AttributeQualifier& other) const {
-  if (absl::holds_alternative<Kind>(value_) ||
-      absl::holds_alternative<Kind>(other.value_)) {
+  ABSL_DCHECK(*this) << "bad attribute qualifier";
+  ABSL_DCHECK(other) << "bad attribute qualifier";
+  if (absl::holds_alternative<absl::monostate>(value_) ||
+      absl::holds_alternative<absl::monostate>(other.value_)) {
     return false;
   }
-  return value_ == other.value_;
+  return *this == other;
 }
 
-absl::StatusOr<std::string> AttributeQualifier::AsString() const {
-  std::string result;
-  CEL_RETURN_IF_ERROR(
-      absl::visit(AttributeQualifierStringPrinter(&result, kind()), value_));
-  return result;
+bool AttributeQualifier::IsMatch(absl::string_view other_key) const {
+  ABSL_DCHECK(*this) << "bad attribute qualifier";
+  if (auto string = AsString(); string.has_value()) {
+    return *string == other_key;
+  }
+  return false;
+}
+
+bool AttributeQualifierPattern::IsMatch(
+    const AttributeQualifier& qualifier) const {
+  ABSL_DCHECK(*this) << "bad attribute qualifier pattern";
+  ABSL_DCHECK(qualifier) << "bad attribute qualifier";
+  if (!*this || !qualifier) {
+    return false;
+  }
+  if (IsWildcard()) {
+    return true;
+  }
+  return *this == qualifier;
+}
+
+bool AttributeQualifierPattern::IsMatch(absl::string_view other_key) const {
+  ABSL_DCHECK(*this) << "bad attribute qualifier pattern";
+  if (IsWildcard()) {
+    return true;
+  }
+  if (auto string = AsString(); string.has_value()) {
+    return *string == other_key;
+  }
+  return false;
+}
+
+namespace {
+
+struct AttributeQualifierEqualTo {
+  bool operator()(const absl::monostate&, const absl::monostate&) const {
+    return false;
+  }
+
+  template <typename T>
+  std::enable_if_t<!std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+                   bool>
+  operator()(const absl::monostate&, const T&) const {
+    return false;
+  }
+
+  template <typename T>
+  std::enable_if_t<!std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+                   bool>
+  operator()(const T&, const absl::monostate&) const {
+    return false;
+  }
+
+  bool operator()(bool lhs, bool rhs) const { return lhs == rhs; }
+
+  bool operator()(bool, int64_t) const { return false; }
+
+  bool operator()(bool, uint64_t) const { return false; }
+
+  bool operator()(bool, absl::string_view) const { return false; }
+
+  bool operator()(int64_t, bool) const { return false; }
+
+  bool operator()(int64_t lhs, int64_t rhs) const { return lhs == rhs; }
+
+  bool operator()(int64_t, uint64_t) const { return false; }
+
+  bool operator()(int64_t, absl::string_view) const { return false; }
+
+  bool operator()(uint64_t, bool) const { return false; }
+
+  bool operator()(uint64_t, int64_t) const { return false; }
+
+  bool operator()(uint64_t lhs, uint64_t rhs) const { return lhs == rhs; }
+
+  bool operator()(uint64_t, absl::string_view) const { return false; }
+
+  bool operator()(absl::string_view, bool) const { return false; }
+
+  bool operator()(absl::string_view, int64_t) const { return false; }
+
+  bool operator()(absl::string_view, uint64_t) const { return false; }
+
+  bool operator()(absl::string_view lhs, absl::string_view rhs) const {
+    return lhs == rhs;
+  }
+
+  bool operator()(const common_internal::WildcardType&,
+                  const common_internal::WildcardType&) const {
+    return true;
+  }
+
+  template <typename T>
+  std::enable_if_t<
+      !std::is_same_v<std::remove_cvref_t<T>, common_internal::WildcardType> &&
+          !std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+      bool>
+  operator()(const common_internal::WildcardType&, const T&) const {
+    return false;
+  }
+
+  template <typename T>
+  std::enable_if_t<
+      !std::is_same_v<std::remove_cvref_t<T>, common_internal::WildcardType> &&
+          !std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+      bool>
+  operator()(const T&, const common_internal::WildcardType&) const {
+    return false;
+  }
+};
+
+struct AttributeQualifierLess {
+  bool operator()(const absl::monostate&, const absl::monostate&) const {
+    return false;
+  }
+
+  template <typename T>
+  std::enable_if_t<!std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+                   bool>
+  operator()(const absl::monostate&, const T&) const {
+    return true;
+  }
+
+  template <typename T>
+  std::enable_if_t<!std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+                   bool>
+  operator()(const T&, const absl::monostate&) const {
+    return false;
+  }
+
+  bool operator()(bool lhs, bool rhs) const { return lhs < rhs; }
+
+  bool operator()(bool, int64_t) const { return false; }
+
+  bool operator()(bool, uint64_t) const { return false; }
+
+  bool operator()(bool, absl::string_view) const { return false; }
+
+  bool operator()(int64_t, bool) const { return true; }
+
+  bool operator()(int64_t lhs, int64_t rhs) const { return lhs < rhs; }
+
+  bool operator()(int64_t, uint64_t) const { return true; }
+
+  bool operator()(int64_t, absl::string_view) const { return true; }
+
+  bool operator()(uint64_t, bool) const { return true; }
+
+  bool operator()(uint64_t, int64_t) const { return false; }
+
+  bool operator()(uint64_t lhs, uint64_t rhs) const { return lhs < rhs; }
+
+  bool operator()(uint64_t, absl::string_view) const { return true; }
+
+  bool operator()(absl::string_view, bool) const { return true; }
+
+  bool operator()(absl::string_view, int64_t) const { return false; }
+
+  bool operator()(absl::string_view, uint64_t) const { return false; }
+
+  bool operator()(absl::string_view lhs, absl::string_view rhs) const {
+    return lhs < rhs;
+  }
+
+  bool operator()(const common_internal::WildcardType&,
+                  const common_internal::WildcardType&) const {
+    return false;
+  }
+
+  template <typename T>
+  std::enable_if_t<
+      !std::is_same_v<std::remove_cvref_t<T>, common_internal::WildcardType> &&
+          !std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+      bool>
+  operator()(const common_internal::WildcardType&, const T&) const {
+    return false;
+  }
+
+  template <typename T>
+  std::enable_if_t<
+      !std::is_same_v<std::remove_cvref_t<T>, common_internal::WildcardType> &&
+          !std::is_same_v<std::remove_cvref_t<T>, absl::monostate>,
+      bool>
+  operator()(const T&, const common_internal::WildcardType&) const {
+    return true;
+  }
+};
+
+}  // namespace
+
+bool operator==(const AttributeQualifier& lhs, const AttributeQualifier& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifierView& lhs,
+                const AttributeQualifierView& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifierPattern& lhs,
+                const AttributeQualifierPattern& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifier& lhs,
+                const AttributeQualifierView& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifier& lhs,
+                const AttributeQualifierPattern& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifierView& lhs,
+                const AttributeQualifier& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifierView& lhs,
+                const AttributeQualifierPattern& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifierPattern& lhs,
+                const AttributeQualifier& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributeQualifierPattern& lhs,
+                const AttributeQualifierView& rhs) {
+  return absl::visit(AttributeQualifierEqualTo{},
+                     common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifier& lhs, const AttributeQualifier& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifierView& lhs,
+               const AttributeQualifierView& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifierPattern& lhs,
+               const AttributeQualifierPattern& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifier& lhs,
+               const AttributeQualifierView& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifier& lhs,
+               const AttributeQualifierPattern& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifierView& lhs,
+               const AttributeQualifier& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifierView& lhs,
+               const AttributeQualifierPattern& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifierPattern& lhs,
+               const AttributeQualifier& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
+}
+
+bool operator<(const AttributeQualifierPattern& lhs,
+               const AttributeQualifierView& rhs) {
+  return absl::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
+                     common_internal::AsVariant(rhs));
 }
 
 }  // namespace cel

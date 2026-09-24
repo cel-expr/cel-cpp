@@ -52,7 +52,7 @@ TEST(CelAttributeQualifierTest, TestBoolAccess) {
   EXPECT_FALSE(qualifier.GetUint64Key().has_value());
   EXPECT_TRUE(qualifier.GetBoolKey().has_value());
   EXPECT_THAT(qualifier.GetBoolKey().value(), Eq(true));
-  EXPECT_THAT(qualifier.AsString(), IsOkAndHolds("true"));
+  EXPECT_THAT(qualifier.ToString(), "true");
 }
 
 TEST(CelAttributeQualifierTest, TestInt64Access) {
@@ -64,7 +64,7 @@ TEST(CelAttributeQualifierTest, TestInt64Access) {
 
   EXPECT_TRUE(qualifier.GetInt64Key().has_value());
   EXPECT_THAT(qualifier.GetInt64Key().value(), Eq(-1));
-  EXPECT_THAT(qualifier.AsString(), IsOkAndHolds("-1"));
+  EXPECT_THAT(qualifier.ToString(), "-1");
 }
 
 TEST(CelAttributeQualifierTest, TestUint64Access) {
@@ -76,7 +76,7 @@ TEST(CelAttributeQualifierTest, TestUint64Access) {
 
   EXPECT_TRUE(qualifier.GetUint64Key().has_value());
   EXPECT_THAT(qualifier.GetUint64Key().value(), Eq(1UL));
-  EXPECT_THAT(qualifier.AsString(), IsOkAndHolds("1"));
+  EXPECT_THAT(qualifier.ToString(), "1");
 }
 
 TEST(CelAttributeQualifierTest, TestStringAccess) {
@@ -89,7 +89,7 @@ TEST(CelAttributeQualifierTest, TestStringAccess) {
 
   EXPECT_TRUE(qualifier.GetStringKey().has_value());
   EXPECT_THAT(qualifier.GetStringKey().value(), Eq("test"));
-  EXPECT_THAT(qualifier.AsString(), IsOkAndHolds("test"));
+  EXPECT_THAT(qualifier.ToString(), "test");
 }
 
 void TestAllInequalities(const CelAttributeQualifier& qualifier) {
