@@ -43,9 +43,10 @@
 
 #include "absl/base/nullability.h"
 #include "eval/eval/direct_expression_step.h"
-#include "eval/eval/evaluator_core.h"
 
 namespace google::api::expr::runtime {
+
+class ExecutionFrame;
 
 // Creates a step representing a Bind expression.
 std::unique_ptr<DirectExpressionStep> CreateDirectBindStep(
@@ -63,24 +64,22 @@ std::unique_ptr<DirectExpressionStep> CreateDirectLazyInitStep(
     size_t slot_index, const DirectExpressionStep* absl_nonnull subexpression,
     int64_t expr_id);
 
-// Creates a step representing accessing a lazily evaluated alias from
-// a bind or block.
-std::unique_ptr<ExpressionStep> CreateLazyInitStep(size_t slot_index,
-                                                   size_t subexpression_index,
-                                                   int64_t expr_id);
+struct LazyInitStepInfo {
+  size_t slot_index : 32;
+  size_t subexpression_index : 32;
+};
 
-// Helper step to assign a slot value from the top of stack on initialization.
-std::unique_ptr<ExpressionStep> CreateAssignSlotAndPopStep(size_t slot_index);
+void EvaluateLazyInitStep(const LazyInitStepInfo& step, ExecutionFrame& frame);
 
-// Helper step to clear a slot.
-// Slots may be reused in different contexts so need to be cleared after a
-// context is done.
-std::unique_ptr<ExpressionStep> CreateClearSlotStep(size_t slot_index,
-                                                    int64_t expr_id);
+void EvaluateAssignSlotAndPop(size_t slot_index, ExecutionFrame& frame);
 
-std::unique_ptr<ExpressionStep> CreateClearSlotsStep(size_t slot_index,
-                                                     size_t slot_count,
-                                                     int64_t expr_id);
+struct ClearSlotStepInfo {
+  size_t slot_index : 32;
+  size_t slot_count : 32 = 1;
+};
+
+void EvaluateClearSlotStep(const ClearSlotStepInfo& step,
+                           ExecutionFrame& frame);
 
 }  // namespace google::api::expr::runtime
 

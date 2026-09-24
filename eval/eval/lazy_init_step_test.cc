@@ -19,7 +19,7 @@
 
 #include "base/type_provider.h"
 #include "common/value.h"
-#include "eval/eval/const_value_step.h"
+#include "eval/eval/comprehension_slots.h"
 #include "eval/eval/evaluator_core.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
@@ -58,92 +58,85 @@ class LazyInitStepTest : public testing::Test {
   Activation activation_;
 };
 
-TEST_F(LazyInitStepTest, CreateCheckInitStepDoesInit) {
+TEST_F(LazyInitStepTest, MakeLazyInitDoesInit) {
   ExecutionPath path;
   ExecutionPath subpath;
 
-  path.push_back(CreateLazyInitStep(/*slot_index=*/0,
-                                    /*subexpression_index=*/1, -1));
+  path.push_back(ExpressionStep::MakeLazyInitStep(
+      /*slot_index=*/0, /*subexpression_index=*/1));
 
-  ASSERT_OK_AND_ASSIGN(subpath.emplace_back(),
-                       CreateConstValueStep(cel::IntValue(42), -1, false));
+  subpath.push_back(ExpressionStep::MakeConstant(cel::IntValue(42)));
 
   std::vector<ExecutionPathView> expression_table{path, subpath};
 
   ExecutionFrame frame(expression_table, activation_, runtime_options_,
                        evaluator_state_);
-  ASSERT_OK_AND_ASSIGN(auto value, frame.Evaluate());
+  ASSERT_OK_AND_ASSIGN(cel::Value value, frame.Evaluate());
 
   EXPECT_TRUE(value->Is<IntValue>() && value.GetInt().NativeValue() == 42);
 }
 
-TEST_F(LazyInitStepTest, CreateCheckInitStepSkipInit) {
+TEST_F(LazyInitStepTest, MakeLazyInitSkipInit) {
   ExecutionPath path;
   ExecutionPath subpath;
 
-  // This is the expected usage, but in this test we are just depending on the
-  // fact that these don't change the stack and fit the program layout
-  // requirements.
-  path.push_back(CreateLazyInitStep(/*slot_index=*/0, -1, -1));
+  path.push_back(ExpressionStep::MakeLazyInitStep(
+      /*slot_index=*/0, /*subexpression_index=*/2));
 
-  ASSERT_OK_AND_ASSIGN(subpath.emplace_back(),
-                       CreateConstValueStep(cel::IntValue(42), -1, false));
+  subpath.push_back(ExpressionStep::MakeConstant(cel::IntValue(42)));
 
   std::vector<ExecutionPathView> expression_table{path, subpath};
 
   ExecutionFrame frame(expression_table, activation_, runtime_options_,
                        evaluator_state_);
   frame.comprehension_slots().Set(0, cel::IntValue(42));
-  ASSERT_OK_AND_ASSIGN(auto value, frame.Evaluate());
+  ASSERT_OK_AND_ASSIGN(cel::Value value, frame.Evaluate());
 
   EXPECT_TRUE(value->Is<IntValue>() && value.GetInt().NativeValue() == 42);
 }
 
-TEST_F(LazyInitStepTest, CreateAssignSlotAndPopStepBasic) {
+TEST_F(LazyInitStepTest, MakeAssignSlotAndPopBasic) {
   ExecutionPath path;
 
-  path.push_back(CreateAssignSlotAndPopStep(0));
+  path.push_back(ExpressionStep::MakeAssignSlotAndPopStep(0));
 
   ExecutionFrame frame(path, activation_, runtime_options_, evaluator_state_);
   frame.comprehension_slots().ClearSlot(0);
 
   frame.value_stack().Push(cel::IntValue(42));
 
-  // This will error because no return value, step will still evaluate.
   frame.Evaluate().IgnoreError();
 
-  auto* slot = frame.comprehension_slots().Get(0);
+  ComprehensionSlots::Slot* slot = frame.comprehension_slots().Get(0);
   ASSERT_TRUE(slot->Has());
   EXPECT_TRUE(slot->value()->Is<IntValue>() &&
               slot->value().GetInt().NativeValue() == 42);
   EXPECT_TRUE(frame.value_stack().empty());
 }
 
-TEST_F(LazyInitStepTest, CreateClearSlotStepBasic) {
+TEST_F(LazyInitStepTest, MakeClearSlotBasic) {
   ExecutionPath path;
 
-  path.push_back(CreateClearSlotStep(0, -1));
+  path.push_back(ExpressionStep::MakeClearSlotStep(0));
 
   ExecutionFrame frame(path, activation_, runtime_options_, evaluator_state_);
   frame.comprehension_slots().Set(0, cel::IntValue(42));
 
-  // This will error because no return value, step will still evaluate.
   frame.Evaluate().IgnoreError();
 
-  auto* slot = frame.comprehension_slots().Get(0);
+  ComprehensionSlot* slot = frame.comprehension_slots().Get(0);
   ASSERT_FALSE(slot->Has());
 }
 
-TEST_F(LazyInitStepTest, CreateClearSlotsStepBasic) {
+TEST_F(LazyInitStepTest, MakeClearSlotsBasic) {
   ExecutionPath path;
 
-  path.push_back(CreateClearSlotsStep(0, 2, -1));
+  path.push_back(ExpressionStep::MakeClearSlotsStep(0, 2));
 
   ExecutionFrame frame(path, activation_, runtime_options_, evaluator_state_);
   frame.comprehension_slots().Set(0, cel::IntValue(42));
   frame.comprehension_slots().Set(1, cel::IntValue(42));
 
-  // This will error because no return value, step will still evaluate.
   frame.Evaluate().IgnoreError();
 
   EXPECT_FALSE(frame.comprehension_slots().Get(0)->Has());

@@ -50,11 +50,11 @@ using ::cel::builtin::kOr;
 using ::cel::builtin::kTernary;
 using ::cel::runtime_internal::ConvertConstant;
 using ::google::api::expr::runtime::CreateConstValueDirectStep;
-using ::google::api::expr::runtime::CreateConstValueStep;
 using ::google::api::expr::runtime::EvaluationListener;
 using ::google::api::expr::runtime::ExecutionFrame;
 using ::google::api::expr::runtime::ExecutionPath;
 using ::google::api::expr::runtime::ExecutionPathView;
+using ::google::api::expr::runtime::ExpressionStep;
 using ::google::api::expr::runtime::FlatExpressionEvaluatorState;
 using ::google::api::expr::runtime::PlannerContext;
 using ::google::api::expr::runtime::ProgramOptimizer;
@@ -242,9 +242,7 @@ absl::Status ConstantFoldingExtension::OnPostVisit(PlannerContext& context,
 
   // Otherwise make a stack machine plan.
   ExecutionPath new_plan;
-  CEL_ASSIGN_OR_RETURN(
-      new_plan.emplace_back(),
-      CreateConstValueStep(std::move(value), node.id(), false));
+  new_plan.push_back(ExpressionStep::MakeConstant(value, node.id()));
 
   return context.ReplaceSubplan(node, std::move(new_plan));
 }

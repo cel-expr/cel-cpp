@@ -18,8 +18,7 @@ std::unique_ptr<DirectExpressionStep> CreateDirectTernaryStep(
     bool shortcircuiting = true);
 
 // Factory method for ternary (_?_:_) execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateTernaryStep(
-    int64_t expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateTernaryStep();
 
 }  // namespace google::api::expr::runtime
 
