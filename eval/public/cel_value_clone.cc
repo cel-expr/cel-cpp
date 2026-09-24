@@ -163,4 +163,10 @@ absl::StatusOr<CelValue> CelValueClone(google::protobuf::Arena* arena, CelValue 
   return in.Visit<absl::StatusOr<CelValue>>(CloneVisitor{.arena = arena});
 }
 
+absl::StatusOr<const CelMap*> CelMapClone(google::protobuf::Arena* arena,
+                                          const CelMap* in) {
+  CEL_ASSIGN_OR_RETURN(CelValue out, CloneVisitor{.arena = arena}(in));
+  return out.MapOrDie();  // Crash OK
+}
+
 }  // namespace google::api::expr::runtime
