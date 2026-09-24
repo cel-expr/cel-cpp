@@ -35,6 +35,12 @@ inline absl::StatusOr<CelValue> CelValueClone(google::protobuf::Arena* arena,
   return CelValueClone(arena, *in);
 }
 
+// Clones (deep copy) a CelMap such that the resulting CelMap has a lifetime
+// tied to the given arena. The container implementations for the output are not
+// guaranteed to be the same as the input.
+absl::StatusOr<const CelMap*> CelMapClone(google::protobuf::Arena* arena,
+                                          const CelMap* in);
+
 }  // namespace google::api::expr::runtime
 
 #endif  // THIRD_PARTY_CEL_CPP_EVAL_PUBLIC_CEL_VALUE_CLONE_H_
