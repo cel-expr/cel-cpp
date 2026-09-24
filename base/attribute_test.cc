@@ -76,5 +76,24 @@ TEST(AttributeQualifierView, String) {
   EXPECT_THAT(qualifier.AsString(), Optional(absl::string_view("foo")));
 }
 
+TEST(Attribute, ToString) {
+  EXPECT_EQ(Attribute("foo", {AttributeQualifier::OfBool(true),
+                              AttributeQualifier::OfInt(2),
+                              AttributeQualifier::OfUint(3),
+                              AttributeQualifier::OfString("bar")})
+                .ToString(),
+            "foo[true][2][3u][\"bar\"]");
+}
+
+TEST(AttributePattern, ToString) {
+  EXPECT_EQ(AttributePattern("foo", {AttributeQualifierPattern::OfBool(true),
+                                     AttributeQualifierPattern::OfInt(2),
+                                     AttributeQualifierPattern::OfUint(3),
+                                     AttributeQualifierPattern::OfString("bar"),
+                                     AttributeQualifierPattern::Wildcard()})
+                .ToString(),
+            "foo[true][2][3u][\"bar\"][*]");
+}
+
 }  // namespace
 }  // namespace cel

@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -840,6 +841,9 @@ class Attribute {
 
   absl::StatusOr<std::string> AsString() const;
 
+  [[nodiscard]]
+  std::string ToString() const;
+
  private:
   struct Impl final {
     Impl(std::string variable_name,
@@ -853,6 +857,11 @@ class Attribute {
 
   std::shared_ptr<const Impl> impl_;
 };
+
+template <typename S>
+void AbslStringify(S& sink, const Attribute& attribute) {
+  sink.Append(attribute.ToString());
+}
 
 // AttributePattern is a fully-qualified absolute attribute path pattern.
 // Supported segments steps in the path are:
@@ -868,8 +877,9 @@ class AttributePattern {
     FULL      // Pattern matches an attribute itself.
   };
 
-  AttributePattern(std::string variable,
-                   std::vector<AttributeQualifierPattern> qualifier_path)
+  explicit AttributePattern(
+      std::string variable,
+      std::vector<AttributeQualifierPattern> qualifier_path = {})
       : variable_(std::move(variable)),
         qualifier_path_(std::move(qualifier_path)) {}
 
@@ -902,10 +912,27 @@ class AttributePattern {
     return result;
   }
 
+  [[nodiscard]]
+  std::string ToString() const;
+
  private:
   std::string variable_;
   std::vector<AttributeQualifierPattern> qualifier_path_;
 };
+
+template <typename S>
+void AbslStringify(S& sink, const AttributePattern& pattern) {
+  sink.Append(pattern.ToString());
+}
+
+[[nodiscard]]
+bool operator==(const AttributePattern& lhs, const AttributePattern& rhs);
+
+[[nodiscard]]
+inline bool operator!=(const AttributePattern& lhs,
+                       const AttributePattern& rhs) {
+  return !operator==(lhs, rhs);
+}
 
 struct FieldSpecifier {
   int64_t number;
