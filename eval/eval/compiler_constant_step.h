@@ -22,8 +22,6 @@
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
-#include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_base.h"
 
 namespace google::api::expr::runtime {
 
@@ -41,28 +39,6 @@ class DirectCompilerConstantStep : public DirectExpressionStep {
 
   cel::NativeTypeId GetNativeTypeId() const override {
     return cel::NativeTypeId::For<DirectCompilerConstantStep>();
-  }
-
-  const cel::Value& value() const { return value_; }
-
- private:
-  cel::Value value_;
-};
-
-// ExpressionStep implementation that simply pushes a constant value on the
-// stack.
-//
-// Overrides NativeTypeId ()o allow the FlatExprBuilder and extensions to
-// inspect the underlying value.
-class CompilerConstantStep : public ExpressionStepBase {
- public:
-  CompilerConstantStep(cel::Value value, int64_t expr_id, bool comes_from_ast)
-      : ExpressionStepBase(expr_id, comes_from_ast), value_(std::move(value)) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-
-  cel::NativeTypeId GetNativeTypeId() const override {
-    return cel::NativeTypeId::For<CompilerConstantStep>();
   }
 
   const cel::Value& value() const { return value_; }

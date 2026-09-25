@@ -35,13 +35,10 @@ using ::cel::common_internal::NewListValueBuilder;
 
 class CreateListStep : public ExpressionStepBase {
  public:
-  CreateListStep(int64_t expr_id, int list_size,
-                 absl::flat_hash_set<int> optional_indices)
-      : ExpressionStepBase(expr_id),
-        list_size_(list_size),
-        optional_indices_(std::move(optional_indices)) {}
+  CreateListStep(int list_size, absl::flat_hash_set<int> optional_indices)
+      : list_size_(list_size), optional_indices_(std::move(optional_indices)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   absl::Status DoEvaluate(ExecutionFrame* frame, Value* result) const;
@@ -50,22 +47,24 @@ class CreateListStep : public ExpressionStepBase {
   absl::flat_hash_set<int32_t> optional_indices_;
 };
 
-absl::Status CreateListStep::Evaluate(ExecutionFrame* frame) const {
+void CreateListStep::Evaluate(ExecutionFrame* frame) const {
   if (list_size_ < 0) {
-    return absl::Status(absl::StatusCode::kInternal,
-                        "CreateListStep: list size is <0");
+    frame->Abort(absl::InternalError("CreateListStep: list size is <0"));
+    return;
   }
 
   if (!frame->value_stack().HasEnough(list_size_)) {
-    return absl::Status(absl::StatusCode::kInternal,
-                        "CreateListStep: stack underflow");
+    frame->Abort(absl::InternalError("CreateListStep: stack underflow"));
+    return;
   }
 
   Value result;
-  CEL_RETURN_IF_ERROR(DoEvaluate(frame, &result));
+  if (absl::Status status = DoEvaluate(frame, &result); !status.ok()) {
+    frame->Abort(std::move(status));
+    return;
+  }
 
   frame->value_stack().PopAndPush(list_size_, std::move(result));
-  return absl::OkStatus();
 }
 
 absl::Status CreateListStep::DoEvaluate(ExecutionFrame* frame,
@@ -224,20 +223,6 @@ class CreateListDirectStep : public DirectExpressionStep {
   absl::flat_hash_set<int32_t> optional_indices_;
 };
 
-class MutableListStep : public ExpressionStepBase {
- public:
-  explicit MutableListStep(int64_t expr_id) : ExpressionStepBase(expr_id) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-};
-
-absl::Status MutableListStep::Evaluate(ExecutionFrame* frame) const {
-  frame->value_stack().Push(cel::CustomListValue(
-      cel::common_internal::NewMutableListValue(frame->arena()),
-      frame->arena()));
-  return absl::OkStatus();
-}
-
 class DirectMutableListStep : public DirectExpressionStep {
  public:
   explicit DirectMutableListStep(int64_t expr_id)
@@ -247,9 +232,9 @@ class DirectMutableListStep : public DirectExpressionStep {
                         AttributeTrail& attribute) const override;
 };
 
-absl::Status DirectMutableListStep::Evaluate(
-    ExecutionFrameBase& frame, Value& result,
-    AttributeTrail& attribute_trail) const {
+absl::Status DirectMutableListStep::Evaluate(ExecutionFrameBase& frame,
+                                             Value& result,
+                                             AttributeTrail& attribute) const {
   result = cel::CustomListValue(
       cel::common_internal::NewMutableListValue(frame.arena()), frame.arena());
   return absl::OkStatus();
@@ -264,15 +249,11 @@ std::unique_ptr<DirectExpressionStep> CreateDirectListStep(
       std::move(deps), std::move(optional_indices), expr_id);
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateCreateListStep(
-    const cel::ListExpr& create_list_expr, int64_t expr_id) {
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateCreateListStep(
+    const cel::ListExpr& create_list_expr) {
   return std::make_unique<CreateListStep>(
-      expr_id, create_list_expr.elements().size(),
+      create_list_expr.elements().size(),
       MakeOptionalIndicesSet(create_list_expr));
-}
-
-std::unique_ptr<ExpressionStep> CreateMutableListStep(int64_t expr_id) {
-  return std::make_unique<MutableListStep>(expr_id);
 }
 
 std::unique_ptr<DirectExpressionStep> CreateDirectMutableListStep(

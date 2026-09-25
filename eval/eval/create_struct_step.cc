@@ -48,15 +48,14 @@ using ::cel::Value;
 // `CreateStruct` implementation for message/struct.
 class CreateStructStepForStruct final : public ExpressionStepBase {
  public:
-  CreateStructStepForStruct(int64_t expr_id, std::string name,
-                            std::vector<std::string> entries,
+  CreateStructStepForStruct(std::string name, std::vector<std::string> entries,
                             absl::flat_hash_set<int32_t> optional_indices)
-      : ExpressionStepBase(expr_id),
+      : ExpressionStepBase(),
         name_(std::move(name)),
         entries_(std::move(entries)),
         optional_indices_(std::move(optional_indices)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   absl::StatusOr<Value> DoEvaluate(ExecutionFrame* frame) const;
@@ -131,14 +130,18 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
   return std::move(*builder).Build();
 }
 
-absl::Status CreateStructStepForStruct::Evaluate(ExecutionFrame* frame) const {
+void CreateStructStepForStruct::Evaluate(ExecutionFrame* frame) const {
   if (frame->value_stack().size() < entries_.size()) {
-    return absl::InternalError("CreateStructStepForStruct: stack underflow");
+    frame->Abort(
+        absl::InternalError("CreateStructStepForStruct: stack underflow"));
+    return;
   }
-  CEL_ASSIGN_OR_RETURN(Value result, DoEvaluate(frame));
-  frame->value_stack().PopAndPush(entries_.size(), std::move(result));
-
-  return absl::OkStatus();
+  absl::StatusOr<Value> result = DoEvaluate(frame);
+  if (!result.ok()) {
+    frame->Abort(std::move(result).status());
+    return;
+  }
+  frame->value_stack().PopAndPush(entries_.size(), *std::move(result));
 }
 
 class DirectCreateStructStep : public DirectExpressionStep {
@@ -259,12 +262,11 @@ std::unique_ptr<DirectExpressionStep> CreateDirectCreateStructStep(
       std::move(optional_indices));
 }
 
-std::unique_ptr<ExpressionStep> CreateCreateStructStep(
+std::unique_ptr<ExpressionStepLogic> CreateCreateStructStep(
     std::string name, std::vector<std::string> field_keys,
-    absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id) {
+    absl::flat_hash_set<int32_t> optional_indices) {
   // MakeOptionalIndicesSet(create_struct_expr)
   return std::make_unique<CreateStructStepForStruct>(
-      expr_id, std::move(name), std::move(field_keys),
-      std::move(optional_indices));
+      std::move(name), std::move(field_keys), std::move(optional_indices));
 }
 }  // namespace google::api::expr::runtime

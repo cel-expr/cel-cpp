@@ -16,7 +16,7 @@
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/internal/errors.h"
 #include "internal/status_macros.h"
 
@@ -26,17 +26,6 @@ namespace {
 
 using ::cel::Value;
 using ::cel::runtime_internal::CreateError;
-
-class IdentStep : public ExpressionStepBase {
- public:
-  IdentStep(absl::string_view name, int64_t expr_id)
-      : ExpressionStepBase(expr_id), name_(name) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-
- private:
-  std::string name_;
-};
 
 absl::Status LookupIdent(absl::string_view name, ExecutionFrameBase& frame,
                          Value& result, AttributeTrail& attribute) {
@@ -72,17 +61,6 @@ absl::Status LookupIdent(absl::string_view name, ExecutionFrameBase& frame,
   return absl::OkStatus();
 }
 
-absl::Status IdentStep::Evaluate(ExecutionFrame* frame) const {
-  Value value;
-  AttributeTrail attribute;
-
-  CEL_RETURN_IF_ERROR(LookupIdent(name_, *frame, value, attribute));
-
-  frame->value_stack().Push(std::move(value), std::move(attribute));
-
-  return absl::OkStatus();
-}
-
 absl::StatusOr<ComprehensionSlots::Slot* absl_nonnull> LookupSlot(
     absl::string_view name, size_t slot_index, ExecutionFrameBase& frame) {
   ComprehensionSlots::Slot* slot = frame.comprehension_slots().Get(slot_index);
@@ -92,24 +70,6 @@ absl::StatusOr<ComprehensionSlots::Slot* absl_nonnull> LookupSlot(
   }
   return slot;
 }
-
-class SlotStep : public ExpressionStepBase {
- public:
-  SlotStep(absl::string_view name, size_t slot_index, int64_t expr_id)
-      : ExpressionStepBase(expr_id), name_(name), slot_index_(slot_index) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    CEL_ASSIGN_OR_RETURN(const ComprehensionSlots::Slot* slot,
-                         LookupSlot(name_, slot_index_, *frame));
-    frame->value_stack().Push(slot->value(), slot->attribute());
-    return absl::OkStatus();
-  }
-
- private:
-  std::string name_;
-
-  size_t slot_index_;
-};
 
 class DirectIdentStep : public DirectExpressionStep {
  public:
@@ -151,6 +111,18 @@ class DirectSlotStep : public DirectExpressionStep {
 
 }  // namespace
 
+void EvaluateIdentifierStep(absl::string_view identifier,
+                            ExecutionFrame& frame) {
+  frame.value_stack().Push(cel::NullValue());
+  if (absl::Status status =
+          LookupIdent(identifier, frame, frame.value_stack().Peek(),
+                      frame.value_stack().PeekAttribute());
+      !status.ok()) {
+    frame.Abort(std::move(status));
+    return;
+  }
+}
+
 std::unique_ptr<DirectExpressionStep> CreateDirectIdentStep(
     absl::string_view identifier, int64_t expr_id) {
   return std::make_unique<DirectIdentStep>(identifier, expr_id);
@@ -159,16 +131,6 @@ std::unique_ptr<DirectExpressionStep> CreateDirectIdentStep(
 std::unique_ptr<DirectExpressionStep> CreateDirectSlotIdentStep(
     absl::string_view identifier, size_t slot_index, int64_t expr_id) {
   return std::make_unique<DirectSlotStep>(identifier, slot_index, expr_id);
-}
-
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateIdentStep(
-    const absl::string_view name, int64_t expr_id) {
-  return std::make_unique<IdentStep>(name, expr_id);
-}
-
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateIdentStepForSlot(
-    const absl::string_view name, size_t slot_index, int64_t expr_id) {
-  return std::make_unique<SlotStep>(name, slot_index, expr_id);
 }
 
 }  // namespace google::api::expr::runtime

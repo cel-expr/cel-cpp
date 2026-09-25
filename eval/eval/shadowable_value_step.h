@@ -15,8 +15,8 @@ namespace google::api::expr::runtime {
 // Create an identifier resolution step with a default value that may be
 // shadowed by an identifier of the same name within the runtime-provided
 // Activation.
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateShadowableValueStep(
-    absl::string_view name, cel::Value value, int64_t expr_id);
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateShadowableValueStep(
+    absl::string_view name, cel::Value value);
 
 std::unique_ptr<DirectExpressionStep> CreateDirectShadowableValueStep(
     absl::string_view name, cel::Value value, int64_t expr_id);

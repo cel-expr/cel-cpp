@@ -104,14 +104,15 @@ class SelectStepTest : public testing::Test {
 
     auto& ident = expr0.mutable_ident_expr();
     ident.set_name("target");
-    CEL_ASSIGN_OR_RETURN(auto step0, CreateIdentStep(ident.name(), expr0.id()));
     CEL_ASSIGN_OR_RETURN(
         auto step1,
         CreateSelectStep(cel::StringValue(select.field()), select.test_only(),
-                         expr.id(), options.enable_wrapper_type_null_unboxing));
+                         options.enable_wrapper_type_null_unboxing));
 
-    path.push_back(std::move(step0));
-    path.push_back(std::move(step1));
+    path.push_back(
+        ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+    path.push_back(
+        ExpressionStep::MakeGenericStep(std::move(step1), expr.id()));
 
     cel::RuntimeOptions runtime_options;
     if (options.enable_unknowns) {
@@ -286,23 +287,21 @@ TEST_F(SelectStepTest, MapPresenseIsErrorTest) {
   Expr& expr0 = select_map.mutable_operand();
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("target");
-
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateIdentStep(ident.name(), expr0.id()));
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(cel::StringValue(select_map.field()),
-                       select_map.test_only(), expr1.id(),
+                       select_map.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false));
   ASSERT_OK_AND_ASSIGN(
       auto step2,
       CreateSelectStep(cel::StringValue(select.field()), select.test_only(),
-                       select_expr.id(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
   ExecutionPath path;
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
-  path.push_back(std::move(step2));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1), expr1.id()));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::move(step2), select_expr.id()));
   CelExpressionFlatImpl cel_expr(
       env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
                            env_->type_registry.GetComposedTypeProvider(),
@@ -749,15 +748,14 @@ TEST_P(SelectStepConformanceTest, CelErrorAsArgument) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateIdentStep(ident.name(), expr0.id()));
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(cel::StringValue(select.field()), select.test_only(),
-                       dummy_expr.id(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
   CelError error = absl::CancelledError();
 
@@ -791,15 +789,14 @@ TEST_F(SelectStepTest, DisableMissingAttributeOK) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateIdentStep(ident.name(), expr0.id()));
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(cel::StringValue(select.field()), select.test_only(),
-                       dummy_expr.id(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
   CelExpressionFlatImpl cel_expr(
       env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
@@ -834,15 +831,14 @@ TEST_F(SelectStepTest, UnrecoverableUnknownValueProducesError) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateIdentStep(ident.name(), expr0.id()));
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(cel::StringValue(select.field()), select.test_only(),
-                       dummy_expr.id(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
   cel::RuntimeOptions options;
   options.enable_missing_attribute_errors = true;
@@ -883,16 +879,15 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  auto step0_status = CreateIdentStep(ident.name(), expr0.id());
-  auto step1_status = CreateSelectStep(
-      cel::StringValue(select.field()), select.test_only(), dummy_expr.id(),
-      /*enable_wrapper_type_null_unboxing=*/false);
+  auto step1_status =
+      CreateSelectStep(cel::StringValue(select.field()), select.test_only(),
+                       /*enable_wrapper_type_null_unboxing=*/false);
 
-  ASSERT_THAT(step0_status, IsOk());
   ASSERT_THAT(step1_status, IsOk());
 
-  path.push_back(*std::move(step0_status));
-  path.push_back(*std::move(step1_status));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(*step1_status),
+                                                 dummy_expr.id()));
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
@@ -977,8 +972,6 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
 }
 
 TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateIdentStep("message", -1));
-
   cel::StructType resolved_operand_type(
       (cel::MessageType(TestAllTypes::descriptor())));
   const google::protobuf::FieldDescriptor* field_desc =
@@ -990,13 +983,13 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
       auto step1,
       CreateTypedSelectStep(cel::StringValue("single_int64"),
                             resolved_operand_type, resolved_field,
-                            /*test_only=*/false, -1,
+                            /*test_only=*/false,
                             /*enable_wrapper_type_null_unboxing=*/false,
                             /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   if (GetParam()) {
     options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
@@ -1018,8 +1011,6 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
 }
 
 TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateIdentStep("message", -1));
-
   cel::StructType resolved_operand_type(
       (cel::MessageType(TestAllTypes::descriptor())));
   const google::protobuf::FieldDescriptor* field_desc =
@@ -1031,13 +1022,13 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
       auto step1,
       CreateTypedSelectStep(cel::StringValue("single_int64"),
                             resolved_operand_type, resolved_field,
-                            /*test_only=*/false, -1,
+                            /*test_only=*/false,
                             /*enable_wrapper_type_null_unboxing=*/false,
                             /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   if (GetParam()) {
     options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
@@ -1056,8 +1047,6 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
 }
 
 TEST_F(SelectStepTest, TypedSelectStepUnknownPatternResolvesToUnknown) {
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateIdentStep("message", -1));
-
   cel::StructType resolved_operand_type(
       (cel::MessageType(TestAllTypes::descriptor())));
   const google::protobuf::FieldDescriptor* field_desc =
@@ -1069,13 +1058,13 @@ TEST_F(SelectStepTest, TypedSelectStepUnknownPatternResolvesToUnknown) {
       auto step1,
       CreateTypedSelectStep(cel::StringValue("single_int64"),
                             resolved_operand_type, resolved_field,
-                            /*test_only=*/false, -1,
+                            /*test_only=*/false,
                             /*enable_wrapper_type_null_unboxing=*/false,
                             /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
   CelExpressionFlatImpl cel_expr(

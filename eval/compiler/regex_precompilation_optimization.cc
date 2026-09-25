@@ -194,11 +194,11 @@ class RegexPrecompilationOptimization : public ProgramOptimizer {
     } else {
       // otherwise stack-machine program.
       ExecutionPathView re_plan = context.GetSubplan(re_expr);
-      if (re_plan.size() == 1 &&
-          re_plan[0]->GetNativeTypeId() ==
-              NativeTypeId::For<CompilerConstantStep>()) {
-        constant =
-            down_cast<const CompilerConstantStep*>(re_plan[0].get())->value();
+      if (re_plan.size() == 1) {
+        cel::Value val;
+        if (GetIfConstant(re_plan[0], val)) {
+          constant = std::move(val);
+        }
       }
     }
 
@@ -251,9 +251,10 @@ class RegexPrecompilationOptimization : public ProgramOptimizer {
 
     CEL_ASSIGN_OR_RETURN(ExecutionPath new_plan,
                          context.ExtractSubplan(subject));
-    CEL_ASSIGN_OR_RETURN(
-        new_plan.emplace_back(),
-        CreateRegexMatchStep(std::move(regex_program), call.id()));
+    CEL_ASSIGN_OR_RETURN(auto step,
+                         CreateRegexMatchStep(std::move(regex_program)));
+    new_plan.push_back(
+        ExpressionStep::MakeGenericStep(std::move(step), call.id()));
 
     return context.ReplaceSubplan(call, std::move(new_plan));
   }

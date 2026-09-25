@@ -17,9 +17,8 @@ std::unique_ptr<DirectExpressionStep> CreateDirectContainerAccessStep(
     int64_t expr_id);
 
 // Factory method for Select - based Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateContainerAccessStep(
-    const cel::CallExpr& call, int64_t expr_id,
-    bool enable_optional_types = false);
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateContainerAccessStep(
+    const cel::CallExpr& call, bool enable_optional_types = false);
 
 }  // namespace google::api::expr::runtime
 

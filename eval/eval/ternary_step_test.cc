@@ -38,6 +38,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::BoolValue;
 using ::cel::Cast;
@@ -64,17 +65,10 @@ class LogicStepTest : public testing::TestWithParam<bool> {
                              CelValue* result, bool enable_unknown) {
     ExecutionPath path;
 
-    CEL_ASSIGN_OR_RETURN(auto step, CreateIdentStep("name0", /*expr_id=*/-1));
-    path.push_back(std::move(step));
-
-    CEL_ASSIGN_OR_RETURN(step, CreateIdentStep("name1", /*expr_id=*/-1));
-    path.push_back(std::move(step));
-
-    CEL_ASSIGN_OR_RETURN(step, CreateIdentStep("name2", /*expr_id=*/-1));
-    path.push_back(std::move(step));
-
-    CEL_ASSIGN_OR_RETURN(step, CreateTernaryStep(4));
-    path.push_back(std::move(step));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name1"));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name2"));
+    path.push_back(ExpressionStep::MakeGenericStep(CreateTernaryStep(), 4));
 
     cel::RuntimeOptions options;
     if (enable_unknown) {
@@ -109,14 +103,14 @@ TEST_P(LogicStepTest, TestBoolCond) {
   absl::Status status =
       EvaluateLogic(CelValue::CreateBool(true), CelValue::CreateBool(true),
                     CelValue::CreateBool(false), &result, GetParam());
-  ASSERT_OK(status);
+  ASSERT_THAT(status, IsOk());
   ASSERT_TRUE(result.IsBool());
   ASSERT_TRUE(result.BoolOrDie());
 
   status =
       EvaluateLogic(CelValue::CreateBool(false), CelValue::CreateBool(true),
                     CelValue::CreateBool(false), &result, GetParam());
-  ASSERT_OK(status);
+  ASSERT_THAT(status, IsOk());
   ASSERT_TRUE(result.IsBool());
   ASSERT_FALSE(result.BoolOrDie());
 }
@@ -125,16 +119,19 @@ TEST_P(LogicStepTest, TestErrorHandling) {
   CelValue result;
   CelError error = absl::CancelledError();
   CelValue error_value = CelValue::CreateError(&error);
-  ASSERT_OK(EvaluateLogic(error_value, CelValue::CreateBool(true),
-                          CelValue::CreateBool(false), &result, GetParam()));
+  ASSERT_THAT(EvaluateLogic(error_value, CelValue::CreateBool(true),
+                            CelValue::CreateBool(false), &result, GetParam()),
+              IsOk());
   ASSERT_TRUE(result.IsError());
 
-  ASSERT_OK(EvaluateLogic(CelValue::CreateBool(true), error_value,
-                          CelValue::CreateBool(false), &result, GetParam()));
+  ASSERT_THAT(EvaluateLogic(CelValue::CreateBool(true), error_value,
+                            CelValue::CreateBool(false), &result, GetParam()),
+              IsOk());
   ASSERT_TRUE(result.IsError());
 
-  ASSERT_OK(EvaluateLogic(CelValue::CreateBool(false), error_value,
-                          CelValue::CreateBool(false), &result, GetParam()));
+  ASSERT_THAT(EvaluateLogic(CelValue::CreateBool(false), error_value,
+                            CelValue::CreateBool(false), &result, GetParam()),
+              IsOk());
   ASSERT_TRUE(result.IsBool());
   ASSERT_FALSE(result.BoolOrDie());
 }
@@ -145,25 +142,30 @@ TEST_F(LogicStepTest, TestUnknownHandling) {
   CelError cel_error = absl::CancelledError();
   CelValue unknown_value = CelValue::CreateUnknownSet(&unknown_set);
   CelValue error_value = CelValue::CreateError(&cel_error);
-  ASSERT_OK(EvaluateLogic(unknown_value, CelValue::CreateBool(true),
-                          CelValue::CreateBool(false), &result, true));
+  ASSERT_THAT(EvaluateLogic(unknown_value, CelValue::CreateBool(true),
+                            CelValue::CreateBool(false), &result, true),
+              IsOk());
   ASSERT_TRUE(result.IsUnknownSet());
 
-  ASSERT_OK(EvaluateLogic(CelValue::CreateBool(true), unknown_value,
-                          CelValue::CreateBool(false), &result, true));
+  ASSERT_THAT(EvaluateLogic(CelValue::CreateBool(true), unknown_value,
+                            CelValue::CreateBool(false), &result, true),
+              IsOk());
   ASSERT_TRUE(result.IsUnknownSet());
 
-  ASSERT_OK(EvaluateLogic(CelValue::CreateBool(false), unknown_value,
-                          CelValue::CreateBool(false), &result, true));
+  ASSERT_THAT(EvaluateLogic(CelValue::CreateBool(false), unknown_value,
+                            CelValue::CreateBool(false), &result, true),
+              IsOk());
   ASSERT_TRUE(result.IsBool());
   ASSERT_FALSE(result.BoolOrDie());
 
-  ASSERT_OK(EvaluateLogic(error_value, unknown_value,
-                          CelValue::CreateBool(false), &result, true));
+  ASSERT_THAT(EvaluateLogic(error_value, unknown_value,
+                            CelValue::CreateBool(false), &result, true),
+              IsOk());
   ASSERT_TRUE(result.IsError());
 
-  ASSERT_OK(EvaluateLogic(unknown_value, error_value,
-                          CelValue::CreateBool(false), &result, true));
+  ASSERT_THAT(EvaluateLogic(unknown_value, error_value,
+                            CelValue::CreateBool(false), &result, true),
+              IsOk());
   ASSERT_TRUE(result.IsUnknownSet());
 
   Expr expr0;
@@ -184,9 +186,10 @@ TEST_F(LogicStepTest, TestUnknownHandling) {
   EXPECT_THAT(unknown_attr_set0.size(), Eq(1));
   EXPECT_THAT(unknown_attr_set1.size(), Eq(1));
 
-  ASSERT_OK(EvaluateLogic(CelValue::CreateUnknownSet(&unknown_set0),
-                          CelValue::CreateUnknownSet(&unknown_set1),
-                          CelValue::CreateBool(false), &result, true));
+  ASSERT_THAT(EvaluateLogic(CelValue::CreateUnknownSet(&unknown_set0),
+                            CelValue::CreateUnknownSet(&unknown_set1),
+                            CelValue::CreateBool(false), &result, true),
+              IsOk());
   ASSERT_TRUE(result.IsUnknownSet());
   const auto& attrs = result.UnknownSetOrDie()->unknown_attributes();
   ASSERT_THAT(attrs, testing::SizeIs(1));
@@ -222,7 +225,7 @@ TEST_P(TernaryStepDirectTest, ReturnLhs) {
   cel::Value result;
   AttributeTrail attr_unused;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr_unused));
+  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
   ASSERT_TRUE(InstanceOf<IntValue>(result));
   EXPECT_EQ(Cast<IntValue>(result).NativeValue(), 1);
@@ -243,7 +246,7 @@ TEST_P(TernaryStepDirectTest, ReturnRhs) {
   cel::Value result;
   AttributeTrail attr_unused;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr_unused));
+  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
   ASSERT_TRUE(InstanceOf<IntValue>(result));
   EXPECT_EQ(Cast<IntValue>(result).NativeValue(), 2);
@@ -266,7 +269,7 @@ TEST_P(TernaryStepDirectTest, ForwardError) {
   cel::Value result;
   AttributeTrail attr_unused;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr_unused));
+  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
   ASSERT_TRUE(InstanceOf<ErrorValue>(result));
   EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
@@ -294,7 +297,7 @@ TEST_P(TernaryStepDirectTest, ForwardUnknown) {
   cel::Value result;
   AttributeTrail attr_unused;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr_unused));
+  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
   ASSERT_TRUE(InstanceOf<UnknownValue>(result));
   EXPECT_THAT(Cast<UnknownValue>(result).ToAttributeSet(),
               ElementsAre(Truly([](const cel::Attribute& attr) {
@@ -317,7 +320,7 @@ TEST_P(TernaryStepDirectTest, UnexpectedCondtionKind) {
   cel::Value result;
   AttributeTrail attr_unused;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr_unused));
+  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
   ASSERT_TRUE(InstanceOf<ErrorValue>(result));
   EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
@@ -358,7 +361,7 @@ TEST_P(TernaryStepDirectTest, Shortcircuiting) {
   cel::Value result;
   AttributeTrail attr_unused;
 
-  ASSERT_OK(step->Evaluate(frame, result, attr_unused));
+  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
   ASSERT_TRUE(InstanceOf<IntValue>(result));
   EXPECT_THAT(Cast<IntValue>(result).NativeValue(), Eq(1));

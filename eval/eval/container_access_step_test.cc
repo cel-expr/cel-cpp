@@ -39,6 +39,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::Expr;
 using ::cel::SourceInfo;
@@ -75,15 +76,17 @@ CelValue EvaluateAttributeHelper(
   key_expr.mutable_ident_expr().set_name("key");
 
   if (use_recursive_impl) {
-    path.push_back(std::make_unique<WrappedDirectStep>(
-        CreateDirectContainerAccessStep(CreateDirectIdentStep("container", 1),
-                                        CreateDirectIdentStep("key", 2),
-                                        /*enable_optional_types=*/false, 3),
+    path.push_back(ExpressionStep::MakeGenericStep(
+        std::make_unique<WrappedDirectStep>(CreateDirectContainerAccessStep(
+            CreateDirectIdentStep("container", 1),
+            CreateDirectIdentStep("key", 2),
+            /*enable_optional_types=*/false, 3)),
         3));
   } else {
-    path.push_back(std::move(CreateIdentStep("container", 1).value()));
-    path.push_back(std::move(CreateIdentStep("key", 2).value()));
-    path.push_back(std::move(CreateContainerAccessStep(call, 3).value()));
+    path.push_back(ExpressionStep::MakeIdentifierStep("container", 1));
+    path.push_back(ExpressionStep::MakeIdentifierStep("key", 2));
+    path.push_back(ExpressionStep::MakeGenericStep(
+        std::move(CreateContainerAccessStep(call).value()), 3));
   }
 
   cel::RuntimeOptions options;
@@ -227,8 +230,9 @@ TEST_P(ContainerAccessStepUniformityTest, TestMapKeyAccess) {
 
 TEST_P(ContainerAccessStepUniformityTest, TestBoolKeyType) {
   CelMapBuilder cel_map;
-  ASSERT_OK(cel_map.Add(CelValue::CreateBool(true),
-                        CelValue::CreateStringView("value_true")));
+  ASSERT_THAT(cel_map.Add(CelValue::CreateBool(true),
+                          CelValue::CreateStringView("value_true")),
+              IsOk());
 
   CelValue result = EvaluateAttribute(CelValue::CreateMap(&cel_map),
                                       CelValue::CreateBool(true),
@@ -267,7 +271,7 @@ TEST_F(ContainerAccessStepTest, TestInvalidReceiverCreateContainerAccessStep) {
 
   Expr& extra_arg = call.mutable_args().emplace_back();
   extra_arg.mutable_const_expr().set_bool_value(true);
-  EXPECT_THAT(CreateContainerAccessStep(call, 0).status(),
+  EXPECT_THAT(CreateContainerAccessStep(call).status(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("Invalid argument count")));
 }
@@ -285,7 +289,7 @@ TEST_F(ContainerAccessStepTest, TestInvalidGlobalCreateContainerAccessStep) {
 
   Expr& extra_arg = call.mutable_args().emplace_back();
   extra_arg.mutable_const_expr().set_bool_value(true);
-  EXPECT_THAT(CreateContainerAccessStep(call, 0).status(),
+  EXPECT_THAT(CreateContainerAccessStep(call).status(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("Invalid argument count")));
 }

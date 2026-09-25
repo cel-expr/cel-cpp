@@ -71,14 +71,8 @@ absl::StatusOr<ExecutionPath> CreateStackMachineProgram(
     std::string key_name = absl::StrCat("key", index);
     std::string value_name = absl::StrCat("value", index);
 
-    CEL_ASSIGN_OR_RETURN(auto step_key,
-                         CreateIdentStep(key_name, /*expr_id=*/-1));
-
-    CEL_ASSIGN_OR_RETURN(auto step_value,
-                         CreateIdentStep(value_name, /*expr _id=*/-1));
-
-    path.push_back(std::move(step_key));
-    path.push_back(std::move(step_value));
+    path.push_back(ExpressionStep::MakeIdentifierStep(key_name));
+    path.push_back(ExpressionStep::MakeIdentifierStep(value_name));
 
     activation.InsertValue(key_name, item.first);
     activation.InsertValue(value_name, item.second);
@@ -87,9 +81,9 @@ absl::StatusOr<ExecutionPath> CreateStackMachineProgram(
     index++;
   }
 
-  CEL_ASSIGN_OR_RETURN(
-      auto step1, CreateCreateStructStepForMap(values.size(), {}, expr1.id()));
-  path.push_back(std::move(step1));
+  CEL_ASSIGN_OR_RETURN(auto step1,
+                       CreateCreateStructStepForMap(values.size(), {}));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1), expr1.id()));
   return path;
 }
 
@@ -113,8 +107,9 @@ absl::StatusOr<ExecutionPath> CreateRecursiveProgram(
 
     index++;
   }
-  path.push_back(std::make_unique<WrappedDirectStep>(
-      CreateDirectCreateMapStep(std::move(deps), {}, -1), -1));
+  path.push_back(
+      ExpressionStep::MakeGenericStep(std::make_unique<WrappedDirectStep>(
+          CreateDirectCreateMapStep(std::move(deps), {}, -1))));
 
   return path;
 }

@@ -25,7 +25,6 @@
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_base.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
 #include "runtime/internal/errors.h"
@@ -102,30 +101,6 @@ class DirectEqualityStep : public DirectExpressionStep {
  private:
   std::unique_ptr<DirectExpressionStep> lhs_;
   std::unique_ptr<DirectExpressionStep> rhs_;
-  bool negation_;
-};
-
-class IterativeEqualityStep : public ExpressionStepBase {
- public:
-  explicit IterativeEqualityStep(bool negation, int64_t expr_id)
-      : ExpressionStepBase(expr_id), negation_(negation) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    if (!frame->value_stack().HasEnough(2)) {
-      return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
-    }
-    auto args = frame->value_stack().GetSpan(2);
-    auto attrs = frame->value_stack().GetAttributeSpan(2);
-
-    CEL_ASSIGN_OR_RETURN(Value result,
-                         EvaluateEquality(*frame, args[0], attrs[0], args[1],
-                                          attrs[1], negation_));
-
-    frame->value_stack().PopAndPush(2, std::move(result));
-    return absl::OkStatus();
-  }
-
- private:
   bool negation_;
 };
 
@@ -242,26 +217,45 @@ class DirectInStep : public DirectExpressionStep {
   std::unique_ptr<DirectExpressionStep> container_;
 };
 
-class IterativeInStep : public ExpressionStepBase {
- public:
-  explicit IterativeInStep(int64_t expr_id) : ExpressionStepBase(expr_id) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    if (!frame->value_stack().HasEnough(2)) {
-      return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
-    }
-
-    auto args = frame->value_stack().GetSpan(2);
-    auto attrs = frame->value_stack().GetAttributeSpan(2);
-
-    CEL_ASSIGN_OR_RETURN(
-        Value result, EvaluateIn(*frame, args[0], attrs[0], args[1], attrs[1]));
-    frame->value_stack().PopAndPush(2, std::move(result));
-    return absl::OkStatus();
-  }
-};
-
 }  // namespace
+
+void EvaluateFastEqualStep(bool negation, ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(2)) {
+    frame.Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  absl::Span<const Value> args = frame.value_stack().GetSpan(2);
+  absl::Span<const AttributeTrail> attrs =
+      frame.value_stack().GetAttributeSpan(2);
+
+  absl::StatusOr<Value> result =
+      EvaluateEquality(frame, args[0], attrs[0], args[1], attrs[1], negation);
+  if (!result.ok()) {
+    frame.Abort(std::move(result).status());
+    return;
+  }
+  frame.value_stack().PopAndPush(2, *std::move(result));
+}
+
+void EvaluateFastInStep(ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(2)) {
+    frame.Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  absl::Span<const Value> args = frame.value_stack().GetSpan(2);
+  absl::Span<const AttributeTrail> attrs =
+      frame.value_stack().GetAttributeSpan(2);
+
+  absl::StatusOr<Value> result =
+      EvaluateIn(frame, args[0], attrs[0], args[1], attrs[1]);
+  if (!result.ok()) {
+    frame.Abort(std::move(result).status());
+    return;
+  }
+  frame.value_stack().PopAndPush(2, *std::move(result));
+}
 
 // Factory method for recursive _==_ and _!=_ Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectEqualityStep(
@@ -271,23 +265,12 @@ std::unique_ptr<DirectExpressionStep> CreateDirectEqualityStep(
                                               negation, expr_id);
 }
 
-// Factory method for iterative _==_ and _!=_ Execution step
-std::unique_ptr<ExpressionStep> CreateEqualityStep(bool negation,
-                                                   int64_t expr_id) {
-  return std::make_unique<IterativeEqualityStep>(negation, expr_id);
-}
-
 // Factory method for recursive @in Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectInStep(
     std::unique_ptr<DirectExpressionStep> item,
     std::unique_ptr<DirectExpressionStep> container, int64_t expr_id) {
   return std::make_unique<DirectInStep>(std::move(item), std::move(container),
                                         expr_id);
-}
-
-// Factory method for iterative @in Execution step
-std::unique_ptr<ExpressionStep> CreateInStep(int64_t expr_id) {
-  return std::make_unique<IterativeInStep>(expr_id);
 }
 
 }  // namespace google::api::expr::runtime

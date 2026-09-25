@@ -84,6 +84,7 @@ using ::google::api::expr::runtime::CelValue;
 using ::google::api::expr::runtime::DirectExpressionStep;
 using ::google::api::expr::runtime::ExecutionFrame;
 using ::google::api::expr::runtime::ExecutionFrameBase;
+using ::google::api::expr::runtime::ExpressionStep;
 using ::google::api::expr::runtime::ExpressionStepBase;
 using ::google::api::expr::runtime::GetGenericProtoTypeInfoInstance;
 using ::google::api::expr::runtime::PlannerContext;
@@ -751,7 +752,7 @@ class StackMachineImpl : public ExpressionStepBase {
   StackMachineImpl(int expr_id, OptimizedSelectImpl impl)
       : ExpressionStepBase(expr_id), impl_(std::move(impl)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   // Get the effective attribute for the optimized select expression.
@@ -768,7 +769,7 @@ AttributeTrail StackMachineImpl::GetAttributeTrail(
   return impl_.GetAttributeTrail(attr);
 }
 
-absl::Status StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
+void StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
   // Default empty.
   AttributeTrail attribute_trail;
   // TODO(uncreated-issue/51): add support for variable qualifiers and string literal
@@ -780,7 +781,7 @@ absl::Status StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
 
   if (operand->Is<ErrorValue>() || operand->Is<UnknownValue>()) {
     // Just forward the error which is already top of stack.
-    return absl::OkStatus();
+    return;
   }
 
   if (frame->enable_attribute_tracking()) {
@@ -789,27 +790,34 @@ absl::Status StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
     // select arguments.
     // TODO(uncreated-issue/51): add support variable qualifiers
     attribute_trail = GetAttributeTrail(frame);
-    CEL_ASSIGN_OR_RETURN(std::optional<Value> value,
-                         CheckForMarkedAttributes(*frame, attribute_trail));
-    if (value.has_value()) {
+    absl::StatusOr<std::optional<Value>> value =
+        CheckForMarkedAttributes(*frame, attribute_trail);
+    if (!value.ok()) {
+      frame->Abort(std::move(value).status());
+      return;
+    }
+    if (value->has_value()) {
       frame->value_stack().Pop(kStackInputs);
-      frame->value_stack().Push(std::move(value).value(),
+      frame->value_stack().Push(std::move(*value).value(),
                                 std::move(attribute_trail));
-      return absl::OkStatus();
+      return;
     }
   }
 
   if (!operand->Is<StructValue>()) {
-    return absl::InvalidArgumentError(
-        "Expected struct type for select optimization.");
+    frame->Abort(absl::InvalidArgumentError(
+        "Expected struct type for select optimization."));
+    return;
   }
 
-  CEL_ASSIGN_OR_RETURN(Value result,
-                       impl_.ApplySelect(*frame, operand.GetStruct()));
+  absl::StatusOr<Value> result = impl_.ApplySelect(*frame, operand.GetStruct());
+  if (!result.ok()) {
+    frame->Abort(std::move(result).status());
+    return;
+  }
 
   frame->value_stack().Pop(kStackInputs);
-  frame->value_stack().Push(std::move(result), std::move(attribute_trail));
-  return absl::OkStatus();
+  frame->value_stack().Push(*std::move(result), std::move(attribute_trail));
 }
 
 class RecursiveImpl : public DirectExpressionStep {
@@ -969,8 +977,9 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
   CEL_ASSIGN_OR_RETURN(auto operand_subplan, context.ExtractSubplan(operand));
   absl::c_move(operand_subplan, std::back_inserter(path));
 
-  path.push_back(
-      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)),
+      node.id()));
 
   return context.ReplaceSubplan(node, std::move(path));
 }
