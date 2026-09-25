@@ -14,6 +14,7 @@
 
 #include "eval/eval/cel_expression_flat_impl.h"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -97,6 +98,45 @@ std::unique_ptr<CelEvaluationState> CelExpressionFlatImpl::InitializeState(
   return std::make_unique<CelExpressionFlatEvaluationState>(
       arena, env_->descriptor_pool.get(), env_->MutableMessageFactory(),
       flat_expression_);
+}
+
+absl::StatusOr<CelValue> CelExpressionFlatImpl::Evaluate(
+    const BaseActivation& activation, google::protobuf::Arena* arena) const {
+  if (arena == nullptr ||
+      cached_state_in_use_.exchange(true, std::memory_order_acquire)) {
+    // Another thread is using the cached state, or caller has no arena;
+    // fall back to a fresh one.
+    return Evaluate(activation, InitializeState(arena).get());
+  }
+  if (!cached_state_.has_value()) {
+    // Same sizing as `FlatExpression::MakeEvaluatorState`; constructed in place
+    // because the state is not movable.
+    cached_state_.emplace(flat_expression_.path().size(),
+                          flat_expression_.comprehension_slots_size(),
+                          flat_expression_.type_provider(),
+                          env_->descriptor_pool.get(),
+                          env_->MutableMessageFactory(), arena);
+  } else {
+    cached_state_->SetArena(arena);
+  }
+  // Clears any values (which may reference `arena`) before releasing the
+  // cached state. The state keeps pointing at `arena` while idle but is always
+  // rebound before its next use.
+  struct CachedStateGuard {
+    FlatExpressionEvaluatorState& state;
+    std::atomic<bool>& in_use;
+    ~CachedStateGuard() {
+      state.Reset();
+      in_use.store(false, std::memory_order_release);
+    }
+  } guard{*cached_state_, cached_state_in_use_};
+  cel::interop_internal::AdapterActivationImpl modern_activation(activation);
+  CEL_ASSIGN_OR_RETURN(cel::Value value,
+                       flat_expression_.EvaluateWithCallback(
+                           modern_activation,
+                           /*embedder_context=*/nullptr,
+                           /*listener=*/nullptr, *cached_state_));
+  return cel::interop_internal::ModernValueToLegacyValueOrDie(arena, value);
 }
 
 absl::StatusOr<CelValue> CelExpressionFlatImpl::Evaluate(

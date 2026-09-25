@@ -2680,6 +2680,35 @@ TEST(UpdatedConstantFolding, FoldsLists) {
   EXPECT_THAT(result, test::IsCelList(SizeIs(12)));
 }
 
+// Regression test: a subexpression that fails during constant folding must not
+// leave values on the shared folding stack that break later folds.
+TEST(UpdatedConstantFolding, FailedFoldsDoNotLeakStackValues) {
+  InterpreterOptions options;
+  google::protobuf::Arena arena;
+  options.constant_folding = true;
+  options.constant_arena = &arena;
+
+  ASSERT_OK_AND_ASSIGN(
+      auto builder, CreateConstantFoldingConformanceTestExprBuilder(options));
+  ASSERT_OK_AND_ASSIGN(
+      ParsedExpr expr,
+      parser::Parse("[{true: 1, false: 2, true: 3}[true], "
+                    "{true: 1, false: 2, true: 3}[true], "
+                    "{true: 1, false: 2, true: 3}[true], "
+                    "{true: 1, false: 2, true: 3}[true], "
+                    "{true: 1, false: 2, true: 3}[true], "
+                    "{true: 1, false: 2, true: 3}[true], "
+                    "{true: 1, false: 2, true: 3}[true], "
+                    "{true: 1, false: 2, true: 3}[true], 1 + 2]"));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto plan, builder->CreateExpression(&expr.expr(), &expr.source_info()));
+  Activation activation;
+  // The duplicate map keys are a runtime error; only check that evaluation
+  // completes.
+  (void)plan->Evaluate(activation, &arena);
+}
+
 TEST(FlatExprBuilderTest, BlockBadIndex) {
   ParsedExpr parsed_expr;
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
