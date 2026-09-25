@@ -21,6 +21,7 @@
 #include "absl/strings/string_view.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "internal/overflow.h"
 #include "internal/status_macros.h"
@@ -170,22 +171,30 @@ Value Modulo<uint64_t>(uint64_t v0, uint64_t v1) {
 // Helper method
 // Registers all arithmetic functions for template parameter type.
 template <class Type>
-absl::Status RegisterArithmeticFunctionsForType(FunctionRegistry& registry) {
+absl::Status RegisterArithmeticFunctionsForType(FunctionRegistry& registry,
+                                  absl::string_view add_overload_id,
+                                  absl::string_view subtract_overload_id,
+                                  absl::string_view multiply_overload_id,
+                                  absl::string_view divide_overload_id) {
   using FunctionAdapter = cel::BinaryFunctionAdapter<Value, Type, Type>;
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kAdd, false),
-      FunctionAdapter::WrapFunction(&Add<Type>)));
+  CEL_RETURN_IF_ERROR(
+      registry.Register(FunctionAdapter::CreateDescriptor(
+                            cel::builtin::kAdd, add_overload_id, false),
+                        FunctionAdapter::WrapFunction(&Add<Type>)));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kSubtract, false),
+      FunctionAdapter::CreateDescriptor(cel::builtin::kSubtract,
+                                        subtract_overload_id, false),
       FunctionAdapter::WrapFunction(&Sub<Type>)));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kMultiply, false),
+      FunctionAdapter::CreateDescriptor(cel::builtin::kMultiply,
+                                        multiply_overload_id, false),
       FunctionAdapter::WrapFunction(&Mul<Type>)));
 
   return registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kDivide, false),
+      FunctionAdapter::CreateDescriptor(cel::builtin::kDivide,
+                                        divide_overload_id, false),
       FunctionAdapter::WrapFunction(&Div<Type>));
 }
 
@@ -193,39 +202,49 @@ absl::Status RegisterArithmeticFunctionsForType(FunctionRegistry& registry) {
 
 absl::Status RegisterArithmeticFunctions(FunctionRegistry& registry,
                                          const RuntimeOptions& options) {
-  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<int64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<uint64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<double>(registry));
+  using cel::StandardOverloadIds;
+
+  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<int64_t>(registry,
+      StandardOverloadIds::kAddInt, StandardOverloadIds::kSubtractInt,
+      StandardOverloadIds::kMultiplyInt, StandardOverloadIds::kDivideInt));
+
+  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<uint64_t>(registry,
+      StandardOverloadIds::kAddUint, StandardOverloadIds::kSubtractUint,
+      StandardOverloadIds::kMultiplyUint, StandardOverloadIds::kDivideUint));
+
+  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<double>(registry,
+      StandardOverloadIds::kAddDouble, StandardOverloadIds::kSubtractDouble,
+      StandardOverloadIds::kMultiplyDouble, StandardOverloadIds::kDivideDouble));
 
   // Modulo
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, int64_t, int64_t>::CreateDescriptor(
-          cel::builtin::kModulo, false),
+          cel::builtin::kModulo, StandardOverloadIds::kModuloInt, false),
       BinaryFunctionAdapter<Value, int64_t, int64_t>::WrapFunction(
           &Modulo<int64_t>)));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, uint64_t, uint64_t>::CreateDescriptor(
-          cel::builtin::kModulo, false),
+          cel::builtin::kModulo, StandardOverloadIds::kModuloUint, false),
       BinaryFunctionAdapter<Value, uint64_t, uint64_t>::WrapFunction(
           &Modulo<uint64_t>)));
 
   // Negation group
-  CEL_RETURN_IF_ERROR(
-      registry.Register(UnaryFunctionAdapter<Value, int64_t>::CreateDescriptor(
-                            cel::builtin::kNeg, false),
-                        UnaryFunctionAdapter<Value, int64_t>::WrapFunction(
-                            [](int64_t value) -> Value {
-                              auto inv = cel::internal::CheckedNegation(value);
-                              if (!inv.ok()) {
-                                return ErrorValue(inv.status());
-                              }
-                              return IntValue(*inv);
-                            })));
+  CEL_RETURN_IF_ERROR(registry.Register(
+      UnaryFunctionAdapter<Value, int64_t>::CreateDescriptor(
+          cel::builtin::kNeg, StandardOverloadIds::kNegateInt, false),
+      UnaryFunctionAdapter<Value, int64_t>::WrapFunction(
+          [](int64_t value) -> Value {
+            auto inv = cel::internal::CheckedNegation(value);
+            if (!inv.ok()) {
+              return ErrorValue(inv.status());
+            }
+            return IntValue(*inv);
+          })));
 
   return registry.Register(
       UnaryFunctionAdapter<double, double>::CreateDescriptor(cel::builtin::kNeg,
-                                                             false),
+          StandardOverloadIds::kNegateDouble, false),
       UnaryFunctionAdapter<double, double>::WrapFunction(
           [](double value) -> double { return -value; }));
 }

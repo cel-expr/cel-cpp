@@ -287,11 +287,11 @@ TEST_F(ActivationTest, InsertFunctionOk) {
       UnorderedElementsAre(
           Truly([](const FunctionOverloadReference& ref) {
             return ref.descriptor.name() == "Fn" &&
-                   ref.descriptor.types() == std::vector<Kind>{Kind::kUint};
+                   ref.descriptor.kinds() == std::vector<Kind>{Kind::kUint};
           }),
           Truly([](const FunctionOverloadReference& ref) {
             return ref.descriptor.name() == "Fn" &&
-                   ref.descriptor.types() == std::vector<Kind>{Kind::kInt};
+                   ref.descriptor.kinds() == std::vector<Kind>{Kind::kInt};
           })))
       << "expected overloads Fn(int), Fn(uint)";
 }
@@ -309,7 +309,7 @@ TEST_F(ActivationTest, InsertFunctionFails) {
   EXPECT_THAT(activation.FindFunctionOverloads("Fn"),
               ElementsAre(Truly([](const FunctionOverloadReference& ref) {
                 return ref.descriptor.name() == "Fn" &&
-                       ref.descriptor.types() == std::vector<Kind>{Kind::kAny};
+                       ref.descriptor.kinds() == std::vector<Kind>{Kind::kAny};
               })))
       << "expected overload Fn(any)";
 }

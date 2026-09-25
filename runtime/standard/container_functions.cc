@@ -23,6 +23,7 @@
 #include "absl/status/statusor.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "common/values/list_value_builder.h"
 #include "internal/status_macros.h"
@@ -99,31 +100,53 @@ absl::StatusOr<ListValue> AppendList(ListValue value1, const Value& value2) {
 
 absl::Status RegisterContainerFunctions(FunctionRegistry& registry,
                                         const RuntimeOptions& options) {
+  using cel::StandardOverloadIds;
+
   // receiver style = true/false
   // Support both the global and receiver style size() for lists and maps.
-  for (bool receiver_style : {true, false}) {
-    CEL_RETURN_IF_ERROR(registry.Register(
-        cel::UnaryFunctionAdapter<absl::StatusOr<int64_t>, const ListValue&>::
-            CreateDescriptor(cel::builtin::kSize, receiver_style),
-        UnaryFunctionAdapter<absl::StatusOr<int64_t>,
-                             const ListValue&>::WrapFunction(ListSizeImpl)));
+  CEL_RETURN_IF_ERROR(registry.Register(
+      cel::UnaryFunctionAdapter<absl::StatusOr<int64_t>, const ListValue&>::
+          CreateDescriptor(cel::builtin::kSize,
+                           StandardOverloadIds::kSizeList,
+                           /*receiver_style=*/false),
+      UnaryFunctionAdapter<absl::StatusOr<int64_t>,
+                           const ListValue&>::WrapFunction(ListSizeImpl)));
 
-    CEL_RETURN_IF_ERROR(registry.Register(
-        UnaryFunctionAdapter<absl::StatusOr<int64_t>, const MapValue&>::
-            CreateDescriptor(cel::builtin::kSize, receiver_style),
-        UnaryFunctionAdapter<absl::StatusOr<int64_t>,
-                             const MapValue&>::WrapFunction(MapSizeImpl)));
-  }
+  CEL_RETURN_IF_ERROR(registry.Register(
+      cel::UnaryFunctionAdapter<absl::StatusOr<int64_t>, const ListValue&>::
+          CreateDescriptor(cel::builtin::kSize,
+                           StandardOverloadIds::kSizeListMember,
+                           /*receiver_style=*/true),
+      UnaryFunctionAdapter<absl::StatusOr<int64_t>,
+                           const ListValue&>::WrapFunction(ListSizeImpl)));
+
+  CEL_RETURN_IF_ERROR(registry.Register(
+      UnaryFunctionAdapter<absl::StatusOr<int64_t>, const MapValue&>::
+          CreateDescriptor(cel::builtin::kSize,
+                           StandardOverloadIds::kSizeMap,
+                           /*receiver_style=*/false),
+      UnaryFunctionAdapter<absl::StatusOr<int64_t>,
+                           const MapValue&>::WrapFunction(MapSizeImpl)));
+
+  CEL_RETURN_IF_ERROR(registry.Register(
+      UnaryFunctionAdapter<absl::StatusOr<int64_t>, const MapValue&>::
+          CreateDescriptor(cel::builtin::kSize,
+                           StandardOverloadIds::kSizeMapMember,
+                           /*receiver_style=*/true),
+      UnaryFunctionAdapter<absl::StatusOr<int64_t>,
+                           const MapValue&>::WrapFunction(MapSizeImpl)));
 
   if (options.enable_list_concat) {
     CEL_RETURN_IF_ERROR(registry.Register(
-        BinaryFunctionAdapter<
-            absl::StatusOr<Value>, const ListValue&,
-            const ListValue&>::CreateDescriptor(cel::builtin::kAdd, false),
+        BinaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
+                              const ListValue&>::
+            CreateDescriptor(cel::builtin::kAdd,
+                             StandardOverloadIds::kAddList, false),
         BinaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
                               const ListValue&>::WrapFunction(ConcatList)));
   }
 
+  // Internal runtime function, no overload_id
   return registry.Register(
       BinaryFunctionAdapter<
           absl::StatusOr<ListValue>, ListValue,

@@ -72,6 +72,23 @@ class ActivationInterface {
   virtual std::vector<FunctionOverloadReference> FindFunctionOverloads(
       absl::string_view name) const = 0;
 
+  // Find a single context function overload by name and overload ID.
+  // Returns nullopt if not found or if overload_id is empty.
+  virtual absl::optional<FunctionOverloadReference> FindFunctionOverloadById(
+      absl::string_view name, absl::string_view overload_id) const {
+    if (overload_id.empty()) {
+      return absl::nullopt;
+    }
+
+    auto overloads = FindFunctionOverloads(name);
+    for (const auto& overload : overloads) {
+      if (overload.descriptor.overload_id() == overload_id) {
+        return overload;
+      }
+    }
+    return absl::nullopt;
+  }
+
   // Return a list of unknown attribute patterns.
   //
   // If an attribute (select path) encountered during evaluation matches any of

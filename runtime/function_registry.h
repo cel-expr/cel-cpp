@@ -28,6 +28,7 @@
 #include "absl/types/span.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
+#include "common/type.h"
 #include "runtime/function.h"
 #include "runtime/function_overload_reference.h"
 #include "runtime/function_provider.h"
@@ -84,6 +85,15 @@ class FunctionRegistry {
       absl::string_view name, bool receiver_style,
       absl::Span<const cel::Kind> types) const;
 
+  std::vector<cel::FunctionOverloadReference> FindStaticOverloadsByTypes(
+      absl::string_view name, bool receiver_style,
+      absl::Span<const cel::Type> types) const;
+
+  // Find a static function by overload ID (O(1) lookup).
+  // Returns nullopt if not found or if the overload ID doesn't match the name.
+  absl::optional<cel::FunctionOverloadReference> FindStaticOverloadById(
+      absl::string_view name, absl::string_view overload_id) const;
+
   std::vector<cel::FunctionOverloadReference> FindStaticOverloadsByArity(
       absl::string_view name, bool receiver_style, size_t arity) const;
 
@@ -101,6 +111,15 @@ class FunctionRegistry {
   std::vector<LazyOverload> FindLazyOverloads(
       absl::string_view name, bool receiver_style,
       absl::Span<const cel::Kind> types) const;
+
+  std::vector<LazyOverload> FindLazyOverloadsByTypes(
+      absl::string_view name, bool receiver_style,
+      absl::Span<const cel::Type> types) const;
+
+  // Find a lazy function by overload ID (O(1) lookup).
+  // Returns nullopt if not found or if the overload ID doesn't match the name.
+  absl::optional<LazyOverload> FindLazyOverloadById(
+      absl::string_view name, absl::string_view overload_id) const;
 
   std::vector<LazyOverload> FindLazyOverloadsByArity(absl::string_view name,
                                                      bool receiver_style,
@@ -138,8 +157,16 @@ class FunctionRegistry {
   };
 
   struct RegistryEntry {
-    std::vector<StaticFunctionEntry> static_overloads;
-    std::vector<LazyFunctionEntry> lazy_overloads;
+    // Use deque instead of vector to guarantee pointer stability.
+    // This allows safe storage of pointers to entries in the by-ID indexes.
+    std::deque<StaticFunctionEntry> static_overloads;
+    std::deque<LazyFunctionEntry> lazy_overloads;
+
+    // O(1) lookup by overload ID within this function name.
+    // Points to entries in static_overloads/lazy_overloads.
+    absl::flat_hash_map<std::string, StaticFunctionEntry*>
+        static_overloads_by_id;
+    absl::flat_hash_map<std::string, LazyFunctionEntry*> lazy_overloads_by_id;
   };
 
   // Returns whether the descriptor is registered either as a lazy function or
@@ -150,6 +177,11 @@ class FunctionRegistry {
   // function should have only a single overload" will be preserved.
   bool ValidateNonStrictOverload(
       const cel::FunctionDescriptor& descriptor) const;
+
+  // Check if an overload ID conflicts with already registered static or lazy
+  // functions under the given function name.
+  bool IsOverloadIdConflict(absl::string_view name,
+                            absl::string_view overload_id) const;
 
   // indexed by function name (not type checker overload id).
   absl::flat_hash_map<std::string, RegistryEntry> functions_;

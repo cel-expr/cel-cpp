@@ -27,6 +27,7 @@
 #include "absl/time/time.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "internal/overflow.h"
 #include "internal/status_macros.h"
@@ -162,9 +163,12 @@ Value GetMilliseconds(absl::Time timestamp, absl::string_view tz) {
 
 absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
                                         const RuntimeOptions& options) {
+  using cel::StandardOverloadIds;
+
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kFullYear, true),
+          CreateDescriptor(builtin::kFullYear,
+                           StandardOverloadIds::kTimestampToYearWithTz, true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetFullYear(ts, tz.ToString());
@@ -172,27 +176,30 @@ absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
-          builtin::kFullYear, true),
+          builtin::kFullYear, StandardOverloadIds::kTimestampToYear, true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetFullYear(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kMonth, true),
+          CreateDescriptor(builtin::kMonth,
+                           StandardOverloadIds::kTimestampToMonthWithTz, true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetMonth(ts, tz.ToString());
           })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(builtin::kMonth,
-                                                                true),
+      UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
+          builtin::kMonth, StandardOverloadIds::kTimestampToMonth, true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetMonth(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kDayOfYear, true),
+          CreateDescriptor(builtin::kDayOfYear,
+                           StandardOverloadIds::kTimestampToDayOfYearWithTz,
+                           true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetDayOfYear(ts, tz.ToString());
@@ -200,13 +207,16 @@ absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
-          builtin::kDayOfYear, true),
+          builtin::kDayOfYear, StandardOverloadIds::kTimestampToDayOfYear,
+          true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetDayOfYear(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kDayOfMonth, true),
+          CreateDescriptor(builtin::kDayOfMonth,
+                           StandardOverloadIds::kTimestampToDayOfMonthWithTz,
+                           true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetDayOfMonth(ts, tz.ToString());
@@ -214,27 +224,31 @@ absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
-          builtin::kDayOfMonth, true),
+          builtin::kDayOfMonth, StandardOverloadIds::kTimestampToDayOfMonth,
+          true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetDayOfMonth(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kDate, true),
+          CreateDescriptor(builtin::kDate,
+                           StandardOverloadIds::kTimestampToDateWithTz, true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetDate(ts, tz.ToString());
           })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(builtin::kDate,
-                                                                true),
+      UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
+          builtin::kDate, StandardOverloadIds::kTimestampToDate, true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetDate(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kDayOfWeek, true),
+          CreateDescriptor(builtin::kDayOfWeek,
+                           StandardOverloadIds::kTimestampToDayOfWeekWithTz,
+                           true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetDayOfWeek(ts, tz.ToString());
@@ -242,27 +256,31 @@ absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
-          builtin::kDayOfWeek, true),
+          builtin::kDayOfWeek, StandardOverloadIds::kTimestampToDayOfWeek,
+          true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetDayOfWeek(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kHours, true),
+          CreateDescriptor(builtin::kHours,
+                           StandardOverloadIds::kTimestampToHoursWithTz, true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetHours(ts, tz.ToString());
           })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(builtin::kHours,
-                                                                true),
+      UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
+          builtin::kHours, StandardOverloadIds::kTimestampToHours, true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetHours(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kMinutes, true),
+          CreateDescriptor(builtin::kMinutes,
+                           StandardOverloadIds::kTimestampToMinutesWithTz,
+                           true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetMinutes(ts, tz.ToString());
@@ -270,13 +288,15 @@ absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
-          builtin::kMinutes, true),
+          builtin::kMinutes, StandardOverloadIds::kTimestampToMinutes, true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetMinutes(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kSeconds, true),
+          CreateDescriptor(builtin::kSeconds,
+                           StandardOverloadIds::kTimestampToSecondsWithTz,
+                           true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetSeconds(ts, tz.ToString());
@@ -284,13 +304,15 @@ absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
-          builtin::kSeconds, true),
+          builtin::kSeconds, StandardOverloadIds::kTimestampToSeconds, true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetSeconds(ts, ""); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
-          CreateDescriptor(builtin::kMilliseconds, true),
+          CreateDescriptor(
+              builtin::kMilliseconds,
+              StandardOverloadIds::kTimestampToMillisecondsWithTz, true),
       BinaryFunctionAdapter<Value, absl::Time, const StringValue&>::
           WrapFunction([](absl::Time ts, const StringValue& tz) -> Value {
             return GetMilliseconds(ts, tz.ToString());
@@ -298,17 +320,20 @@ absl::Status RegisterTimestampFunctions(FunctionRegistry& registry,
 
   return registry.Register(
       UnaryFunctionAdapter<Value, absl::Time>::CreateDescriptor(
-          builtin::kMilliseconds, true),
+          builtin::kMilliseconds,
+          StandardOverloadIds::kTimestampToMilliseconds, true),
       UnaryFunctionAdapter<Value, absl::Time>::WrapFunction(
           [](absl::Time ts) -> Value { return GetMilliseconds(ts, ""); }));
 }
 
 absl::Status RegisterCheckedTimeArithmeticFunctions(
     FunctionRegistry& registry) {
+  using cel::StandardOverloadIds;
+
   CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<Value, absl::Time,
-                            absl::Duration>::CreateDescriptor(builtin::kAdd,
-                                                              false),
+      BinaryFunctionAdapter<Value, absl::Time, absl::Duration>::
+          CreateDescriptor(builtin::kAdd,
+                           StandardOverloadIds::kAddTimestampDuration, false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Time, absl::Duration>::
           WrapFunction(
               [](absl::Time t1, absl::Duration d2) -> absl::StatusOr<Value> {
@@ -320,8 +345,9 @@ absl::Status RegisterCheckedTimeArithmeticFunctions(
               })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Duration,
-                            absl::Time>::CreateDescriptor(builtin::kAdd, false),
+      BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Duration, absl::Time>::
+          CreateDescriptor(builtin::kAdd,
+                           StandardOverloadIds::kAddDurationTimestamp, false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Duration, absl::Time>::
           WrapFunction(
               [](absl::Duration d2, absl::Time t1) -> absl::StatusOr<Value> {
@@ -334,8 +360,9 @@ absl::Status RegisterCheckedTimeArithmeticFunctions(
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Duration,
-                            absl::Duration>::CreateDescriptor(builtin::kAdd,
-                                                              false),
+                            absl::Duration>::
+          CreateDescriptor(builtin::kAdd,
+                           StandardOverloadIds::kAddDurationDuration, false),
       BinaryFunctionAdapter<
           absl::StatusOr<Value>, absl::Duration,
           absl::Duration>::WrapFunction([](absl::Duration d1, absl::Duration d2)
@@ -349,7 +376,9 @@ absl::Status RegisterCheckedTimeArithmeticFunctions(
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Time, absl::Duration>::
-          CreateDescriptor(builtin::kSubtract, false),
+          CreateDescriptor(builtin::kSubtract,
+                           StandardOverloadIds::kSubtractTimestampDuration,
+                           false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Time, absl::Duration>::
           WrapFunction(
               [](absl::Time t1, absl::Duration d2) -> absl::StatusOr<Value> {
@@ -361,9 +390,10 @@ absl::Status RegisterCheckedTimeArithmeticFunctions(
               })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Time,
-                            absl::Time>::CreateDescriptor(builtin::kSubtract,
-                                                          false),
+      BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Time, absl::Time>::
+          CreateDescriptor(builtin::kSubtract,
+                           StandardOverloadIds::kSubtractTimestampTimestamp,
+                           false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, absl::Time, absl::Time>::
           WrapFunction(
               [](absl::Time t1, absl::Time t2) -> absl::StatusOr<Value> {
@@ -377,7 +407,10 @@ absl::Status RegisterCheckedTimeArithmeticFunctions(
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<
           absl::StatusOr<Value>, absl::Duration,
-          absl::Duration>::CreateDescriptor(builtin::kSubtract, false),
+          absl::Duration>::CreateDescriptor(builtin::kSubtract,
+                                            StandardOverloadIds::
+                                                kSubtractDurationDuration,
+                                            false),
       BinaryFunctionAdapter<
           absl::StatusOr<Value>, absl::Duration,
           absl::Duration>::WrapFunction([](absl::Duration d1, absl::Duration d2)
@@ -394,27 +427,30 @@ absl::Status RegisterCheckedTimeArithmeticFunctions(
 
 absl::Status RegisterUncheckedTimeArithmeticFunctions(
     FunctionRegistry& registry) {
+  using cel::StandardOverloadIds;
+
   CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<Value, absl::Time,
-                            absl::Duration>::CreateDescriptor(builtin::kAdd,
-                                                              false),
+      BinaryFunctionAdapter<Value, absl::Time, absl::Duration>::
+          CreateDescriptor(builtin::kAdd,
+                           StandardOverloadIds::kAddTimestampDuration, false),
       BinaryFunctionAdapter<Value, absl::Time, absl::Duration>::WrapFunction(
           [](absl::Time t1, absl::Duration d2) -> Value {
             return UnsafeTimestampValue(t1 + d2);
           })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<Value, absl::Duration,
-                            absl::Time>::CreateDescriptor(builtin::kAdd, false),
+      BinaryFunctionAdapter<Value, absl::Duration, absl::Time>::
+          CreateDescriptor(builtin::kAdd,
+                           StandardOverloadIds::kAddDurationTimestamp, false),
       BinaryFunctionAdapter<Value, absl::Duration, absl::Time>::WrapFunction(
           [](absl::Duration d2, absl::Time t1) -> Value {
             return UnsafeTimestampValue(t1 + d2);
           })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<Value, absl::Duration,
-                            absl::Duration>::CreateDescriptor(builtin::kAdd,
-                                                              false),
+      BinaryFunctionAdapter<Value, absl::Duration, absl::Duration>::
+          CreateDescriptor(builtin::kAdd,
+                           StandardOverloadIds::kAddDurationDuration, false),
       BinaryFunctionAdapter<Value, absl::Duration, absl::Duration>::
           WrapFunction([](absl::Duration d1, absl::Duration d2) -> Value {
             return UnsafeDurationValue(d1 + d2);
@@ -422,7 +458,9 @@ absl::Status RegisterUncheckedTimeArithmeticFunctions(
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, absl::Duration>::
-          CreateDescriptor(builtin::kSubtract, false),
+          CreateDescriptor(builtin::kSubtract,
+                           StandardOverloadIds::kSubtractTimestampDuration,
+                           false),
 
       BinaryFunctionAdapter<Value, absl::Time, absl::Duration>::WrapFunction(
 
@@ -432,7 +470,8 @@ absl::Status RegisterUncheckedTimeArithmeticFunctions(
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Time, absl::Time>::CreateDescriptor(
-          builtin::kSubtract, false),
+          builtin::kSubtract, StandardOverloadIds::kSubtractTimestampTimestamp,
+          false),
       BinaryFunctionAdapter<Value, absl::Time, absl::Time>::WrapFunction(
 
           [](absl::Time t1, absl::Time t2) -> Value {
@@ -441,7 +480,9 @@ absl::Status RegisterUncheckedTimeArithmeticFunctions(
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<Value, absl::Duration, absl::Duration>::
-          CreateDescriptor(builtin::kSubtract, false),
+          CreateDescriptor(builtin::kSubtract,
+                           StandardOverloadIds::kSubtractDurationDuration,
+                           false),
       BinaryFunctionAdapter<Value, absl::Duration, absl::Duration>::
           WrapFunction([](absl::Duration d1, absl::Duration d2) -> Value {
             return UnsafeDurationValue(d1 - d2);
@@ -451,28 +492,35 @@ absl::Status RegisterUncheckedTimeArithmeticFunctions(
 }
 
 absl::Status RegisterDurationFunctions(FunctionRegistry& registry) {
+  using cel::StandardOverloadIds;
+
   // duration breakdown accessor functions
   using DurationAccessorFunction =
       UnaryFunctionAdapter<int64_t, absl::Duration>;
   CEL_RETURN_IF_ERROR(registry.Register(
-      DurationAccessorFunction::CreateDescriptor(builtin::kHours, true),
+      DurationAccessorFunction::CreateDescriptor(
+          builtin::kHours, StandardOverloadIds::kDurationToHours, true),
       DurationAccessorFunction::WrapFunction(
           [](absl::Duration d) -> int64_t { return absl::ToInt64Hours(d); })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      DurationAccessorFunction::CreateDescriptor(builtin::kMinutes, true),
+      DurationAccessorFunction::CreateDescriptor(
+          builtin::kMinutes, StandardOverloadIds::kDurationToMinutes, true),
       DurationAccessorFunction::WrapFunction([](absl::Duration d) -> int64_t {
         return absl::ToInt64Minutes(d);
       })));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      DurationAccessorFunction::CreateDescriptor(builtin::kSeconds, true),
+      DurationAccessorFunction::CreateDescriptor(
+          builtin::kSeconds, StandardOverloadIds::kDurationToSeconds, true),
       DurationAccessorFunction::WrapFunction([](absl::Duration d) -> int64_t {
         return absl::ToInt64Seconds(d);
       })));
 
   return registry.Register(
-      DurationAccessorFunction::CreateDescriptor(builtin::kMilliseconds, true),
+      DurationAccessorFunction::CreateDescriptor(
+          builtin::kMilliseconds, StandardOverloadIds::kDurationToMilliseconds,
+          true),
       DurationAccessorFunction::WrapFunction([](absl::Duration d) -> int64_t {
         constexpr int64_t millis_per_second = 1000L;
         return absl::ToInt64Milliseconds(d) % millis_per_second;

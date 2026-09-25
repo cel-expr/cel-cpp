@@ -233,23 +233,32 @@ Value ReplaceN(int regex_max_program_size, const StringValue& target,
 absl::Status RegisterRegexExtensionFunctions(FunctionRegistry& registry,
                                              bool disable_extract,
                                              int regex_max_program_size) {
+  // Overload IDs from decls
+  static constexpr absl::string_view kRegexExtractStringString = "regex_extract_string_string";
+  static constexpr absl::string_view kRegexExtractAllStringString = "regex_extractAll_string_string";
+  static constexpr absl::string_view kRegexReplaceStringStringString = "regex_replace_string_string_string";
+  static constexpr absl::string_view kRegexReplaceStringStringStringInt = "regex_replace_string_string_string_int";
+
   if (!disable_extract) {
     CEL_RETURN_IF_ERROR((
         BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue>::
             RegisterGlobalOverload(
                 "regex.extract",
+                kRegexExtractStringString,
                 absl::bind_front(&Extract, regex_max_program_size), registry)));
   }
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue, StringValue>::
            RegisterGlobalOverload(
                "regex.extractAll",
+               kRegexExtractAllStringString,
                absl::bind_front(&ExtractAll, regex_max_program_size),
                registry)));
   CEL_RETURN_IF_ERROR(
       (TernaryFunctionAdapter<
           absl::StatusOr<Value>, StringValue, StringValue,
           StringValue>::RegisterGlobalOverload("regex.replace",
+                                               kRegexReplaceStringStringString,
                                                absl::bind_front(
                                                    &ReplaceAll,
                                                    regex_max_program_size),
@@ -259,6 +268,7 @@ absl::Status RegisterRegexExtensionFunctions(FunctionRegistry& registry,
                                  StringValue, StringValue, int64_t>::
            RegisterGlobalOverload(
                "regex.replace",
+               kRegexReplaceStringStringStringInt,
                absl::bind_front(&ReplaceN, regex_max_program_size), registry)));
   return absl::OkStatus();
 }

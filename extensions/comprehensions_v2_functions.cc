@@ -120,16 +120,22 @@ absl::StatusOr<Value> MapInsertMap(
 
 absl::Status RegisterComprehensionsV2Functions(FunctionRegistry& registry,
                                                const RuntimeOptions& options) {
+  // Overload IDs from comprehensions_v2.cc
+  static constexpr absl::string_view kMapInsertMapKeyValue =
+      "@mapInsert_map_key_value";
+  static constexpr absl::string_view kMapInsertMapMap = "@mapInsert_map_map";
+
   CEL_RETURN_IF_ERROR(registry.Register(
       TernaryFunctionAdapter<absl::StatusOr<Value>, MapValue, Value,
                              Value>::CreateDescriptor("cel.@mapInsert",
+                                                      kMapInsertMapKeyValue,
                                                       /*receiver_style=*/false),
       TernaryFunctionAdapter<absl::StatusOr<Value>, MapValue, Value,
                              Value>::WrapFunction(&MapInsertKeyValue)));
 
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue, MapValue>::
-          CreateDescriptor("cel.@mapInsert",
+          CreateDescriptor("cel.@mapInsert", kMapInsertMapMap,
                            /*receiver_style=*/false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue,
                             MapValue>::WrapFunction(&MapInsertMap)));

@@ -103,6 +103,7 @@ cc_library(
         "//base:data",
         "//common:allocator",
         "//common:ast",
+        "//common/ast:metadata",
         "//common:ast_traverse",
         "//common:ast_visitor",
         "//common:constant",
