@@ -47,8 +47,8 @@ class CompilerConstantStepTest : public testing::Test {
 
 TEST_F(CompilerConstantStepTest, Evaluate) {
   ExecutionPath path;
-  path.push_back(
-      std::make_unique<CompilerConstantStep>(cel::IntValue(42), -1, false));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<CompilerConstantStep>(cel::IntValue(42))));
 
   ExecutionFrame frame(path, empty_activation_, options_, state_);
 
@@ -58,15 +58,15 @@ TEST_F(CompilerConstantStepTest, Evaluate) {
 }
 
 TEST_F(CompilerConstantStepTest, TypeId) {
-  CompilerConstantStep step(cel::IntValue(42), -1, false);
+  CompilerConstantStep step(cel::IntValue(42));
 
-  ExpressionStep& abstract_step = step;
+  ExpressionStepLogic& abstract_step = step;
   EXPECT_EQ(abstract_step.GetNativeTypeId(),
             cel::NativeTypeId::For<CompilerConstantStep>());
 }
 
 TEST_F(CompilerConstantStepTest, Value) {
-  CompilerConstantStep step(cel::IntValue(42), -1, false);
+  CompilerConstantStep step(cel::IntValue(42));
 
   EXPECT_EQ(step.value().GetInt().NativeValue(), 42);
 }

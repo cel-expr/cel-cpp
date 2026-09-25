@@ -20,10 +20,9 @@ inline std::unique_ptr<DirectExpressionStep> CreateConstValueDirectStep(
 }
 
 // Factory method for Constant AST node expression step.
-inline absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateConstValueStep(
-    cel::Value value, int64_t expr_id, bool comes_from_ast = true) {
-  return std::make_unique<CompilerConstantStep>(std::move(value), expr_id,
-                                                comes_from_ast);
+inline std::unique_ptr<ExpressionStepLogic> CreateConstValueStep(
+    cel::Value value) {
+  return std::make_unique<CompilerConstantStep>(std::move(value));
 }
 
 }  // namespace google::api::expr::runtime

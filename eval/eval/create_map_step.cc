@@ -52,10 +52,9 @@ using ::cel::common_internal::NewMutableMapValue;
 // `CreateStruct` implementation for map.
 class CreateStructStepForMap final : public ExpressionStepBase {
  public:
-  CreateStructStepForMap(int64_t expr_id, size_t entry_count,
+  CreateStructStepForMap(size_t entry_count,
                          absl::flat_hash_set<int32_t> optional_indices)
-      : ExpressionStepBase(expr_id),
-        entry_count_(entry_count),
+      : entry_count_(entry_count),
         optional_indices_(std::move(optional_indices)) {}
 
   absl::Status Evaluate(ExecutionFrame* frame) const override;
@@ -235,9 +234,9 @@ absl::Status DirectCreateMapStep::Evaluate(
   return absl::OkStatus();
 }
 
-class MutableMapStep final : public ExpressionStep {
+class MutableMapStep final : public ExpressionStepBase {
  public:
-  explicit MutableMapStep(int64_t expr_id) : ExpressionStep(expr_id) {}
+  MutableMapStep() = default;
 
   absl::Status Evaluate(ExecutionFrame* frame) const override {
     frame->value_stack().Push(cel::CustomMapValue(
@@ -268,17 +267,16 @@ std::unique_ptr<DirectExpressionStep> CreateDirectCreateMapStep(
       std::move(deps), std::move(optional_indices), expr_id);
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateCreateStructStepForMap(
-    size_t entry_count, absl::flat_hash_set<int32_t> optional_indices,
-    int64_t expr_id) {
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>>
+CreateCreateStructStepForMap(size_t entry_count,
+                             absl::flat_hash_set<int32_t> optional_indices) {
   // Make map-creating step.
-  return std::make_unique<CreateStructStepForMap>(expr_id, entry_count,
+  return std::make_unique<CreateStructStepForMap>(entry_count,
                                                   std::move(optional_indices));
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateMutableMapStep(
-    int64_t expr_id) {
-  return std::make_unique<MutableMapStep>(expr_id);
+std::unique_ptr<ExpressionStepLogic> CreateMutableMapStep() {
+  return std::make_unique<MutableMapStep>();
 }
 
 std::unique_ptr<DirectExpressionStep> CreateDirectMutableMapStep(
