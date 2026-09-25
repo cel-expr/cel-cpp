@@ -59,27 +59,25 @@ struct MatchesVisitor final {
 
 class RegexMatchStep final : public ExpressionStepBase {
  public:
-  RegexMatchStep(int64_t expr_id, std::shared_ptr<const RE2> re2)
-      : ExpressionStepBase(expr_id, /*comes_from_ast=*/true),
-        re2_(std::move(re2)) {}
+  explicit RegexMatchStep(std::shared_ptr<const RE2> re2)
+      : ExpressionStepBase(), re2_(std::move(re2)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
+  void Evaluate(ExecutionFrame* frame) const override {
     if (!frame->value_stack().HasEnough(kNumRegexMatchArguments)) {
-      return absl::Status(absl::StatusCode::kInternal,
-                          "Insufficient arguments supplied for regular "
-                          "expression match");
+      frame->Abort(absl::InternalError(
+          "Insufficient arguments supplied for regular expression match"));
+      return;
     }
     auto input_args = frame->value_stack().GetSpan(kNumRegexMatchArguments);
     const auto& subject = input_args[kRegexMatchStepSubject];
     if (!subject->Is<cel::StringValue>()) {
-      return absl::Status(absl::StatusCode::kInternal,
-                          "First argument for regular "
-                          "expression match must be a string");
+      frame->Abort(absl::InternalError(
+          "First argument for regular expression match must be a string"));
+      return;
     }
     bool match = subject.GetString().NativeValue(MatchesVisitor{*re2_});
     frame->value_stack().Pop(kNumRegexMatchArguments);
     frame->value_stack().Push(cel::BoolValue(match));
-    return absl::OkStatus();
   }
 
  private:
@@ -127,9 +125,9 @@ std::unique_ptr<DirectExpressionStep> CreateDirectRegexMatchStep(
                                                 std::move(re2));
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateRegexMatchStep(
-    std::shared_ptr<const RE2> re2, int64_t expr_id) {
-  return std::make_unique<RegexMatchStep>(expr_id, std::move(re2));
+absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateRegexMatchStep(
+    std::shared_ptr<const RE2> re2) {
+  return std::make_unique<RegexMatchStep>(std::move(re2));
 }
 
 }  // namespace google::api::expr::runtime

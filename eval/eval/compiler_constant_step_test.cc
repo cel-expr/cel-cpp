@@ -17,6 +17,8 @@
 
 #include "common/native_type.h"
 #include "common/value.h"
+#include "eval/eval/attribute_trail.h"
+#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
@@ -30,43 +32,41 @@ namespace google::api::expr::runtime {
 
 namespace {
 
-class CompilerConstantStepTest : public testing::Test {
+class DirectCompilerConstantStepTest : public testing::Test {
  public:
-  CompilerConstantStepTest()
-      : type_provider_(cel::internal::GetTestingDescriptorPool()),
-        state_(2, 0, type_provider_, cel::internal::GetTestingDescriptorPool(),
-               cel::internal::GetTestingMessageFactory(), &arena_) {}
+  DirectCompilerConstantStepTest()
+      : type_provider_(cel::internal::GetTestingDescriptorPool()) {}
 
  protected:
   google::protobuf::Arena arena_;
   cel::runtime_internal::RuntimeTypeProvider type_provider_;
-  FlatExpressionEvaluatorState state_;
   cel::Activation empty_activation_;
   cel::RuntimeOptions options_;
 };
 
-TEST_F(CompilerConstantStepTest, Evaluate) {
-  ExecutionPath path;
-  path.push_back(
-      std::make_unique<CompilerConstantStep>(cel::IntValue(42), -1, false));
+TEST_F(DirectCompilerConstantStepTest, Evaluate) {
+  ExecutionFrameBase frame(empty_activation_, options_, type_provider_,
+                           cel::internal::GetTestingDescriptorPool(),
+                           cel::internal::GetTestingMessageFactory(), &arena_);
+  DirectCompilerConstantStep step(cel::IntValue(42), -1);
+  cel::Value result;
+  AttributeTrail attr;
 
-  ExecutionFrame frame(path, empty_activation_, options_, state_);
-
-  ASSERT_OK_AND_ASSIGN(cel::Value result, frame.Evaluate());
+  ASSERT_THAT(step.Evaluate(frame, result, attr), absl_testing::IsOk());
 
   EXPECT_EQ(result.GetInt().NativeValue(), 42);
 }
 
-TEST_F(CompilerConstantStepTest, TypeId) {
-  CompilerConstantStep step(cel::IntValue(42), -1, false);
+TEST_F(DirectCompilerConstantStepTest, TypeId) {
+  DirectCompilerConstantStep step(cel::IntValue(42), -1);
 
-  ExpressionStep& abstract_step = step;
+  const DirectExpressionStep& abstract_step = step;
   EXPECT_EQ(abstract_step.GetNativeTypeId(),
-            cel::NativeTypeId::For<CompilerConstantStep>());
+            cel::NativeTypeId::For<DirectCompilerConstantStep>());
 }
 
-TEST_F(CompilerConstantStepTest, Value) {
-  CompilerConstantStep step(cel::IntValue(42), -1, false);
+TEST_F(DirectCompilerConstantStepTest, Value) {
+  DirectCompilerConstantStep step(cel::IntValue(42), -1);
 
   EXPECT_EQ(step.value().GetInt().NativeValue(), 42);
 }

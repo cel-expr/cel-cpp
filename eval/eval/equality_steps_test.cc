@@ -51,22 +51,21 @@ using ::cel::ValueKind;
 using ::cel::test::BoolValueIs;
 using ::cel::test::ValueKindIs;
 
-class ValueStep : public ExpressionStep, public DirectExpressionStep {
+class ValueStep : public ExpressionStepLogic, public DirectExpressionStep {
  public:
   ValueStep(Value value, Attribute attr)
-      : ExpressionStep(-1),
+      : ExpressionStepLogic(),
         DirectExpressionStep(-1),
         value_(std::move(value)),
         attr_(std::move(attr)) {}
   explicit ValueStep(Value value)
-      : ExpressionStep(-1),
+      : ExpressionStepLogic(),
         DirectExpressionStep(-1),
         value_(std::move(value)),
         attr_() {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
+  void Evaluate(ExecutionFrame* frame) const override {
     frame->value_stack().Push(value_, attr_);
-    return absl::OkStatus();
   }
 
   absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
@@ -148,11 +147,12 @@ TEST(IterativeTest, PartialAttrUnknown) {
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 
-  std::vector<std::unique_ptr<const ExpressionStep>> steps;
-  steps.push_back(
-      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo")));
-  steps.push_back(std::make_unique<ValueStep>(IntValue(2)));
-  steps.push_back(CreateEqualityStep(false, -1));
+  ExecutionPath steps;
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo"))));
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(IntValue(2))));
+  steps.push_back(ExpressionStep::MakeFastEqualStep());
 
   activation.SetUnknownPatterns({cel::AttributePattern(
       "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
@@ -178,11 +178,12 @@ TEST(IterativeTest, PartialAttrUnknownDisabled) {
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 
-  std::vector<std::unique_ptr<const ExpressionStep>> steps;
-  steps.push_back(
-      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo")));
-  steps.push_back(std::make_unique<ValueStep>(IntValue(2)));
-  steps.push_back(CreateEqualityStep(false, -1));
+  ExecutionPath steps;
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo"))));
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(IntValue(2))));
+  steps.push_back(ExpressionStep::MakeFastEqualStep());
 
   activation.SetUnknownPatterns({cel::AttributePattern(
       "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
@@ -284,12 +285,13 @@ TEST_P(EqualsTest, Iterative) {
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 
-  std::vector<std::unique_ptr<const ExpressionStep>> steps;
-  steps.push_back(
-      std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena)));
-  steps.push_back(
-      std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena)));
-  steps.push_back(CreateEqualityStep(test_case.negation, -1));
+  ExecutionPath steps;
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena))));
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena))));
+  steps.push_back(test_case.negation ? ExpressionStep::MakeFastNotEqualStep()
+                                     : ExpressionStep::MakeFastEqualStep());
 
   ExecutionFrame frame(steps, activation, opts, state);
 
@@ -465,12 +467,12 @@ TEST_P(InTest, Iterative) {
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 
-  std::vector<std::unique_ptr<const ExpressionStep>> steps;
-  steps.push_back(
-      std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena)));
-  steps.push_back(
-      std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena)));
-  steps.push_back(CreateInStep(-1));
+  ExecutionPath steps;
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena))));
+  steps.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena))));
+  steps.push_back(ExpressionStep::MakeFastInStep());
 
   ExecutionFrame frame(steps, activation, opts, state);
 

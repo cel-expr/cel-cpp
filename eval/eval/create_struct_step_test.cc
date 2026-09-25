@@ -72,16 +72,12 @@ using ::testing::Pointwise;
 absl::StatusOr<ExecutionPath> MakeStackMachinePath(absl::string_view field) {
   ExecutionPath path;
 
-  CEL_ASSIGN_OR_RETURN(auto step0, CreateIdentStep("message", /*expr_id=*/-1));
-
   auto step1 = CreateCreateStructStep("google.api.expr.runtime.TestMessage",
                                       {std::string(field)},
-                                      /*optional_indices=*/{},
+                                      /*optional_indices=*/{});
 
-                                      /*id=*/-1);
-
-  path.push_back(std::move(step0));
-  path.push_back(std::move(step1));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
 
   return path;
 }
@@ -99,7 +95,8 @@ absl::StatusOr<ExecutionPath> MakeRecursivePath(absl::string_view field) {
 
                                    /*id=*/-1);
 
-  path.push_back(std::make_unique<WrappedDirectStep>(std::move(step1), -1));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<WrappedDirectStep>(std::move(step1))));
 
   return path;
 }
@@ -212,14 +209,13 @@ TEST_P(CreateCreateStructStepTest, TestEmptyMessageCreation) {
                                      /*deps=*/{},
                                      /*optional_indices=*/{},
                                      /*id=*/-1);
-    path.push_back(
-        std::make_unique<WrappedDirectStep>(std::move(step), /*id=*/-1));
+    path.push_back(ExpressionStep::MakeGenericStep(
+        std::make_unique<WrappedDirectStep>(std::move(step))));
   } else {
     auto step = CreateCreateStructStep("google.api.expr.runtime.TestMessage",
                                        /*fields=*/{},
-                                       /*optional_indices=*/{},
-                                       /*id=*/-1);
-    path.push_back(std::move(step));
+                                       /*optional_indices=*/{});
+    path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
   }
 
   cel::RuntimeOptions options;
@@ -279,7 +275,7 @@ TEST(CreateCreateStructStepTest, TestMessageCreateWithUnknown) {
   auto eval_status =
       RunExpression(env, "bool_value", CelValue::CreateUnknownSet(&unknown_set),
                     &arena, true, /*enable_recursive_planning=*/false);
-  ASSERT_OK(eval_status);
+  ASSERT_THAT(eval_status, IsOk());
   ASSERT_TRUE(eval_status->IsUnknownSet());
 }
 
@@ -293,7 +289,7 @@ TEST(CreateCreateStructStepTest, TestMessageCreateWithUnknownRecursive) {
   auto eval_status =
       RunExpression(env, "bool_value", CelValue::CreateUnknownSet(&unknown_set),
                     &arena, true, /*enable_recursive_planning=*/true);
-  ASSERT_OK(eval_status);
+  ASSERT_THAT(eval_status, IsOk());
   ASSERT_TRUE(eval_status->IsUnknownSet()) << eval_status->DebugString();
 }
 

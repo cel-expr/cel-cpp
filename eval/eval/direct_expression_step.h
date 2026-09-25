@@ -24,9 +24,10 @@
 #include "common/native_type.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/evaluator_core.h"
 
 namespace google::api::expr::runtime {
+
+class ExecutionFrameBase;
 
 // Represents a directly evaluated CEL expression.
 //
@@ -74,24 +75,6 @@ class DirectExpressionStep {
 
  protected:
   int64_t expr_id_;
-};
-
-// Wrapper for direct steps to work with the stack machine impl.
-class WrappedDirectStep : public ExpressionStep {
- public:
-  WrappedDirectStep(std::unique_ptr<DirectExpressionStep> impl, int64_t expr_id)
-      : ExpressionStep(expr_id, false), impl_(std::move(impl)) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-
-  cel::NativeTypeId GetNativeTypeId() const override {
-    return cel::NativeTypeId::For<WrappedDirectStep>();
-  }
-
-  const DirectExpressionStep* wrapped() const { return impl_.get(); }
-
- private:
-  std::unique_ptr<DirectExpressionStep> impl_;
 };
 
 }  // namespace google::api::expr::runtime

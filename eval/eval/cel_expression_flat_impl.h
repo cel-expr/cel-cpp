@@ -162,7 +162,7 @@ class CelExpressionRecursiveImpl : public CelExpression {
       : env_(std::move(env)),
         flat_expression_(std::move(flat_expression)),
         root_(cel::internal::down_cast<const WrappedDirectStep*>(
-                  flat_expression_.path()[0].get())
+                  flat_expression_.path()[0].GetGenericStep())
                   ->wrapped()) {}
 
   absl_nonnull std::shared_ptr<const cel::runtime_internal::RuntimeEnv> env_;

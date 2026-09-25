@@ -8,6 +8,7 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "base/builtins.h"
@@ -17,7 +18,6 @@
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_base.h"
 #include "eval/internal/errors.h"
 #include "internal/status_macros.h"
 #include "runtime/internal/errors.h"
@@ -186,87 +186,6 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
                            rhs_attr);
 }
 
-class LogicalOpStep : public ExpressionStepBase {
- public:
-  // Constructs FunctionStep that uses overloads specified.
-  LogicalOpStep(OpType op_type, size_t count, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
-        shortcircuit_(op_type == OpType::kOr),
-        op_type_(op_type),
-        count_(count) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-
- private:
-  void Calculate(ExecutionFrame* frame, absl::Span<const Value> args,
-                 Value& result) const {
-    std::optional<size_t> error_pos;
-
-    for (size_t i = 0; i < args.size(); i++) {
-      const Value& arg = args[i];
-      switch (arg.kind()) {
-        case ValueKind::kBool:
-          if (arg.GetBool() == shortcircuit_) {
-            result = arg;
-            return;
-          }
-          break;
-        case ValueKind::kUnknown:
-          break;
-        case ValueKind::kError:
-        default:
-          if (!error_pos.has_value()) {
-            error_pos = i;
-          }
-          break;
-      }
-    }
-
-    // As opposed to regular function, logical operation treat Unknowns with
-    // higher precedence than error. This is due to the fact that after Unknown
-    // is resolved to actual value, it may short-circuit and thus hide the
-    // error.
-    if (frame->enable_unknowns()) {
-      // Check if unknown?
-      absl::optional<cel::UnknownValue> unknown_set =
-          frame->attribute_utility().MergeUnknowns(args);
-      if (unknown_set.has_value()) {
-        result = std::move(*unknown_set);
-        return;
-      }
-    }
-
-    if (!error_pos.has_value()) {
-      result = cel::BoolValue(!shortcircuit_);
-      return;
-    }
-
-    result = args[error_pos.value()];
-    if (!result.IsError()) {
-      result = cel::ErrorValue(CreateNoMatchingOverloadError(
-          (op_type_ == OpType::kOr) ? cel::builtin::kOr : cel::builtin::kAnd));
-    }
-  }
-
-  bool shortcircuit_;
-  const OpType op_type_;
-  size_t count_;
-};
-
-absl::Status LogicalOpStep::Evaluate(ExecutionFrame* frame) const {
-  // Must have 2 or more values on the stack.
-  if (!frame->value_stack().HasEnough(count_)) {
-    return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
-  }
-
-  // Create Span object that contains input arguments to the function.
-  auto args = frame->value_stack().GetSpan(count_);
-  Value result;
-  Calculate(frame, args, result);
-  frame->value_stack().PopAndPush(args.size(), std::move(result));
-
-  return absl::OkStatus();
-}
 
 std::unique_ptr<DirectExpressionStep> CreateDirectLogicStep(
     std::unique_ptr<DirectExpressionStep> lhs,
@@ -322,47 +241,6 @@ absl::Status DirectNotStep::Evaluate(ExecutionFrameBase& frame, Value& result,
   return absl::OkStatus();
 }
 
-class IterativeNotStep : public ExpressionStepBase {
- public:
-  explicit IterativeNotStep(int64_t expr_id) : ExpressionStepBase(expr_id) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-};
-
-absl::Status IterativeNotStep::Evaluate(ExecutionFrame* frame) const {
-  if (!frame->value_stack().HasEnough(1)) {
-    return absl::InternalError("Value stack underflow");
-  }
-  const Value& operand = frame->value_stack().Peek();
-
-  if (frame->unknown_processing_enabled()) {
-    const AttributeTrail& attribute_trail =
-        frame->value_stack().PeekAttribute();
-    if (frame->attribute_utility().CheckForUnknownPartial(attribute_trail)) {
-      frame->value_stack().PopAndPush(
-          frame->attribute_utility().CreateUnknownSet(
-              attribute_trail.attribute()));
-      return absl::OkStatus();
-    }
-  }
-
-  switch (operand.kind()) {
-    case ValueKind::kBool:
-      frame->value_stack().PopAndPush(
-          BoolValue{!operand.GetBool().NativeValue()});
-      break;
-    case ValueKind::kUnknown:
-    case ValueKind::kError:
-      // just forward.
-      break;
-    default:
-      frame->value_stack().PopAndPush(
-          cel::ErrorValue(CreateNoMatchingOverloadError(cel::builtin::kNot)));
-      break;
-  }
-
-  return absl::OkStatus();
-}
 
 class DirectNotStrictlyFalseStep : public DirectExpressionStep {
  public:
@@ -398,20 +276,44 @@ absl::Status DirectNotStrictlyFalseStep::Evaluate(
   return absl::OkStatus();
 }
 
-class IterativeNotStrictlyFalseStep : public ExpressionStepBase {
- public:
-  explicit IterativeNotStrictlyFalseStep(int64_t expr_id)
-      : ExpressionStepBase(expr_id) {}
+}  // namespace
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-};
-
-absl::Status IterativeNotStrictlyFalseStep::Evaluate(
-    ExecutionFrame* frame) const {
-  if (!frame->value_stack().HasEnough(1)) {
-    return absl::InternalError("Value stack underflow");
+void EvaluateNotStep(ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(1)) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
   }
-  const Value& operand = frame->value_stack().Peek();
+  const Value& operand = frame.value_stack().Peek();
+
+  if (frame.unknown_processing_enabled()) {
+    const AttributeTrail& attribute_trail = frame.value_stack().PeekAttribute();
+    if (frame.attribute_utility().CheckForUnknownPartial(attribute_trail)) {
+      frame.value_stack().PopAndPush(frame.attribute_utility().CreateUnknownSet(
+          attribute_trail.attribute()));
+      return;
+    }
+  }
+
+  switch (operand.kind()) {
+    case ValueKind::kBool:
+      frame.value_stack().PopAndPush(
+          BoolValue{!operand.GetBool().NativeValue()});
+      break;
+    case ValueKind::kUnknown:
+    case ValueKind::kError:
+      // just forward.
+      break;
+    default:
+      frame.value_stack().PopAndPush(
+          cel::ErrorValue(CreateNoMatchingOverloadError(cel::builtin::kNot)));
+      break;
+  }
+}
+
+void EvaluateNotStrictlyFalseStep(ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(1)) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+  }
+  const Value& operand = frame.value_stack().Peek();
 
   switch (operand.kind()) {
     case ValueKind::kBool:
@@ -419,20 +321,76 @@ absl::Status IterativeNotStrictlyFalseStep::Evaluate(
       break;
     case ValueKind::kUnknown:
     case ValueKind::kError:
-      frame->value_stack().PopAndPush(BoolValue(true));
+      frame.value_stack().PopAndPush(BoolValue(true));
+      break;
+      // just forward.
       break;
     default:
-      frame->value_stack().PopAndPush(
+      frame.value_stack().PopAndPush(
           cel::ErrorValue(CreateNoMatchingOverloadError(cel::builtin::kNot)));
       break;
   }
-
-  return absl::OkStatus();
 }
 
-}  // namespace
+void EvaluateBoolLogicStep(BoolLogicKind kind, size_t num_args,
+                           ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(num_args)) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+  }
 
-// Factory method for "And" Execution step
+  const bool shortcircuit = kind == BoolLogicKind::kOr;
+  const absl::string_view op_name =
+      kind == BoolLogicKind::kOr ? cel::builtin::kOr : cel::builtin::kAnd;
+  absl::Span<const Value> args = frame.value_stack().GetSpan(num_args);
+  std::optional<size_t> error_pos;
+
+  for (size_t i = 0; i < args.size(); i++) {
+    const Value& arg = args[i];
+    switch (arg.kind()) {
+      case ValueKind::kBool:
+        if (arg.GetBool() == shortcircuit) {
+          frame.value_stack().PopAndPush(num_args,
+                                         cel::BoolValue(shortcircuit));
+          return;
+        }
+        break;
+      case ValueKind::kUnknown:
+        break;
+      case ValueKind::kError:
+      default:
+        if (!error_pos.has_value()) {
+          error_pos = i;
+        }
+        break;
+    }
+  }
+
+  // As opposed to regular function, logical operation treat Unknowns with
+  // higher precedence than error. This is due to the fact that after Unknown
+  // is resolved to actual value, it may short-circuit and thus hide the
+  // error.
+  if (frame.enable_unknowns()) {
+    // Check if unknown?
+    absl::optional<cel::UnknownValue> unknown_set =
+        frame.attribute_utility().MergeUnknowns(args);
+    if (unknown_set.has_value()) {
+      frame.value_stack().PopAndPush(num_args, *std::move(unknown_set));
+      return;
+    }
+  }
+
+  if (!error_pos.has_value()) {
+    frame.value_stack().PopAndPush(num_args, cel::BoolValue(!shortcircuit));
+    return;
+  }
+
+  cel::Value result = args[error_pos.value()];
+  if (!result.IsError()) {
+    result = cel::ErrorValue(CreateNoMatchingOverloadError(op_name));
+  }
+  frame.value_stack().PopAndPush(num_args, std::move(result));
+}
+
 std::unique_ptr<DirectExpressionStep> CreateDirectAndStep(
     std::unique_ptr<DirectExpressionStep> lhs,
     std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id,
@@ -441,7 +399,6 @@ std::unique_ptr<DirectExpressionStep> CreateDirectAndStep(
                                OpType::kAnd, shortcircuiting);
 }
 
-// Factory method for "Or" Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
     std::unique_ptr<DirectExpressionStep> lhs,
     std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id,
@@ -450,27 +407,10 @@ std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
                                OpType::kOr, shortcircuiting);
 }
 
-// Factory method for "And" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateAndStep(size_t num_args,
-                                                              int64_t expr_id) {
-  return std::make_unique<LogicalOpStep>(OpType::kAnd, num_args, expr_id);
-}
-
-// Factory method for "Or" Execution step
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateOrStep(size_t num_args,
-                                                             int64_t expr_id) {
-  return std::make_unique<LogicalOpStep>(OpType::kOr, num_args, expr_id);
-}
-
 // Factory method for recursive logical not "!" Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectNotStep(
     std::unique_ptr<DirectExpressionStep> operand, int64_t expr_id) {
   return std::make_unique<DirectNotStep>(std::move(operand), expr_id);
-}
-
-// Factory method for iterative logical not "!" Execution step
-std::unique_ptr<ExpressionStep> CreateNotStep(int64_t expr_id) {
-  return std::make_unique<IterativeNotStep>(expr_id);
 }
 
 // Factory method for recursive logical "@not_strictly_false" Execution step.
@@ -478,11 +418,6 @@ std::unique_ptr<DirectExpressionStep> CreateDirectNotStrictlyFalseStep(
     std::unique_ptr<DirectExpressionStep> operand, int64_t expr_id) {
   return std::make_unique<DirectNotStrictlyFalseStep>(std::move(operand),
                                                       expr_id);
-}
-
-// Factory method for iterative logical "@not_strictly_false" Execution step.
-std::unique_ptr<ExpressionStep> CreateNotStrictlyFalseStep(int64_t expr_id) {
-  return std::make_unique<IterativeNotStrictlyFalseStep>(expr_id);
 }
 
 }  // namespace google::api::expr::runtime

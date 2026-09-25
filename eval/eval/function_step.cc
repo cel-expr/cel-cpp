@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,7 +25,7 @@
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/internal/errors.h"
 #include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
@@ -146,38 +147,6 @@ bool IsUnknownFunctionResultError(const Value& result) {
 // resolve to a single function implementation and a descriptor or none.
 using ResolveResult = absl::optional<cel::FunctionOverloadReference>;
 
-// Implementation of ExpressionStep that finds suitable CelFunction overload and
-// invokes it. Abstract base class standardizes behavior between lazy and eager
-// function bindings. Derived classes provide ResolveFunction behavior.
-class AbstractFunctionStep : public ExpressionStepBase {
- public:
-  // Constructs FunctionStep that uses overloads specified.
-  AbstractFunctionStep(const std::string& name, size_t num_arguments,
-                       bool receiver_style, int64_t expr_id)
-      : ExpressionStepBase(expr_id),
-        name_(name),
-        num_arguments_(num_arguments),
-        receiver_style_(receiver_style) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-
-  // Handles overload resolution and updating result appropriately.
-  // Shouldn't update frame state.
-  //
-  // A non-ok result is an unrecoverable error, either from an illegal
-  // evaluation state or forwarded from an extension function. Errors where
-  // evaluation can reasonably condition are returned in the result as a
-  // cel::ErrorValue.
-  absl::StatusOr<Value> DoEvaluate(ExecutionFrame* frame) const;
-
-  virtual absl::StatusOr<ResolveResult> ResolveFunction(
-      absl::Span<const cel::Value> args, const ExecutionFrame* frame) const = 0;
-
- protected:
-  std::string name_;
-  size_t num_arguments_;
-  bool receiver_style_;
-};
 
 inline absl::StatusOr<Value> Invoke(
     const cel::FunctionOverloadReference& overload, int64_t expr_id,
@@ -241,49 +210,7 @@ Value NoOverloadResult(absl::string_view name,
       absl::StrCat(name, CallArgTypeString(args))));
 }
 
-absl::StatusOr<Value> AbstractFunctionStep::DoEvaluate(
-    ExecutionFrame* frame) const {
-  // Create Span object that contains input arguments to the function.
-  auto input_args = frame->value_stack().GetSpan(num_arguments_);
-
-  std::vector<cel::Value> unknowns_args;
-  // Preprocess args. If an argument is partially unknown, convert it to an
-  // unknown attribute set.
-  if (frame->enable_unknowns()) {
-    auto input_attrs = frame->value_stack().GetAttributeSpan(num_arguments_);
-    unknowns_args = CheckForPartialUnknowns(frame, input_args, input_attrs);
-    input_args = absl::MakeConstSpan(unknowns_args);
-  }
-
-  // Derived class resolves to a single function overload or none.
-  CEL_ASSIGN_OR_RETURN(ResolveResult matched_function,
-                       ResolveFunction(input_args, frame));
-
-  // Overload found and is allowed to consume the arguments.
-  if (matched_function.has_value() &&
-      ShouldAcceptOverload(matched_function->descriptor, input_args)) {
-    return Invoke(*matched_function, id(), input_args, *frame);
-  }
-
-  return NoOverloadResult(name_, input_args, receiver_style_, *frame);
-}
-
-absl::Status AbstractFunctionStep::Evaluate(ExecutionFrame* frame) const {
-  if (!frame->value_stack().HasEnough(num_arguments_)) {
-    return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
-  }
-
-  // DoEvaluate may return a status for non-recoverable errors  (e.g.
-  // unexpected typing, illegal expression state). Application errors that can
-  // reasonably be handled as a cel error will appear in the result value.
-  CEL_ASSIGN_OR_RETURN(auto result, DoEvaluate(frame));
-
-  frame->value_stack().PopAndPush(num_arguments_, std::move(result));
-
-  return absl::OkStatus();
-}
-
-absl::StatusOr<ResolveResult> ResolveStatic(
+ResolveResult ResolveStatic(
     absl::Span<const cel::Value> input_args,
     absl::Span<const cel::FunctionOverloadReference> overloads) {
   for (const auto& overload : overloads) {
@@ -334,48 +261,7 @@ absl::StatusOr<ResolveResult> ResolveLazy(
   return result;
 }
 
-class EagerFunctionStep : public AbstractFunctionStep {
- public:
-  EagerFunctionStep(std::vector<cel::FunctionOverloadReference> overloads,
-                    const std::string& name, size_t num_args,
-                    bool receiver_style, int64_t expr_id)
-      : AbstractFunctionStep(name, num_args, receiver_style, expr_id),
-        overloads_(std::move(overloads)) {}
 
-  absl::StatusOr<ResolveResult> ResolveFunction(
-      absl::Span<const cel::Value> input_args,
-      const ExecutionFrame* frame) const override {
-    return ResolveStatic(input_args, overloads_);
-  }
-
- private:
-  std::vector<cel::FunctionOverloadReference> overloads_;
-};
-
-class LazyFunctionStep : public AbstractFunctionStep {
- public:
-  // Constructs LazyFunctionStep that attempts to lookup function implementation
-  // at runtime.
-  LazyFunctionStep(const std::string& name, size_t num_args,
-                   bool receiver_style,
-                   std::vector<cel::FunctionRegistry::LazyOverload> providers,
-                   int64_t expr_id)
-      : AbstractFunctionStep(name, num_args, receiver_style, expr_id),
-        providers_(std::move(providers)) {}
-
-  absl::StatusOr<ResolveResult> ResolveFunction(
-      absl::Span<const cel::Value> input_args,
-      const ExecutionFrame* frame) const override;
-
- private:
-  std::vector<cel::FunctionRegistry::LazyOverload> providers_;
-};
-
-absl::StatusOr<ResolveResult> LazyFunctionStep::ResolveFunction(
-    absl::Span<const cel::Value> input_args,
-    const ExecutionFrame* frame) const {
-  return ResolveLazy(input_args, name_, receiver_style_, providers_, *frame);
-}
 
 class StaticResolver {
  public:
@@ -488,6 +374,74 @@ class DirectFunctionStepImpl : public DirectExpressionStep {
 
 }  // namespace
 
+template <class Step>
+void EvaluateFunctionStep(const Step* step, ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(step->num_arguments_)) {
+    frame.Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+
+  // Create Span object that contains input arguments to the function.
+  absl::Span<const cel::Value> input_args =
+      frame.value_stack().GetSpan(step->num_arguments_);
+
+  std::vector<cel::Value> unknowns_args;
+  // Preprocess args. If an argument is partially unknown, convert it to an
+  // unknown attribute set.
+  if (frame.enable_unknowns()) {
+    absl::Span<const AttributeTrail> input_attrs =
+        frame.value_stack().GetAttributeSpan(step->num_arguments_);
+    unknowns_args = CheckForPartialUnknowns(&frame, input_args, input_attrs);
+    input_args = absl::MakeConstSpan(unknowns_args);
+  }
+
+  // Derived class resolves to a single function overload or none.
+  absl::StatusOr<ResolveResult> matched_function =
+      step->ResolveFunction(input_args, frame);
+  if (!matched_function.ok()) {
+    frame.Abort(std::move(matched_function).status());
+    return;
+  }
+
+  // Overload found and is allowed to consume the arguments.
+  if (matched_function->has_value() &&
+      ShouldAcceptOverload((*matched_function)->descriptor, input_args)) {
+    absl::StatusOr<Value> result =
+        Invoke(**matched_function, step->expr_id_, input_args, frame);
+    if (!result.ok()) {
+      frame.Abort(std::move(result).status());
+      return;
+    }
+    frame.value_stack().PopAndPush(step->num_arguments_, *std::move(result));
+    return;
+  }
+
+  frame.value_stack().PopAndPush(
+      step->num_arguments_,
+      NoOverloadResult(step->name_, input_args, step->receiver_style_, frame));
+}
+
+void EagerFunctionStep::Evaluate(ExecutionFrame& frame) const {
+  EvaluateFunctionStep(this, frame);
+}
+
+void LazyFunctionStep::Evaluate(ExecutionFrame& frame) const {
+  EvaluateFunctionStep(this, frame);
+}
+
+ResolveResult EagerFunctionStep::ResolveFunction(
+    absl::Span<const cel::Value> input_args,
+    const ExecutionFrameBase& frame) const {
+  return ResolveStatic(input_args, overloads_);
+}
+
+absl::StatusOr<ResolveResult> LazyFunctionStep::ResolveFunction(
+    absl::Span<const cel::Value> input_args,
+    const ExecutionFrameBase& frame) const {
+  return ResolveLazy(input_args, name_, receiver_style_, providers_, frame);
+}
+
 std::unique_ptr<DirectExpressionStep> CreateDirectFunctionStep(
     int64_t expr_id, const cel::CallExpr& call,
     std::vector<std::unique_ptr<DirectExpressionStep>> deps,
@@ -506,24 +460,24 @@ std::unique_ptr<DirectExpressionStep> CreateDirectLazyFunctionStep(
       LazyResolver(std::move(providers), call.function(), call.has_target()));
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateFunctionStep(
+std::unique_ptr<LazyFunctionStep> CreateLazyFunctionStep(
     const cel::CallExpr& call_expr, int64_t expr_id,
     std::vector<cel::FunctionRegistry::LazyOverload> lazy_overloads) {
   bool receiver_style = call_expr.has_target();
   size_t num_args = call_expr.args().size() + (receiver_style ? 1 : 0);
-  const std::string& name = call_expr.function();
-  return std::make_unique<LazyFunctionStep>(name, num_args, receiver_style,
-                                            std::move(lazy_overloads), expr_id);
+  return std::make_unique<LazyFunctionStep>(std::move(lazy_overloads),
+                                            call_expr.function(), num_args,
+                                            receiver_style, expr_id);
 }
 
-absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateFunctionStep(
+std::unique_ptr<EagerFunctionStep> CreateFunctionStep(
     const cel::CallExpr& call_expr, int64_t expr_id,
     std::vector<cel::FunctionOverloadReference> overloads) {
   bool receiver_style = call_expr.has_target();
   size_t num_args = call_expr.args().size() + (receiver_style ? 1 : 0);
-  const std::string& name = call_expr.function();
-  return std::make_unique<EagerFunctionStep>(std::move(overloads), name,
-                                             num_args, receiver_style, expr_id);
+  return std::make_unique<EagerFunctionStep>(std::move(overloads),
+                                             call_expr.function(), num_args,
+                                             receiver_style, expr_id);
 }
 
 }  // namespace google::api::expr::runtime
