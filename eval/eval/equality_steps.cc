@@ -116,6 +116,42 @@ class IterativeEqualityStep : public ExpressionStepBase {
       return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
     }
     auto args = frame->value_stack().GetSpan(2);
+    if (!frame->enable_attribute_tracking()) {
+      const Value& lhs = args[0];
+      const Value& rhs = args[1];
+      if (lhs.kind() == rhs.kind()) {
+        switch (lhs.kind()) {
+          case ValueKind::kString: {
+            bool eq = lhs.GetString().Equals(rhs.GetString());
+            frame->value_stack().Pop(1);
+            frame->value_stack().Peek() = BoolValue(negation_ ? !eq : eq);
+            return absl::OkStatus();
+          }
+          case ValueKind::kInt: {
+            bool eq = lhs.GetInt().NativeValue() == rhs.GetInt().NativeValue();
+            frame->value_stack().Pop(1);
+            frame->value_stack().Peek() = BoolValue(negation_ ? !eq : eq);
+            return absl::OkStatus();
+          }
+          case ValueKind::kUint: {
+            bool eq =
+                lhs.GetUint().NativeValue() == rhs.GetUint().NativeValue();
+            frame->value_stack().Pop(1);
+            frame->value_stack().Peek() = BoolValue(negation_ ? !eq : eq);
+            return absl::OkStatus();
+          }
+          case ValueKind::kBool: {
+            bool eq =
+                lhs.GetBool().NativeValue() == rhs.GetBool().NativeValue();
+            frame->value_stack().Pop(1);
+            frame->value_stack().Peek() = BoolValue(negation_ ? !eq : eq);
+            return absl::OkStatus();
+          }
+          default:
+            break;
+        }
+      }
+    }
     auto attrs = frame->value_stack().GetAttributeSpan(2);
 
     CEL_ASSIGN_OR_RETURN(Value result,
