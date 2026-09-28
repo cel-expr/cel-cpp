@@ -610,6 +610,13 @@ TEST_F(ByteStringTest, CloneMedium) {
   EXPECT_EQ(byte_string.Clone(&arena), byte_string);
 }
 
+TEST_F(ByteStringTest, CloneLiteral) {
+  google::protobuf::Arena arena;
+  ByteString byte_string = ByteString::Literal(GetMediumStringView());
+  EXPECT_EQ(byte_string.Clone(&arena), byte_string);
+  EXPECT_EQ(arena.SpaceUsed(), 0);
+}
+
 TEST_F(ByteStringTest, CloneLarge) {
   google::protobuf::Arena arena;
   ByteString byte_string = ByteString::WrapUnsafe(&GetMediumOrLargeCord());
