@@ -28,25 +28,25 @@ using ::testing::UnorderedElementsAre;
 MATCHER_P3(MatchesOperatorDescriptor, name, expected_kind1, expected_kind2,
            "") {
   const FunctionDescriptor& descriptor = *arg;
-  std::vector<Kind> types{expected_kind1, expected_kind2};
+  std::vector<Kind> kinds{expected_kind1, expected_kind2};
   return descriptor.name() == name && descriptor.receiver_style() == false &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesTimeAccessor, name, kind, "") {
   const FunctionDescriptor& descriptor = *arg;
 
-  std::vector<Kind> types{kind};
+  std::vector<Kind> kinds{kind};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesTimezoneTimeAccessor, name, kind, "") {
   const FunctionDescriptor& descriptor = *arg;
 
-  std::vector<Kind> types{kind, Kind::kString};
+  std::vector<Kind> kinds{kind, Kind::kString};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 TEST(RegisterTimeFunctions, MathOperatorsRegistered) {

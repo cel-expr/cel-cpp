@@ -282,7 +282,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorInt) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kInt64));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kInt64));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDouble) {
@@ -293,7 +293,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDouble) {
   EXPECT_EQ(desc.name(), "Mult2");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_TRUE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kDouble));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kDouble));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorUint) {
@@ -304,7 +304,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorUint) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kUint64));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kUint64));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBool) {
@@ -315,7 +315,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBool) {
   EXPECT_EQ(desc.name(), "Not");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kBool));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kBool));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorTimestamp) {
@@ -326,7 +326,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorTimestamp) {
   EXPECT_EQ(desc.name(), "AddMinute");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kTimestamp));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kTimestamp));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDuration) {
@@ -338,7 +338,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDuration) {
   EXPECT_EQ(desc.name(), "AddFiveSeconds");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kDuration));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kDuration));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorString) {
@@ -349,7 +349,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorString) {
   EXPECT_EQ(desc.name(), "Prepend");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kString));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kString));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBytes) {
@@ -360,7 +360,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBytes) {
   EXPECT_EQ(desc.name(), "Prepend");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kBytes));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kBytes));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorAny) {
@@ -371,7 +371,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorAny) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kAny));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kAny));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorNonStrict) {
@@ -383,7 +383,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorNonStrict) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_FALSE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kAny));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kAny));
 }
 
 TEST_F(FunctionAdapterTest, BinaryFunctionAdapterWrapFunctionInt) {

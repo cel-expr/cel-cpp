@@ -86,15 +86,21 @@ absl::Status RegisterEncodersDecls(TypeCheckerBuilder& builder) {
 
 absl::Status RegisterEncodersFunctions(FunctionRegistry& registry,
                                        const RuntimeOptions&) {
+  // Overload IDs from decls
+  static constexpr absl::string_view kBase64DecodeString =
+      "base64_decode_string";
+  static constexpr absl::string_view kBase64EncodeBytes = "base64_encode_bytes";
+
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>,
                            StringValue>::CreateDescriptor("base64.decode",
+                                                          kBase64DecodeString,
                                                           false),
       UnaryFunctionAdapter<absl::StatusOr<Value>, StringValue>::WrapFunction(
           &Base64Decode)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, BytesValue>::CreateDescriptor(
-          "base64.encode", false),
+          "base64.encode", kBase64EncodeBytes, false),
       UnaryFunctionAdapter<absl::StatusOr<Value>, BytesValue>::WrapFunction(
           &Base64Encode)));
   return absl::OkStatus();

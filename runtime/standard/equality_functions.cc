@@ -29,6 +29,7 @@
 #include "absl/types/optional.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "internal/number.h"
@@ -522,10 +523,12 @@ absl::Status RegisterHeterogeneousEqualityFunctions(
   using Adapter = cel::RegisterHelper<
       BinaryFunctionAdapter<absl::StatusOr<Value>, const Value&, const Value&>>;
   CEL_RETURN_IF_ERROR(
-      Adapter::RegisterGlobalOverload(kEqual, &EqualOverloadImpl, registry));
+      Adapter::RegisterGlobalOverload(kEqual, cel::StandardOverloadIds::kEquals,
+                                      &EqualOverloadImpl, registry));
 
   CEL_RETURN_IF_ERROR(Adapter::RegisterGlobalOverload(
-      kInequal, &InequalOverloadImpl, registry));
+      kInequal, cel::StandardOverloadIds::kNotEquals,
+      &InequalOverloadImpl, registry));
 
   return absl::OkStatus();
 }

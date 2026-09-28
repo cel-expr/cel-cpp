@@ -91,13 +91,35 @@ std::vector<FunctionOverloadReference> Activation::FindFunctionOverloads(
   std::vector<FunctionOverloadReference> result;
   auto iter = functions_.find(name);
   if (iter != functions_.end()) {
-    const std::vector<FunctionEntry>& overloads = iter->second;
-    result.reserve(overloads.size());
-    for (const auto& overload : overloads) {
+    const FunctionEntry& entry = iter->second;
+    result.reserve(entry.overloads.size());
+    for (const auto& overload : entry.overloads) {
       result.push_back({*overload.descriptor, *overload.implementation});
     }
   }
   return result;
+}
+
+absl::optional<FunctionOverloadReference> Activation::FindFunctionOverloadById(
+    absl::string_view name, absl::string_view overload_id) const {
+  if (overload_id.empty()) {
+    return absl::nullopt;
+  }
+
+  auto functions_it = functions_.find(name);
+  if (functions_it == functions_.end()) {
+    return absl::nullopt;
+  }
+
+  const FunctionEntry& entry = functions_it->second;
+  auto it = entry.overloads_by_id.find(overload_id);
+  if (it == entry.overloads_by_id.end()) {
+    return absl::nullopt;
+  }
+
+  const OverloadEntry* overload_entry = it->second;
+  return FunctionOverloadReference{*overload_entry->descriptor,
+                                   *overload_entry->implementation};
 }
 
 bool Activation::InsertOrAssignValue(absl::string_view name, Value value) {
@@ -115,14 +137,25 @@ bool Activation::InsertOrAssignValueProvider(absl::string_view name,
 
 bool Activation::InsertFunction(const cel::FunctionDescriptor& descriptor,
                                 std::unique_ptr<cel::Function> impl) {
-  auto& overloads = functions_[descriptor.name()];
-  for (auto& overload : overloads) {
+  auto& entry = functions_[descriptor.name()];
+
+  // Check for duplicate shape
+  for (auto& overload : entry.overloads) {
     if (overload.descriptor->ShapeMatches(descriptor)) {
       return false;
     }
   }
-  overloads.push_back(
+
+  // Add to overloads vector
+  entry.overloads.push_back(
       {std::make_unique<FunctionDescriptor>(descriptor), std::move(impl)});
+
+  // Add to overload ID index if overload_id is present
+  if (descriptor.has_overload_id()) {
+    OverloadEntry* overload_entry = &entry.overloads.back();
+    entry.overloads_by_id[descriptor.overload_id()] = overload_entry;
+  }
+
   return true;
 }
 

@@ -286,6 +286,8 @@ absl::Status AddTypeConversions(TypeCheckerBuilder& builder) {
   FunctionDecl to_int;
   to_int.set_name(StandardFunctions::kInt);
   CEL_RETURN_IF_ERROR(to_int.AddOverload(
+      MakeOverloadDecl(StandardOverloadIds::kBoolToInt, IntType(), BoolType())));
+  CEL_RETURN_IF_ERROR(to_int.AddOverload(
       MakeOverloadDecl(StandardOverloadIds::kIntToInt, IntType(), IntType())));
   CEL_RETURN_IF_ERROR(to_int.AddOverload(MakeOverloadDecl(
       StandardOverloadIds::kUintToInt, IntType(), UintType())));

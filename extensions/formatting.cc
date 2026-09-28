@@ -551,19 +551,20 @@ absl::Status RegisterStringFormattingFunctions(
     StringsExtensionFormatOptions format_options) {
   const int max_precision =
       std::clamp(format_options.max_precision, 0, kMaxPrecision);
+  static constexpr absl::string_view kStringFormat = "string_format";
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue, ListValue>::
-          CreateDescriptor("format", /*receiver_style=*/true),
+          CreateDescriptor("format", kStringFormat, /*receiver_style=*/true),
       BinaryFunctionAdapter<absl::StatusOr<Value>, StringValue, ListValue>::
           WrapFunction(
               [max_precision](
-                  const StringValue& format, const ListValue& args,
-                  const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-                  google::protobuf::MessageFactory* absl_nonnull message_factory,
-                  google::protobuf::Arena* absl_nonnull arena) {
-                return Format(format, args, max_precision, descriptor_pool,
-                              message_factory, arena);
-              })));
+                           const StringValue& format, const ListValue& args,
+                           const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+                           google::protobuf::MessageFactory* absl_nonnull message_factory,
+                           google::protobuf::Arena* absl_nonnull arena) {
+            return Format(format, args, max_precision, descriptor_pool,
+                          message_factory, arena);
+          })));
   return absl::OkStatus();
 }
 

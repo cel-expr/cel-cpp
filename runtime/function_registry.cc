@@ -24,11 +24,13 @@
 #include "absl/container/node_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
+#include "common/type.h"
 #include "runtime/activation_interface.h"
 #include "runtime/function.h"
 #include "runtime/function_overload_reference.h"
@@ -47,6 +49,13 @@ class ActivationFunctionProviderImpl
   absl::StatusOr<std::optional<FunctionOverloadReference>> GetFunction(
       const cel::FunctionDescriptor& descriptor,
       const cel::ActivationInterface& activation) const override {
+    // Branch 1: If descriptor has overload_id, use O(1) precise lookup
+    if (descriptor.has_overload_id()) {
+      return activation.FindFunctionOverloadById(descriptor.name(),
+                                             descriptor.overload_id());
+    }
+
+    // Branch 2: No overload_id, fallback to signature matching (legacy logic)
     std::vector<cel::FunctionOverloadReference> overloads =
         activation.FindFunctionOverloads(descriptor.name());
 
@@ -82,16 +91,34 @@ absl::Status FunctionRegistry::Register(
   if (DescriptorRegistered(descriptor)) {
     return absl::Status(
         absl::StatusCode::kAlreadyExists,
-        "CelFunction with specified parameters already registered");
+        absl::StrCat("CelFunction with specified parameters already registered: ",
+                     descriptor.name()));
   }
   if (!ValidateNonStrictOverload(descriptor)) {
     return absl::Status(absl::StatusCode::kAlreadyExists,
-                        "Only one overload is allowed for non-strict function");
+                        absl::StrCat("Only one overload is allowed for non-strict function: ",
+                                     descriptor.name()));
+  }
+
+  // Check for overload ID conflicts within this function name
+  if (descriptor.has_overload_id() &&
+      IsOverloadIdConflict(descriptor.name(), descriptor.overload_id())) {
+    return absl::Status(
+        absl::StatusCode::kAlreadyExists,
+        absl::StrCat("Overload ID already registered: ",
+                     descriptor.overload_id()));
   }
 
   auto& overloads = functions_[descriptor.name()];
   overloads.static_overloads.push_back(
       StaticFunctionEntry(descriptor, std::move(implementation)));
+
+  // Add to overload ID index if overload_id is present
+  if (descriptor.has_overload_id()) {
+    StaticFunctionEntry* entry = &overloads.static_overloads.back();
+    overloads.static_overloads_by_id[descriptor.overload_id()] = entry;
+  }
+
   return absl::OkStatus();
 }
 
@@ -100,16 +127,34 @@ absl::Status FunctionRegistry::RegisterLazyFunction(
   if (DescriptorRegistered(descriptor)) {
     return absl::Status(
         absl::StatusCode::kAlreadyExists,
-        "CelFunction with specified parameters already registered");
+        absl::StrCat("CelFunction with specified parameters already registered: ",
+                     descriptor.name()));
   }
   if (!ValidateNonStrictOverload(descriptor)) {
     return absl::Status(absl::StatusCode::kAlreadyExists,
-                        "Only one overload is allowed for non-strict function");
+                        absl::StrCat("Only one overload is allowed for non-strict function: ",
+                                     descriptor.name()));
   }
+
+  // Check for overload ID conflicts within this function name
+  if (descriptor.has_overload_id() &&
+      IsOverloadIdConflict(descriptor.name(), descriptor.overload_id())) {
+    return absl::Status(
+        absl::StatusCode::kAlreadyExists,
+        absl::StrCat("Overload ID already registered: ",
+                     descriptor.overload_id()));
+  }
+
   auto& overloads = functions_[descriptor.name()];
 
   overloads.lazy_overloads.push_back(
       LazyFunctionEntry(descriptor, CreateActivationFunctionProvider()));
+
+  // Add to overload ID index if overload_id is present
+  if (descriptor.has_overload_id()) {
+    LazyFunctionEntry* entry = &overloads.lazy_overloads.back();
+    overloads.lazy_overloads_by_id[descriptor.overload_id()] = entry;
+  }
 
   return absl::OkStatus();
 }
@@ -117,7 +162,19 @@ absl::Status FunctionRegistry::RegisterLazyFunction(
 std::vector<cel::FunctionOverloadReference>
 FunctionRegistry::FindStaticOverloads(absl::string_view name,
                                       bool receiver_style,
-                                      absl::Span<const cel::Kind> types) const {
+                                      absl::Span<const cel::Kind> kinds) const {
+  std::vector<cel::Type> types;
+  types.reserve(kinds.size());
+  for (const auto& kind : kinds) {
+    types.push_back(cel::Type(kind));
+  }
+  return FindStaticOverloadsByTypes(name, receiver_style, types);
+}
+
+std::vector<cel::FunctionOverloadReference>
+FunctionRegistry::FindStaticOverloadsByTypes(absl::string_view name,
+                                     bool receiver_style,
+                                     absl::Span<const cel::Type> types) const {
   std::vector<cel::FunctionOverloadReference> matched_funcs;
 
   auto overloads = functions_.find(name);
@@ -133,6 +190,26 @@ FunctionRegistry::FindStaticOverloads(absl::string_view name,
 
   return matched_funcs;
 }
+
+absl::optional<cel::FunctionOverloadReference>
+FunctionRegistry::FindStaticOverloadById(absl::string_view name,
+                                     absl::string_view overload_id) const {
+  auto functions_it = functions_.find(name);
+  if (functions_it == functions_.end()) {
+    return absl::nullopt;
+  }
+
+  const RegistryEntry& entry = functions_it->second;
+  auto it = entry.static_overloads_by_id.find(overload_id);
+  if (it == entry.static_overloads_by_id.end()) {
+    return absl::nullopt;
+  }
+
+  const StaticFunctionEntry* func_entry = it->second;
+  return cel::FunctionOverloadReference{*func_entry->descriptor,
+                                        *func_entry->implementation};
+}
+
 
 std::vector<cel::FunctionOverloadReference>
 FunctionRegistry::FindStaticOverloadsByArity(absl::string_view name,
@@ -157,7 +234,19 @@ FunctionRegistry::FindStaticOverloadsByArity(absl::string_view name,
 
 std::vector<FunctionRegistry::LazyOverload> FunctionRegistry::FindLazyOverloads(
     absl::string_view name, bool receiver_style,
-    absl::Span<const cel::Kind> types) const {
+    absl::Span<const cel::Kind> kinds) const {
+  std::vector<cel::Type> types;
+  types.reserve(kinds.size());
+  for (const auto& kind : kinds) {
+    types.push_back(cel::Type(kind));
+  }
+  return FindLazyOverloadsByTypes(name, receiver_style, types);
+}
+
+std::vector<FunctionRegistry::LazyOverload> FunctionRegistry::FindLazyOverloadsByTypes(
+    absl::string_view name,
+    bool receiver_style,
+    absl::Span<const cel::Type> types) const {
   std::vector<FunctionRegistry::LazyOverload> matched_funcs;
 
   auto overloads = functions_.find(name);
@@ -172,6 +261,24 @@ std::vector<FunctionRegistry::LazyOverload> FunctionRegistry::FindLazyOverloads(
   }
 
   return matched_funcs;
+}
+
+absl::optional<FunctionRegistry::LazyOverload>
+FunctionRegistry::FindLazyOverloadById(absl::string_view name,
+                                   absl::string_view overload_id) const {
+  auto functions_it = functions_.find(name);
+  if (functions_it == functions_.end()) {
+    return absl::nullopt;
+  }
+
+  const RegistryEntry& entry = functions_it->second;
+  auto it = entry.lazy_overloads_by_id.find(overload_id);
+  if (it == entry.lazy_overloads_by_id.end()) {
+    return absl::nullopt;
+  }
+
+  const LazyFunctionEntry* func_entry = it->second;
+  return LazyOverload{*func_entry->descriptor, *func_entry->function_provider};
 }
 
 std::vector<FunctionRegistry::LazyOverload>
@@ -258,6 +365,17 @@ bool FunctionRegistry::ValidateNonStrictOverload(
           entry.static_overloads[0].descriptor->is_strict()) &&
          (entry.lazy_overloads.empty() ||
           entry.lazy_overloads[0].descriptor->is_strict());
+}
+
+bool FunctionRegistry::IsOverloadIdConflict(
+    absl::string_view name, absl::string_view overload_id) const {
+  auto it = functions_.find(name);
+  if (it == functions_.end()) {
+    return false;
+  }
+  const RegistryEntry& entry = it->second;
+  return entry.static_overloads_by_id.contains(overload_id) ||
+         entry.lazy_overloads_by_id.contains(overload_id);
 }
 
 }  // namespace cel

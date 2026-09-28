@@ -1,6 +1,5 @@
 #include "eval/eval/function_step.h"
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -8,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -19,6 +19,7 @@
 #include "common/expr.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
+#include "common/type.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
@@ -67,12 +68,149 @@ bool ArgumentKindsMatch(const cel::FunctionDescriptor& descriptor,
 
   for (size_t i = 0; i < types_size; i++) {
     const auto& arg = arguments[i];
-    cel::Kind param_kind = descriptor.types()[i];
+    cel::Kind param_kind = descriptor.kinds()[i];
     if (arg->kind() != param_kind && param_kind != cel::Kind::kAny) {
       return false;
     }
   }
 
+  return true;
+}
+
+// Forward declarations for recursive functions
+bool ValuesMatch(cel::ValueIterator& iterator, const cel::Type& value_expected,
+                 const absl::optional<cel::Type>& key_expected,
+                 absl::flat_hash_map<std::string, cel::Type>& bindings,
+                 const ExecutionFrameBase& frame);
+
+// Check if a single value matches expected type.
+// Returns true if value's type is compatible with expected.
+bool ValueMatches(const cel::Value& value, const cel::Type& expected,
+                  absl::flat_hash_map<std::string, cel::Type>& bindings,
+                  const ExecutionFrameBase& frame) {
+  // Wildcard: expected accepts any type
+  if (expected.IsDyn() || expected.IsAny()) {
+    return true;
+  }
+
+  // TypeParam handling
+  if (expected.IsTypeParam()) {
+    std::string name(expected.GetTypeParam().name());
+    auto it = bindings.find(name);
+    if (it != bindings.end()) {
+      // Already bound: verify value matches the bound type
+      return ValueMatches(value, it->second, bindings, frame);
+    }
+    // Not yet bound: bind to value's runtime type
+    bindings[name] = value.GetRuntimeType();
+    return true;
+  }
+
+  // Get actual type from value
+  cel::Type actual = value.GetRuntimeType();
+
+  // Container handling - recursive verification
+  if (expected.IsList()) {
+    if (!actual.IsList()) {
+      return false;
+    }
+    const cel::ListValue& list = value.GetList();
+    auto iter_result = list.NewIterator();
+    if (!iter_result.ok()) {
+      return false;
+    }
+    cel::Type elem_expected = expected.GetList().GetElement();
+    return ValuesMatch(**iter_result, elem_expected, absl::nullopt, bindings,
+                       frame);
+  }
+
+  if (expected.IsMap()) {
+    if (!actual.IsMap()) {
+      return false;
+    }
+    const cel::MapValue& map = value.GetMap();
+    auto iter_result = map.NewIterator();
+    if (!iter_result.ok()) {
+      return false;
+    }
+    cel::Type key_expected = expected.GetMap().GetKey();
+    cel::Type val_expected = expected.GetMap().GetValue();
+    return ValuesMatch(**iter_result, val_expected, key_expected, bindings,
+                       frame);
+  }
+
+  if (expected.IsOptional()) {
+    if (!actual.IsOptional()) {
+      return false;
+    }
+    const cel::OptionalValue& opt = value.GetOptional();
+    if (!opt.HasValue()) {
+      return true;  // Empty optional matches any optional<T>
+    }
+    cel::OptionalType opt_type = expected.GetOptional();
+    cel::TypeParameters params = opt_type.GetParameters();
+    if (params.empty()) {
+      return true;
+    }
+    return ValueMatches(opt.Value(), params[0], bindings, frame);
+  }
+
+  // Non-container types: direct type comparison
+  return expected == actual;
+}
+
+// Check if all values from iterator match expected types.
+// For lists: key_expected should be nullopt
+// For maps: key_expected contains expected key type
+bool ValuesMatch(cel::ValueIterator& iterator, const cel::Type& value_expected,
+                 const absl::optional<cel::Type>& key_expected,
+                 absl::flat_hash_map<std::string, cel::Type>& bindings,
+                 const ExecutionFrameBase& frame) {
+  while (iterator.HasNext()) {
+    cel::Value key, val;
+    auto next_result =
+        iterator.Next2(frame.descriptor_pool(), frame.message_factory(),
+                       frame.arena(), &key, &val);
+    if (!next_result.ok() || !*next_result) {
+      return false;  // Error during iteration
+    }
+
+    // Check key if expected
+    if (key_expected.has_value()) {
+      if (!ValueMatches(key, *key_expected, bindings, frame)) {
+        return false;
+      }
+    }
+
+    // Check value
+    if (!ValueMatches(val, value_expected, bindings, frame)) {
+      return false;
+    }
+  }
+  return true;  // All elements match (or empty)
+}
+
+// Type-level argument matching with value-based verification.
+// Directly uses Value.GetRuntimeType() for each argument and compares
+// against descriptor.types() with full recursive verification.
+// Supports TypeParam bindings and container type checking.
+bool ArgumentTypesMatch(const cel::FunctionDescriptor& descriptor,
+                        absl::Span<const cel::Value> arguments,
+                        const ExecutionFrameBase& frame) {
+  const auto& expected_types = descriptor.types();
+
+  if (expected_types.size() != arguments.size()) {
+    return false;
+  }
+
+  // Shared binding context for TypeParam consistency across all arguments
+  absl::flat_hash_map<std::string, cel::Type> bindings;
+
+  for (size_t i = 0; i < expected_types.size(); i++) {
+    if (!ValueMatches(arguments[i], expected_types[i], bindings, frame)) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -285,12 +423,37 @@ absl::Status AbstractFunctionStep::Evaluate(ExecutionFrame* frame) const {
 
 absl::StatusOr<ResolveResult> ResolveStatic(
     absl::Span<const cel::Value> input_args,
-    absl::Span<const cel::FunctionOverloadReference> overloads) {
+    absl::Span<const cel::FunctionOverloadReference> overloads,
+    const ExecutionFrameBase& frame, size_t checked_overloads_count,
+    bool type_level_overload) {
+  // Fast path: Checked expression with a single overload resolved by
+  // overload_id. Still verify runtime arguments because checked expressions can
+  // contain dyn values or be evaluated with activation values that differ from
+  // the checker environment.
+  if (checked_overloads_count == 1) {
+    bool matches =
+        type_level_overload
+            ? ArgumentTypesMatch(overloads[0].descriptor, input_args, frame)
+            : ArgumentKindsMatch(overloads[0].descriptor, input_args);
+    if (matches) {
+      return overloads[0];
+    }
+    // Runtime mismatch -- fall through to full resolution which includes both
+    // checked overloads and arity-matched fallbacks.
+  }
+
+  // Full resolution path over all candidates.
   for (const auto& overload : overloads) {
-    if (ArgumentKindsMatch(overload.descriptor, input_args)) {
+    bool matches =
+        type_level_overload
+            ? ArgumentTypesMatch(overload.descriptor, input_args, frame)
+            : ArgumentKindsMatch(overload.descriptor, input_args);
+
+    if (matches) {
       return overload;
     }
   }
+
   return std::nullopt;
 }
 
@@ -298,70 +461,89 @@ absl::StatusOr<ResolveResult> ResolveLazy(
     absl::Span<const cel::Value> input_args, absl::string_view name,
     bool receiver_style,
     absl::Span<const cel::FunctionRegistry::LazyOverload> providers,
-    const ExecutionFrameBase& frame) {
-  ResolveResult result = std::nullopt;
-
-  std::vector<cel::Kind> arg_types(input_args.size());
-
-  std::transform(
-      input_args.begin(), input_args.end(), arg_types.begin(),
-      [](const cel::Value& value) { return ValueKindToKind(value->kind()); });
-
-  cel::FunctionDescriptor matcher{name, receiver_style, std::move(arg_types)};
-
+    const ExecutionFrameBase& frame, size_t checked_overloads_count,
+    bool type_level_overload) {
   const cel::ActivationInterface& activation = frame.activation();
-  for (auto provider : providers) {
-    // The LazyFunctionStep has so far only resolved by function shape, check
-    // that the runtime argument kinds agree with the specific descriptor for
-    // the provider candidates.
-    if (!ArgumentKindsMatch(provider.descriptor, input_args)) {
-      continue;
-    }
 
-    CEL_ASSIGN_OR_RETURN(auto overload,
-                         provider.provider.GetFunction(matcher, activation));
-    if (overload.has_value()) {
-      // More than one overload matches our arguments.
-      if (result.has_value()) {
-        return absl::Status(absl::StatusCode::kInternal,
-                            "Cannot resolve overloads");
+  // Phase A: Collect overloads from providers.
+  std::vector<cel::FunctionOverloadReference> overloads;
+
+  if (checked_overloads_count > 0) {
+    // Checked path: use provider.descriptor (which carries overload_id) for
+    // precise lookup.
+    for (const auto& provider : providers) {
+      CEL_ASSIGN_OR_RETURN(auto overload, provider.provider.GetFunction(
+                                              provider.descriptor, activation));
+      if (overload.has_value()) {
+        overloads.push_back(overload.value());
+      }
+    }
+  } else {
+    // Parse-only: pre-filter by ArgumentKindsMatch, then collect overloads.
+    for (const auto& provider : providers) {
+      if (!ArgumentKindsMatch(provider.descriptor, input_args)) {
+        continue;
       }
 
-      result.emplace(overload.value());
+      CEL_ASSIGN_OR_RETURN(auto overload, provider.provider.GetFunction(
+                                              provider.descriptor, activation));
+
+      if (overload.has_value()) {
+        overloads.push_back(overload.value());
+      }
     }
   }
 
-  return result;
+  // Phase B: Match arguments and select overload.
+  for (const auto& overload : overloads) {
+    bool matches =
+        type_level_overload
+            ? ArgumentTypesMatch(overload.descriptor, input_args, frame)
+            : ArgumentKindsMatch(overload.descriptor, input_args);
+
+    if (matches) {
+      return overload;
+    }
+  }
+
+  return std::nullopt;
 }
 
 class EagerFunctionStep : public AbstractFunctionStep {
  public:
   EagerFunctionStep(std::vector<cel::FunctionOverloadReference> overloads,
                     const std::string& name, size_t num_args,
-                    bool receiver_style, int64_t expr_id)
+                    bool receiver_style, int64_t expr_id,
+                    size_t checked_overloads_count, bool type_level_overload)
       : AbstractFunctionStep(name, num_args, receiver_style, expr_id),
-        overloads_(std::move(overloads)) {}
+        overloads_(std::move(overloads)),
+        checked_overloads_count_(checked_overloads_count),
+        type_level_overload_(type_level_overload) {}
 
   absl::StatusOr<ResolveResult> ResolveFunction(
       absl::Span<const cel::Value> input_args,
       const ExecutionFrame* frame) const override {
-    return ResolveStatic(input_args, overloads_);
+    return ResolveStatic(input_args, overloads_, *frame,
+                         checked_overloads_count_, type_level_overload_);
   }
 
  private:
   std::vector<cel::FunctionOverloadReference> overloads_;
+  size_t checked_overloads_count_;
+  bool type_level_overload_;
 };
 
 class LazyFunctionStep : public AbstractFunctionStep {
  public:
-  // Constructs LazyFunctionStep that attempts to lookup function implementation
-  // at runtime.
   LazyFunctionStep(const std::string& name, size_t num_args,
                    bool receiver_style,
                    std::vector<cel::FunctionRegistry::LazyOverload> providers,
-                   int64_t expr_id)
+                   int64_t expr_id, size_t checked_overloads_count,
+                   bool type_level_overload)
       : AbstractFunctionStep(name, num_args, receiver_style, expr_id),
-        providers_(std::move(providers)) {}
+        providers_(std::move(providers)),
+        checked_overloads_count_(checked_overloads_count),
+        type_level_overload_(type_level_overload) {}
 
   absl::StatusOr<ResolveResult> ResolveFunction(
       absl::Span<const cel::Value> input_args,
@@ -369,46 +551,64 @@ class LazyFunctionStep : public AbstractFunctionStep {
 
  private:
   std::vector<cel::FunctionRegistry::LazyOverload> providers_;
+  size_t checked_overloads_count_;
+  bool type_level_overload_;
 };
 
 absl::StatusOr<ResolveResult> LazyFunctionStep::ResolveFunction(
     absl::Span<const cel::Value> input_args,
     const ExecutionFrame* frame) const {
-  return ResolveLazy(input_args, name_, receiver_style_, providers_, *frame);
+  return ResolveLazy(input_args, name_, receiver_style_, providers_, *frame,
+                     checked_overloads_count_, type_level_overload_);
 }
 
 class StaticResolver {
  public:
-  explicit StaticResolver(std::vector<cel::FunctionOverloadReference> overloads)
-      : overloads_(std::move(overloads)) {}
+  using ResolveResult = absl::optional<cel::FunctionOverloadReference>;
+
+  StaticResolver(std::vector<cel::FunctionOverloadReference> overloads,
+                 size_t checked_overloads_count, bool type_level_overload)
+      : overloads_(std::move(overloads)),
+        checked_overloads_count_(checked_overloads_count),
+        type_level_overload_(type_level_overload) {}
 
   absl::StatusOr<ResolveResult> Resolve(ExecutionFrameBase& frame,
                                         absl::Span<const Value> input) const {
-    return ResolveStatic(input, overloads_);
+    return ResolveStatic(input, overloads_, frame, checked_overloads_count_,
+                         type_level_overload_);
   }
 
  private:
   std::vector<cel::FunctionOverloadReference> overloads_;
+  size_t checked_overloads_count_;
+  bool type_level_overload_;
 };
 
 class LazyResolver {
  public:
-  explicit LazyResolver(
-      std::vector<cel::FunctionRegistry::LazyOverload> providers,
-      std::string name, bool receiver_style)
+  using ResolveResult = absl::optional<cel::FunctionOverloadReference>;
+
+  LazyResolver(std::vector<cel::FunctionRegistry::LazyOverload> providers,
+               std::string name, bool receiver_style,
+               size_t checked_overloads_count, bool type_level_overload)
       : providers_(std::move(providers)),
         name_(std::move(name)),
-        receiver_style_(receiver_style) {}
+        receiver_style_(receiver_style),
+        checked_overloads_count_(checked_overloads_count),
+        type_level_overload_(type_level_overload) {}
 
   absl::StatusOr<ResolveResult> Resolve(ExecutionFrameBase& frame,
                                         absl::Span<const Value> input) const {
-    return ResolveLazy(input, name_, receiver_style_, providers_, frame);
+    return ResolveLazy(input, name_, receiver_style_, providers_, frame,
+                       checked_overloads_count_, type_level_overload_);
   }
 
  private:
   std::vector<cel::FunctionRegistry::LazyOverload> providers_;
   std::string name_;
   bool receiver_style_;
+  size_t checked_overloads_count_;
+  bool type_level_overload_;
 };
 
 template <typename Resolver>
@@ -491,39 +691,47 @@ class DirectFunctionStepImpl : public DirectExpressionStep {
 std::unique_ptr<DirectExpressionStep> CreateDirectFunctionStep(
     int64_t expr_id, const cel::CallExpr& call,
     std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    std::vector<cel::FunctionOverloadReference> overloads) {
+    std::vector<cel::FunctionOverloadReference> overloads,
+    size_t checked_overloads_count, bool type_level_overload) {
   return std::make_unique<DirectFunctionStepImpl<StaticResolver>>(
       expr_id, call.function(), std::move(deps), call.has_target(),
-      StaticResolver(std::move(overloads)));
+      StaticResolver(std::move(overloads), checked_overloads_count,
+                     type_level_overload));
 }
 
 std::unique_ptr<DirectExpressionStep> CreateDirectLazyFunctionStep(
     int64_t expr_id, const cel::CallExpr& call,
     std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    std::vector<cel::FunctionRegistry::LazyOverload> providers) {
+    std::vector<cel::FunctionRegistry::LazyOverload> providers,
+    size_t checked_overloads_count, bool type_level_overload) {
   return std::make_unique<DirectFunctionStepImpl<LazyResolver>>(
       expr_id, call.function(), std::move(deps), call.has_target(),
-      LazyResolver(std::move(providers), call.function(), call.has_target()));
+      LazyResolver(std::move(providers), call.function(), call.has_target(),
+                   checked_overloads_count, type_level_overload));
 }
 
 absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateFunctionStep(
     const cel::CallExpr& call_expr, int64_t expr_id,
-    std::vector<cel::FunctionRegistry::LazyOverload> lazy_overloads) {
+    std::vector<cel::FunctionRegistry::LazyOverload> lazy_overloads,
+    size_t checked_overloads_count, bool type_level_overload) {
   bool receiver_style = call_expr.has_target();
   size_t num_args = call_expr.args().size() + (receiver_style ? 1 : 0);
   const std::string& name = call_expr.function();
-  return std::make_unique<LazyFunctionStep>(name, num_args, receiver_style,
-                                            std::move(lazy_overloads), expr_id);
+  return std::make_unique<LazyFunctionStep>(
+      name, num_args, receiver_style, std::move(lazy_overloads), expr_id,
+      checked_overloads_count, type_level_overload);
 }
 
 absl::StatusOr<std::unique_ptr<ExpressionStep>> CreateFunctionStep(
     const cel::CallExpr& call_expr, int64_t expr_id,
-    std::vector<cel::FunctionOverloadReference> overloads) {
+    std::vector<cel::FunctionOverloadReference> overloads,
+    size_t checked_overloads_count, bool type_level_overload) {
   bool receiver_style = call_expr.has_target();
   size_t num_args = call_expr.args().size() + (receiver_style ? 1 : 0);
   const std::string& name = call_expr.function();
-  return std::make_unique<EagerFunctionStep>(std::move(overloads), name,
-                                             num_args, receiver_style, expr_id);
+  return std::make_unique<EagerFunctionStep>(
+      std::move(overloads), name, num_args, receiver_style, expr_id,
+      checked_overloads_count, type_level_overload);
 }
 
 }  // namespace google::api::expr::runtime

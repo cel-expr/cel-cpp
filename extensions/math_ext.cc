@@ -172,27 +172,31 @@ absl::StatusOr<Value> MaxList(
 }
 
 template <typename T, typename U>
-absl::Status RegisterCrossNumericMin(FunctionRegistry& registry) {
+absl::Status RegisterCrossNumericMin(absl::string_view overload_id_tu,
+                                     absl::string_view overload_id_ut,
+                                     FunctionRegistry& registry) {
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, T, U>::RegisterGlobalOverload(
-          kMathMin, Min<T, U>, registry)));
+          kMathMin, overload_id_tu, Min<T, U>, registry)));
 
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, U, T>::RegisterGlobalOverload(
-          kMathMin, Min<U, T>, registry)));
+          kMathMin, overload_id_ut, Min<U, T>, registry)));
 
   return absl::OkStatus();
 }
 
 template <typename T, typename U>
-absl::Status RegisterCrossNumericMax(FunctionRegistry& registry) {
+absl::Status RegisterCrossNumericMax(absl::string_view overload_id_tu,
+                                     absl::string_view overload_id_ut,
+                                     FunctionRegistry& registry) {
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, T, U>::RegisterGlobalOverload(
-          kMathMax, Max<T, U>, registry)));
+          kMathMax, overload_id_tu, Max<T, U>, registry)));
 
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, U, T>::RegisterGlobalOverload(
-          kMathMax, Max<U, T>, registry)));
+          kMathMax, overload_id_ut, Max<U, T>, registry)));
 
   return absl::OkStatus();
 }
@@ -314,27 +318,101 @@ Value BitShiftRightUint(uint64_t lhs, int64_t rhs) {
 absl::Status RegisterMathExtensionFunctions(FunctionRegistry& registry,
                                             const RuntimeOptions& options,
                                             int version) {
+  // Overload IDs matching math_ext_decls.cc
+  static constexpr absl::string_view kMathMinInt = "math_@min_int";
+  static constexpr absl::string_view kMathMinDouble = "math_@min_double";
+  static constexpr absl::string_view kMathMinUint = "math_@min_uint";
+  static constexpr absl::string_view kMathMinIntInt = "math_@min_int_int";
+  static constexpr absl::string_view kMathMinIntUint = "math_@min_int_uint";
+  static constexpr absl::string_view kMathMinIntDouble = "math_@min_int_double";
+  static constexpr absl::string_view kMathMinUintInt = "math_@min_uint_int";
+  static constexpr absl::string_view kMathMinUintUint = "math_@min_uint_uint";
+  static constexpr absl::string_view kMathMinUintDouble =
+      "math_@min_uint_double";
+  static constexpr absl::string_view kMathMinDoubleInt = "math_@min_double_int";
+  static constexpr absl::string_view kMathMinDoubleUint =
+      "math_@min_double_uint";
+  static constexpr absl::string_view kMathMinDoubleDouble =
+      "math_@min_double_double";
+
+  static constexpr absl::string_view kMathMaxInt = "math_@max_int";
+  static constexpr absl::string_view kMathMaxDouble = "math_@max_double";
+  static constexpr absl::string_view kMathMaxUint = "math_@max_uint";
+  static constexpr absl::string_view kMathMaxIntInt = "math_@max_int_int";
+  static constexpr absl::string_view kMathMaxIntUint = "math_@max_int_uint";
+  static constexpr absl::string_view kMathMaxIntDouble = "math_@max_int_double";
+  static constexpr absl::string_view kMathMaxUintInt = "math_@max_uint_int";
+  static constexpr absl::string_view kMathMaxUintUint = "math_@max_uint_uint";
+  static constexpr absl::string_view kMathMaxUintDouble =
+      "math_@max_uint_double";
+  static constexpr absl::string_view kMathMaxDoubleInt = "math_@max_double_int";
+  static constexpr absl::string_view kMathMaxDoubleUint =
+      "math_@max_double_uint";
+  static constexpr absl::string_view kMathMaxDoubleDouble =
+      "math_@max_double_double";
+
+  static constexpr absl::string_view kMathCeilDouble = "math_ceil_double";
+  static constexpr absl::string_view kMathFloorDouble = "math_floor_double";
+  static constexpr absl::string_view kMathRoundDouble = "math_round_double";
+  static constexpr absl::string_view kMathTruncDouble = "math_trunc_double";
+  static constexpr absl::string_view kMathSqrtInt = "math_sqrt_int";
+  static constexpr absl::string_view kMathSqrtUint = "math_sqrt_uint";
+  static constexpr absl::string_view kMathSqrtDouble = "math_sqrt_double";
+  static constexpr absl::string_view kMathIsInfDouble = "math_isInf_double";
+  static constexpr absl::string_view kMathIsNaNDouble = "math_isNaN_double";
+  static constexpr absl::string_view kMathIsFiniteDouble =
+      "math_isFinite_double";
+  static constexpr absl::string_view kMathAbsInt = "math_abs_int";
+  static constexpr absl::string_view kMathAbsUint = "math_abs_uint";
+  static constexpr absl::string_view kMathAbsDouble = "math_abs_double";
+  static constexpr absl::string_view kMathSignInt = "math_sign_int";
+  static constexpr absl::string_view kMathSignUint = "math_sign_uint";
+  static constexpr absl::string_view kMathSignDouble = "math_sign_double";
+  static constexpr absl::string_view kMathBitAndIntInt = "math_bitAnd_int_int";
+  static constexpr absl::string_view kMathBitAndUintUint =
+      "math_bitAnd_uint_uint";
+  static constexpr absl::string_view kMathBitOrIntInt = "math_bitOr_int_int";
+  static constexpr absl::string_view kMathBitOrUintUint =
+      "math_bitOr_uint_uint";
+  static constexpr absl::string_view kMathBitXorIntInt = "math_bitXor_int_int";
+  static constexpr absl::string_view kMathBitXorUintUint =
+      "math_bitXor_uint_uint";
+  static constexpr absl::string_view kMathBitNotIntInt = "math_bitNot_int_int";
+  static constexpr absl::string_view kMathBitNotUintUint =
+      "math_bitNot_uint_uint";
+  static constexpr absl::string_view kMathBitShiftLeftIntInt =
+      "math_bitShiftLeft_int_int";
+  static constexpr absl::string_view kMathBitShiftLeftUintInt =
+      "math_bitShiftLeft_uint_int";
+  static constexpr absl::string_view kMathBitShiftRightIntInt =
+      "math_bitShiftRight_int_int";
+  static constexpr absl::string_view kMathBitShiftRightUintInt =
+      "math_bitShiftRight_uint_int";
+
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<Value, int64_t>::RegisterGlobalOverload(
-          kMathMin, Identity<int64_t>, registry)));
+          kMathMin, kMathMinInt, Identity<int64_t>, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<Value, double>::RegisterGlobalOverload(
-          kMathMin, Identity<double>, registry)));
+          kMathMin, kMathMinDouble, Identity<double>, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<Value, uint64_t>::RegisterGlobalOverload(
-          kMathMin, Identity<uint64_t>, registry)));
+          kMathMin, kMathMinUint, Identity<uint64_t>, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, int64_t, int64_t>::RegisterGlobalOverload(
-          kMathMin, Min<int64_t, int64_t>, registry)));
+          kMathMin, kMathMinIntInt, Min<int64_t, int64_t>, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, double, double>::RegisterGlobalOverload(
-          kMathMin, Min<double, double>, registry)));
+          kMathMin, kMathMinDoubleDouble, Min<double, double>, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, uint64_t, uint64_t>::RegisterGlobalOverload(
-          kMathMin, Min<uint64_t, uint64_t>, registry)));
-  CEL_RETURN_IF_ERROR((RegisterCrossNumericMin<int64_t, uint64_t>(registry)));
-  CEL_RETURN_IF_ERROR((RegisterCrossNumericMin<int64_t, double>(registry)));
-  CEL_RETURN_IF_ERROR((RegisterCrossNumericMin<double, uint64_t>(registry)));
+          kMathMin, kMathMinUintUint, Min<uint64_t, uint64_t>, registry)));
+  CEL_RETURN_IF_ERROR((RegisterCrossNumericMin<int64_t, uint64_t>(
+          kMathMinIntUint, kMathMinUintInt, registry)));
+  CEL_RETURN_IF_ERROR((RegisterCrossNumericMin<int64_t, double>(
+          kMathMinIntDouble, kMathMinDoubleInt, registry)));
+  CEL_RETURN_IF_ERROR((RegisterCrossNumericMin<double, uint64_t>(
+          kMathMinDoubleUint, kMathMinUintDouble, registry)));
   CEL_RETURN_IF_ERROR((
       UnaryFunctionAdapter<absl::StatusOr<Value>,
                            ListValue>::RegisterGlobalOverload(kMathMin, MinList,
@@ -342,25 +420,28 @@ absl::Status RegisterMathExtensionFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<Value, int64_t>::RegisterGlobalOverload(
-          kMathMax, Identity<int64_t>, registry)));
+          kMathMax, kMathMaxInt, Identity<int64_t>, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<Value, double>::RegisterGlobalOverload(
-          kMathMax, Identity<double>, registry)));
+          kMathMax, kMathMaxDouble, Identity<double>, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<Value, uint64_t>::RegisterGlobalOverload(
-          kMathMax, Identity<uint64_t>, registry)));
+          kMathMax, kMathMaxUint, Identity<uint64_t>, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, int64_t, int64_t>::RegisterGlobalOverload(
-          kMathMax, Max<int64_t, int64_t>, registry)));
+          kMathMax, kMathMaxIntInt, Max<int64_t, int64_t>, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, double, double>::RegisterGlobalOverload(
-          kMathMax, Max<double, double>, registry)));
+          kMathMax, kMathMaxDoubleDouble, Max<double, double>, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, uint64_t, uint64_t>::RegisterGlobalOverload(
-          kMathMax, Max<uint64_t, uint64_t>, registry)));
-  CEL_RETURN_IF_ERROR((RegisterCrossNumericMax<int64_t, uint64_t>(registry)));
-  CEL_RETURN_IF_ERROR((RegisterCrossNumericMax<int64_t, double>(registry)));
-  CEL_RETURN_IF_ERROR((RegisterCrossNumericMax<double, uint64_t>(registry)));
+          kMathMax, kMathMaxUintUint, Max<uint64_t, uint64_t>, registry)));
+  CEL_RETURN_IF_ERROR((RegisterCrossNumericMax<int64_t, uint64_t>(
+          kMathMaxIntUint, kMathMaxUintInt, registry)));
+  CEL_RETURN_IF_ERROR((RegisterCrossNumericMax<int64_t, double>(
+          kMathMaxIntDouble, kMathMaxDoubleInt, registry)));
+  CEL_RETURN_IF_ERROR((RegisterCrossNumericMax<double, uint64_t>(
+          kMathMaxDoubleUint, kMathMaxUintDouble, registry)));
   CEL_RETURN_IF_ERROR((
       UnaryFunctionAdapter<absl::StatusOr<Value>,
                            ListValue>::RegisterGlobalOverload(kMathMax, MaxList,
@@ -371,86 +452,87 @@ absl::Status RegisterMathExtensionFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, double>::RegisterGlobalOverload(
-          "math.ceil", CeilDouble, registry)));
+          "math.ceil", kMathCeilDouble, CeilDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, double>::RegisterGlobalOverload(
-          "math.floor", FloorDouble, registry)));
+          "math.floor", kMathFloorDouble, FloorDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, double>::RegisterGlobalOverload(
-          "math.round", RoundDouble, registry)));
+          "math.round", kMathRoundDouble, RoundDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, double>::RegisterGlobalOverload(
-          "math.trunc", TruncDouble, registry)));
+          "math.trunc", kMathTruncDouble, TruncDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<bool, double>::RegisterGlobalOverload(
-          "math.isInf", IsInfDouble, registry)));
+          "math.isInf", kMathIsInfDouble, IsInfDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<bool, double>::RegisterGlobalOverload(
-          "math.isNaN", IsNaNDouble, registry)));
+          "math.isNaN", kMathIsNaNDouble, IsNaNDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<bool, double>::RegisterGlobalOverload(
-          "math.isFinite", IsFiniteDouble, registry)));
+          "math.isFinite", kMathIsFiniteDouble, IsFiniteDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, double>::RegisterGlobalOverload(
-          "math.abs", AbsDouble, registry)));
+          "math.abs", kMathAbsDouble, AbsDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<Value, int64_t>::RegisterGlobalOverload(
-          "math.abs", AbsInt, registry)));
+          "math.abs", kMathAbsInt, AbsInt, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<uint64_t, uint64_t>::RegisterGlobalOverload(
-          "math.abs", AbsUint, registry)));
+          "math.abs", kMathAbsUint, AbsUint, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, double>::RegisterGlobalOverload(
-          "math.sign", SignDouble, registry)));
+          "math.sign", kMathSignDouble, SignDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<int64_t, int64_t>::RegisterGlobalOverload(
-          "math.sign", SignInt, registry)));
+          "math.sign", kMathSignInt, SignInt, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<uint64_t, uint64_t>::RegisterGlobalOverload(
-          "math.sign", SignUint, registry)));
+          "math.sign", kMathSignUint, SignUint, registry)));
 
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<int64_t, int64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitAnd", BitAndInt, registry)));
+          "math.bitAnd", kMathBitAndIntInt, BitAndInt, registry)));
   CEL_RETURN_IF_ERROR(
-      (BinaryFunctionAdapter<uint64_t, uint64_t,
-                             uint64_t>::RegisterGlobalOverload("math.bitAnd",
-                                                               BitAndUint,
-                                                               registry)));
-  CEL_RETURN_IF_ERROR(
-      (BinaryFunctionAdapter<int64_t, int64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitOr", BitOrInt, registry)));
-  CEL_RETURN_IF_ERROR(
-      (BinaryFunctionAdapter<uint64_t, uint64_t,
-                             uint64_t>::RegisterGlobalOverload("math.bitOr",
-                                                               BitOrUint,
-                                                               registry)));
+      (BinaryFunctionAdapter<uint64_t, uint64_t, uint64_t>::
+           RegisterGlobalOverload("math.bitAnd", kMathBitAndUintUint,
+                                  BitAndUint, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<int64_t, int64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitXor", BitXorInt, registry)));
+          "math.bitOr", kMathBitOrIntInt, BitOrInt, registry)));
   CEL_RETURN_IF_ERROR(
-      (BinaryFunctionAdapter<uint64_t, uint64_t,
-                             uint64_t>::RegisterGlobalOverload("math.bitXor",
-                                                               BitXorUint,
-                                                               registry)));
+      (BinaryFunctionAdapter<uint64_t, uint64_t, uint64_t>::
+           RegisterGlobalOverload("math.bitOr", kMathBitOrUintUint, BitOrUint,
+                                  registry)));
+  CEL_RETURN_IF_ERROR(
+      (BinaryFunctionAdapter<int64_t, int64_t, int64_t>::RegisterGlobalOverload(
+          "math.bitXor", kMathBitXorIntInt, BitXorInt, registry)));
+  CEL_RETURN_IF_ERROR(
+      (BinaryFunctionAdapter<uint64_t, uint64_t, uint64_t>::
+           RegisterGlobalOverload("math.bitXor", kMathBitXorUintUint,
+                                  BitXorUint, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<int64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitNot", BitNotInt, registry)));
+          "math.bitNot", kMathBitNotIntInt, BitNotInt, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<uint64_t, uint64_t>::RegisterGlobalOverload(
-          "math.bitNot", BitNotUint, registry)));
+          "math.bitNot", kMathBitNotUintUint, BitNotUint, registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, int64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitShiftLeft", BitShiftLeftInt, registry)));
+          "math.bitShiftLeft", kMathBitShiftLeftIntInt, BitShiftLeftInt,
+          registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, uint64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitShiftLeft", BitShiftLeftUint, registry)));
+          "math.bitShiftLeft", kMathBitShiftLeftUintInt, BitShiftLeftUint,
+          registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, int64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitShiftRight", BitShiftRightInt, registry)));
+          "math.bitShiftRight", kMathBitShiftRightIntInt, BitShiftRightInt,
+          registry)));
   CEL_RETURN_IF_ERROR(
       (BinaryFunctionAdapter<Value, uint64_t, int64_t>::RegisterGlobalOverload(
-          "math.bitShiftRight", BitShiftRightUint, registry)));
+          "math.bitShiftRight", kMathBitShiftRightUintInt, BitShiftRightUint,
+          registry)));
 
   if (version == 1) {
     return absl::OkStatus();
@@ -458,13 +540,13 @@ absl::Status RegisterMathExtensionFunctions(FunctionRegistry& registry,
 
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, double>::RegisterGlobalOverload(
-          "math.sqrt", SqrtDouble, registry)));
+          "math.sqrt", kMathSqrtDouble, SqrtDouble, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, int64_t>::RegisterGlobalOverload(
-          "math.sqrt", SqrtInt, registry)));
+          "math.sqrt", kMathSqrtInt, SqrtInt, registry)));
   CEL_RETURN_IF_ERROR(
       (UnaryFunctionAdapter<double, uint64_t>::RegisterGlobalOverload(
-          "math.sqrt", SqrtUint, registry)));
+          "math.sqrt", kMathSqrtUint, SqrtUint, registry)));
 
   return absl::OkStatus();
 }

@@ -60,6 +60,17 @@ class RegisterHelper {
         AdapterT::WrapFunction(std::forward<FunctionT>(fn)));
   }
 
+  // Generic registration with overload_id
+  template <typename FunctionT>
+  static absl::Status Register(absl::string_view name, absl::string_view overload_id,
+                               bool receiver_style,
+                               FunctionT&& fn, FunctionRegistry& registry,
+                               FunctionDescriptorOptions options = {}) {
+    return registry.Register(
+        AdapterT::CreateDescriptor(name, overload_id, receiver_style, options),
+        AdapterT::WrapFunction(std::forward<FunctionT>(fn)));
+  }
+
   // Registers a global overload (.e.g. size(<list>) )
   template <typename FunctionT>
   static absl::Status RegisterGlobalOverload(absl::string_view name,
@@ -69,6 +80,17 @@ class RegisterHelper {
                     registry);
   }
 
+  // Registers a global overload with overload_id
+  template <typename FunctionT>
+  static absl::Status RegisterGlobalOverload(absl::string_view name,
+                                             absl::string_view overload_id,
+                                             FunctionT&& fn,
+                                             FunctionRegistry& registry) {
+    return registry.Register(
+        AdapterT::CreateDescriptor(name, overload_id, /*receiver_style=*/false),
+        AdapterT::WrapFunction(std::forward<FunctionT>(fn)));
+  }
+
   // Registers a member overload (.e.g. <list>.size())
   template <typename FunctionT>
   static absl::Status RegisterMemberOverload(absl::string_view name,
@@ -76,6 +98,17 @@ class RegisterHelper {
                                              FunctionRegistry& registry) {
     return Register(name, /*receiver_style=*/true, std::forward<FunctionT>(fn),
                     registry);
+  }
+
+  // Registers a member overload with overload_id
+  template <typename FunctionT>
+  static absl::Status RegisterMemberOverload(absl::string_view name,
+                                             absl::string_view overload_id,
+                                             FunctionT&& fn,
+                                             FunctionRegistry& registry) {
+    return registry.Register(
+        AdapterT::CreateDescriptor(name, overload_id, /*receiver_style=*/true),
+        AdapterT::WrapFunction(std::forward<FunctionT>(fn)));
   }
 
   // Registers a non-strict overload.
@@ -91,6 +124,19 @@ class RegisterHelper {
                                                 FunctionRegistry& registry) {
     return Register(name, /*receiver_style=*/false, std::forward<FunctionT>(fn),
                     registry, /*strict=*/false);
+  }
+
+  // Registers a non-strict overload with overload_id
+  template <typename FunctionT>
+  static absl::Status RegisterNonStrictOverload(absl::string_view name,
+                                                absl::string_view overload_id,
+                                                FunctionT&& fn,
+                                                FunctionRegistry& registry) {
+    return registry.Register(
+        AdapterT::CreateDescriptor(name, overload_id, /*receiver_style=*/false,
+                                   FunctionDescriptorOptions{
+                                       /*is_strict=*/false}),
+        AdapterT::WrapFunction(std::forward<FunctionT>(fn)));
   }
 };
 

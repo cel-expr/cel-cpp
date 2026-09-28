@@ -152,6 +152,21 @@ std::vector<cel::FunctionOverloadReference> Resolver::FindOverloads(
   return funcs;
 }
 
+std::vector<cel::FunctionOverloadReference> Resolver::FindOverloadsByTypes(
+    absl::string_view name, bool receiver_style,
+    const std::vector<cel::Type>& types, int64_t expr_id) const {
+  std::vector<cel::FunctionOverloadReference> funcs;
+  auto names = FullyQualifiedNames(name, expr_id);
+  for (auto it = names.begin(); it != names.end(); it++) {
+    funcs = function_registry_.FindStaticOverloadsByTypes(*it, receiver_style,
+                                                          types);
+    if (!funcs.empty()) {
+      return funcs;
+    }
+  }
+  return funcs;
+}
+
 std::vector<cel::FunctionOverloadReference> Resolver::FindOverloads(
     absl::string_view name, bool receiver_style, size_t arity,
     int64_t expr_id) const {
@@ -173,6 +188,21 @@ std::vector<cel::FunctionOverloadReference> Resolver::FindOverloads(
   return funcs;
 }
 
+absl::optional<cel::FunctionOverloadReference> Resolver::FindOverloadById(
+    absl::string_view name, absl::string_view overload_id) const {
+  // Try with namespace prefixes
+  auto prefixes = GetPrefixesFor(name);
+  for (const auto& prefix : prefixes) {
+    std::string qualified_name = absl::StrCat(prefix, name);
+    auto result =
+        function_registry_.FindStaticOverloadById(qualified_name, overload_id);
+    if (result.has_value()) {
+      return result;
+    }
+  }
+  return absl::nullopt;
+}
+
 std::vector<cel::FunctionRegistry::LazyOverload> Resolver::FindLazyOverloads(
     absl::string_view name, bool receiver_style,
     const std::vector<cel::Kind>& types, int64_t expr_id) const {
@@ -182,6 +212,22 @@ std::vector<cel::FunctionRegistry::LazyOverload> Resolver::FindLazyOverloads(
   auto names = FullyQualifiedNames(name, expr_id);
   for (const auto& name : names) {
     funcs = function_registry_.FindLazyOverloads(name, receiver_style, types);
+    if (!funcs.empty()) {
+      return funcs;
+    }
+  }
+  return funcs;
+}
+
+std::vector<cel::FunctionRegistry::LazyOverload>
+Resolver::FindLazyOverloadsByTypes(absl::string_view name, bool receiver_style,
+                                   const std::vector<cel::Type>& types,
+                                   int64_t expr_id) const {
+  std::vector<cel::FunctionRegistry::LazyOverload> funcs;
+  auto names = FullyQualifiedNames(name, expr_id);
+  for (const auto& name : names) {
+    funcs = function_registry_.FindLazyOverloadsByTypes(name, receiver_style,
+                                                        types);
     if (!funcs.empty()) {
       return funcs;
     }
@@ -217,6 +263,22 @@ Resolver::FindType(absl::string_view name, int64_t expr_id) const {
     }
   }
   return std::nullopt;
+}
+
+absl::optional<cel::FunctionRegistry::LazyOverload>
+Resolver::FindLazyOverloadById(absl::string_view name,
+                               absl::string_view overload_id) const {
+  // Try with namespace prefixes
+  auto prefixes = GetPrefixesFor(name);
+  for (const auto& prefix : prefixes) {
+    std::string qualified_name = absl::StrCat(prefix, name);
+    auto result =
+        function_registry_.FindLazyOverloadById(qualified_name, overload_id);
+    if (result.has_value()) {
+      return result;
+    }
+  }
+  return absl::nullopt;
 }
 
 }  // namespace google::api::expr::runtime
