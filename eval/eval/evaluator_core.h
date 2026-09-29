@@ -495,6 +495,12 @@ class ExecutionFrame : public ExecutionFrameBase {
     size_t expected_stack_size;
   };
 
+  // Called by `Next()` when `pc_` reaches the end of the current execution
+  // path. If a subexpression is being evaluated, returns to the caller (storing
+  // the result in the caller's comprehension slot) and returns the caller's
+  // next step. Returns nullptr once the top-level expression is complete.
+  const ExpressionStep* ReturnFromSubexpression();
+
   size_t pc_;  // pc_ - Program Counter. Current position on execution path.
   ExecutionPathView execution_path_;
   EvaluatorStack* absl_nonnull const value_stack_;

@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
@@ -39,6 +40,23 @@ void FlatExpressionEvaluatorState::Reset() {
 }
 
 const ExpressionStep* ExecutionFrame::Next() {
+  if (ABSL_PREDICT_TRUE(pc_ < execution_path_.size())) {
+    const ExpressionStep* step = &execution_path_[pc_++];
+    ABSL_ASSUME(step != nullptr);
+    return step;
+  }
+  // Normal completion of the top-level program. Handled inline since every
+  // evaluation ends here.
+  if (ABSL_PREDICT_TRUE(pc_ == execution_path_.size() && call_stack_.empty())) {
+    return nullptr;
+  }
+  return ReturnFromSubexpression();
+}
+
+// Kept out of line so that `Next()` stays small enough to inline into the
+// `Evaluate` loop.
+ABSL_ATTRIBUTE_NOINLINE const ExpressionStep*
+ExecutionFrame::ReturnFromSubexpression() {
   while (true) {
     const size_t end_pos = execution_path_.size();
 
