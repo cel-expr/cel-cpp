@@ -168,9 +168,25 @@ TEST_F(BytesValueTest, Comparison) {
   EXPECT_FALSE(BytesValue::WrapUnsafe("foo") < BytesValue::WrapUnsafe("bar"));
 }
 
-TEST_F(BytesValueTest, StringInputStream) {
+TEST_F(BytesValueTest, SmallStringInputStream) {
+  BytesValue value = BytesValue::From("foo", arena());
+  BytesValueInputStream stream(value);
+  const void* data;
+  int size;
+  absl::Cord cord;
+  ASSERT_TRUE(stream.Next(&data, &size));
+  EXPECT_THAT(data, NotNull());
+  EXPECT_EQ(size, 3);
+  EXPECT_EQ(stream.ByteCount(), 3);
+  stream.BackUp(size);
+  ASSERT_TRUE(stream.Skip(3));
+  EXPECT_FALSE(stream.ReadCord(&cord, 3));
+  EXPECT_FALSE(stream.Next(&data, &size));
+}
+
+TEST_F(BytesValueTest, MediumStringInputStream) {
   BytesValue value = BytesValue::WrapUnsafe("foo");
-  BytesValueInputStream stream(&value);
+  BytesValueInputStream stream(value);
   const void* data;
   int size;
   absl::Cord cord;
@@ -185,8 +201,9 @@ TEST_F(BytesValueTest, StringInputStream) {
 }
 
 TEST_F(BytesValueTest, CordInputStream) {
-  BytesValue value = BytesValue::From(absl::Cord("foo"), arena());
-  BytesValueInputStream stream(&value);
+  absl::Cord value_cord("foo");
+  BytesValue value = BytesValue::WrapUnsafe(&value_cord);
+  BytesValueInputStream stream(value);
   const void* data;
   int size;
   absl::Cord cord;
