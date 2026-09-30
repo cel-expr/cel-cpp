@@ -15,7 +15,9 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_CEL_EXPRESSION_FLAT_IMPL_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_CEL_EXPRESSION_FLAT_IMPL_H_
 
+#include <atomic>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -63,7 +65,11 @@ class CelExpressionFlatImpl : public CelExpression {
   // Move-only
   CelExpressionFlatImpl(const CelExpressionFlatImpl&) = delete;
   CelExpressionFlatImpl& operator=(const CelExpressionFlatImpl&) = delete;
-  CelExpressionFlatImpl(CelExpressionFlatImpl&&) = default;
+  // The cached evaluation state is not transferred; the moved-to expression
+  // lazily creates its own on first use.
+  CelExpressionFlatImpl(CelExpressionFlatImpl&& other) noexcept
+      : env_(std::move(other.env_)),
+        flat_expression_(std::move(other.flat_expression_)) {}
   CelExpressionFlatImpl& operator=(CelExpressionFlatImpl&&) = delete;
 
   // Implement CelExpression.
@@ -71,9 +77,7 @@ class CelExpressionFlatImpl : public CelExpression {
       google::protobuf::Arena* arena) const override;
 
   absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
-                                    google::protobuf::Arena* arena) const override {
-    return Evaluate(activation, InitializeState(arena).get());
-  }
+                                    google::protobuf::Arena* arena) const override;
 
   absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
                                     CelEvaluationState* state) const override;
@@ -93,6 +97,12 @@ class CelExpressionFlatImpl : public CelExpression {
  private:
   absl_nonnull std::shared_ptr<const cel::runtime_internal::RuntimeEnv> env_;
   FlatExpression flat_expression_;
+  // Evaluation state reused by `Evaluate(activation, arena)` across
+  // non-concurrent calls. Only accessed by the caller that successfully sets
+  // `cached_state_in_use_`. Created on first use so that it is bound to a real
+  // arena; rebound to the caller's arena on each subsequent use.
+  mutable std::optional<FlatExpressionEvaluatorState> cached_state_;
+  mutable std::atomic<bool> cached_state_in_use_{false};
 };
 
 // Implementation of the CelExpression that evaluates a recursive representation

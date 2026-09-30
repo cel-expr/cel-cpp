@@ -291,6 +291,10 @@ class FlatExpressionEvaluatorState {
 
   google::protobuf::Arena* absl_nonnull arena() { return arena_; }
 
+  // Rebinds the state to a different arena. Only valid while the state holds
+  // no values, i.e. before evaluation or after `Reset()`.
+  void SetArena(google::protobuf::Arena* absl_nonnull arena) { arena_ = arena; }
+
  private:
   EvaluatorStack value_stack_;
   cel::runtime_internal::IteratorStack iterator_stack_;

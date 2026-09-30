@@ -8,6 +8,7 @@
 
 #include "cel/expr/syntax.pb.h"
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 #include "base/type_provider.h"
 #include "common/value.h"
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
@@ -20,6 +21,7 @@
 #include "internal/testing_descriptor_pool.h"
 #include "internal/testing_message_factory.h"
 #include "runtime/activation.h"
+#include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/internal/runtime_type_provider.h"
 #include "runtime/runtime_options.h"
@@ -28,6 +30,7 @@
 namespace google::api::expr::runtime {
 
 using ::absl_testing::IsOk;
+using ::absl_testing::StatusIs;
 using ::cel::IntValue;
 using ::cel::TypeProvider;
 using ::cel::interop_internal::CreateIntValue;
@@ -169,6 +172,89 @@ TEST(EvaluatorCoreTest, MakeConstant) {
   EXPECT_TRUE(step_with_id.comes_from_ast());
 }
 
+// Fake expression implementation
+// Pushes a value and then fails, leaving the value on the stack.
+class FakeFailingExpressionStep : public ExpressionStepLogic {
+ public:
+  FakeFailingExpressionStep() = default;
+
+  absl::Status Evaluate(ExecutionFrame* frame) const override {
+    frame->value_stack().Push(CreateIntValue(0));
+    return absl::InternalError("fail");
+  }
+};
+
+CelExpressionFlatImpl MakeIncrementExpression(
+    const std::shared_ptr<const cel::runtime_internal::RuntimeEnv>& env) {
+  ExecutionPath path;
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeConstExpressionStep>()));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>()));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeIncrementExpressionStep>()));
+  return CelExpressionFlatImpl(
+      env, FlatExpression(std::move(path), 0,
+                          env->type_registry.GetComposedTypeProvider(),
+                          cel::RuntimeOptions{}));
+}
+
+TEST(EvaluatorCoreTest, RepeatedEvaluateWithDifferentArenas) {
+  auto env = NewTestingRuntimeEnv();
+  CelExpressionFlatImpl impl = MakeIncrementExpression(env);
+  Activation activation;
+
+  for (int i = 0; i < 3; ++i) {
+    google::protobuf::Arena arena;
+    ASSERT_OK_AND_ASSIGN(CelValue value, impl.Evaluate(activation, &arena));
+    ASSERT_TRUE(value.IsInt64());
+    EXPECT_THAT(value.Int64OrDie(), Eq(2));
+  }
+}
+
+TEST(EvaluatorCoreTest, EvaluateAfterMove) {
+  auto env = NewTestingRuntimeEnv();
+  CelExpressionFlatImpl original = MakeIncrementExpression(env);
+  Activation activation;
+  google::protobuf::Arena arena;
+  ASSERT_THAT(original.Evaluate(activation, &arena), IsOk());
+
+  CelExpressionFlatImpl moved(std::move(original));
+  ASSERT_OK_AND_ASSIGN(CelValue value, moved.Evaluate(activation, &arena));
+  ASSERT_TRUE(value.IsInt64());
+  EXPECT_THAT(value.Int64OrDie(), Eq(2));
+}
+
+TEST(EvaluatorCoreTest, EvaluateAfterFailureStartsWithCleanState) {
+  ExecutionPath path;
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeFailingExpressionStep>()));
+  auto env = NewTestingRuntimeEnv();
+  CelExpressionFlatImpl impl(
+      env, FlatExpression(std::move(path), 0,
+                          env->type_registry.GetComposedTypeProvider(),
+                          cel::RuntimeOptions{}));
+  Activation activation;
+  google::protobuf::Arena arena;
+
+  // Each failure leaves a value on the stack; the stack only has room for one,
+  // so this would overflow if the cached state were not reset between calls.
+  for (int i = 0; i < 3; ++i) {
+    EXPECT_THAT(impl.Evaluate(activation, &arena),
+                StatusIs(absl::StatusCode::kInternal));
+  }
+}
+
+TEST(EvaluatorCoreTest, EvaluateWithNullArena) {
+  auto env = NewTestingRuntimeEnv();
+  CelExpressionFlatImpl impl = MakeIncrementExpression(env);
+  Activation activation;
+  ASSERT_OK_AND_ASSIGN(
+      CelValue value,
+      impl.Evaluate(activation, static_cast<google::protobuf::Arena*>(nullptr)));
+  ASSERT_TRUE(value.IsInt64());
+  EXPECT_THAT(value.Int64OrDie(), Eq(2));
+}
 class MockTraceCallback {
  public:
   MOCK_METHOD(void, Call,
