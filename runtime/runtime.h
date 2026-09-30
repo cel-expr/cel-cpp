@@ -57,12 +57,99 @@ struct EvaluateOptions {
   const EmbedderContext* absl_nullable embedder_context = nullptr;
 };
 
+// An instance of program that can be reused multiple times. It may only be
+// evaluated by a single thread at any given time.
+class Process {
+ public:
+  virtual ~Process() = default;
+
+  // Evaluate the program.
+  //
+  // Non-recoverable errors (i.e. outside of CEL's notion of an error) are
+  // returned as a non-ok absl::Status. These are propagated immediately and do
+  // not participate in CEL's notion of error handling.
+  //
+  // CEL errors are represented as result with an Ok status and a held
+  // cel::ErrorValue result.
+  //
+  // Activation manages instances of variables available in the cel expression's
+  // environment.
+  //
+  // Notes on lifetimes:
+  //
+  // The provided arena will be used as necessary to allocate complex values
+  // and must outlive any returned value. Values created by the program may
+  // depend on internal state in the runtime. In particular protobuf messages
+  // may depend on the descriptor pool and message factory managed by the
+  // runtime or program.
+  //
+  // Programs implicitly keep shared state in the runtime object alive so it
+  // is sufficient to ensure that any cel::Value result is destroyed before the
+  // cel::Program that created it.
+  //
+  // For consistency, users should use the same arena to create values placed in
+  // the activation for calls to Program::Evaluate.
+  absl::StatusOr<Value> Evaluate(google::protobuf::Arena* absl_nonnull arena
+                                     ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                                 const ActivationInterface& activation,
+                                 const EvaluateOptions& options = {}) {
+    return EvaluateImpl(activation, arena, options);
+  }
+
+ protected:
+  virtual absl::StatusOr<Value> EvaluateImpl(
+      const ActivationInterface& activation,
+      google::protobuf::Arena* absl_nonnull arena ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      const EvaluateOptions& options) = 0;
+};
+
+// An instance of traceable program that can be reused multiple times. It may
+// only be evaluated by a single thread at any given time.
+class TraceableProcess : public Process {
+ public:
+  using EvaluationListener = absl::AnyInvocable<absl::Status(
+      int64_t expr_id, const Value&, const google::protobuf::DescriptorPool* absl_nonnull,
+      google::protobuf::MessageFactory* absl_nonnull, google::protobuf::Arena* absl_nonnull)>;
+
+  // Evaluate the Program plan with a Listener.
+  //
+  // The given callback will be invoked after evaluating any program step
+  // that corresponds to an AST node in the planned CEL expression.
+  //
+  // If the callback returns a non-ok status, evaluation stops and the Status
+  // is forwarded as the result of the EvaluateWithCallback call.
+  absl::StatusOr<Value> Trace(google::protobuf::Arena* absl_nonnull arena
+                                  ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                              const ActivationInterface& activation,
+                              EvaluationListener evaluation_listener,
+                              const EvaluateOptions& options = {}) {
+    return TraceImpl(activation, std::move(evaluation_listener), arena,
+                     options);
+  }
+
+ protected:
+  absl::StatusOr<Value> EvaluateImpl(const ActivationInterface& activation,
+                                     google::protobuf::Arena* absl_nonnull arena
+                                         ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                                     const EvaluateOptions& options) override {
+    return TraceImpl(activation, nullptr, arena, options);
+  }
+
+  virtual absl::StatusOr<Value> TraceImpl(
+      const ActivationInterface& activation,
+      EvaluationListener evaluation_listener,
+      google::protobuf::Arena* absl_nonnull arena ABSL_ATTRIBUTE_LIFETIME_BOUND,
+      const EvaluateOptions& options) = 0;
+};
+
 // Representation of an evaluable CEL expression.
 //
 // See Runtime below for creating new programs.
 class Program {
  public:
   virtual ~Program() = default;
+
+  virtual absl::StatusOr<std::unique_ptr<Process>> CreateProcess() = 0;
 
   // Evaluate the program.
   //
@@ -138,9 +225,10 @@ class TraceableProgram : public Program {
   // ID 0 should not be considered valid, but is supported for legacy reasons.
   //
   // A returning a non-ok status stops evaluation and forwards the error.
-  using EvaluationListener = absl::AnyInvocable<absl::Status(
-      int64_t expr_id, const Value&, const google::protobuf::DescriptorPool* absl_nonnull,
-      google::protobuf::MessageFactory* absl_nonnull, google::protobuf::Arena* absl_nonnull)>;
+  using EvaluationListener = TraceableProcess::EvaluationListener;
+
+  virtual absl::StatusOr<std::unique_ptr<TraceableProcess>>
+  CreateTraceableProcess() = 0;
 
   using Program::Evaluate;
 

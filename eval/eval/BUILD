@@ -95,6 +95,7 @@ cc_library(
         "//internal:status_macros",
         "//runtime/internal:runtime_env",
         "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/memory",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",

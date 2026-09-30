@@ -19,6 +19,7 @@
 #include <utility>
 
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -75,21 +76,32 @@ CelExpressionFlatEvaluationState::CelExpressionFlatEvaluationState(
                                            arena)) {}
 
 absl::StatusOr<CelValue> CelExpressionFlatImpl::Trace(
-    const BaseActivation& activation, CelEvaluationState* _state,
-    CelEvaluationListener callback) const {
-  auto state =
-      ::cel::internal::down_cast<CelExpressionFlatEvaluationState*>(_state);
-  state->state().Reset();
+    const BaseActivation& activation, google::protobuf::Arena* arena,
+    CelEvaluationListener callback, CelEvaluationState* state) const {
+  std::unique_ptr<CelEvaluationState> inline_state;
+  if (state == nullptr) {
+    inline_state = CreateState();
+    state = inline_state.get();
+  }
+  auto derived_state =
+      ::cel::internal::down_cast<CelExpressionFlatEvaluationState*>(state);
+  if (arena != nullptr) {
+    derived_state->Rebind(arena);
+  } else {
+    arena = derived_state->arena();
+  }
+  ABSL_DCHECK(arena != nullptr)
+      << "arena must be implicitly provided when using InitializeState() or "
+         "explicitly provided when using CreateState()";
   cel::interop_internal::AdapterActivationImpl modern_activation(activation);
 
   CEL_ASSIGN_OR_RETURN(cel::Value value,
                        flat_expression_.EvaluateWithCallback(
                            modern_activation,
                            /*embedder_context=*/nullptr,
-                           AdaptListener(callback), state->state()));
+                           AdaptListener(callback), derived_state->state()));
 
-  return cel::interop_internal::ModernValueToLegacyValueOrDie(state->arena(),
-                                                              value);
+  return cel::interop_internal::ModernValueToLegacyValueOrDie(arena, value);
 }
 
 std::unique_ptr<CelEvaluationState> CelExpressionFlatImpl::InitializeState(
@@ -99,9 +111,10 @@ std::unique_ptr<CelEvaluationState> CelExpressionFlatImpl::InitializeState(
       flat_expression_);
 }
 
-absl::StatusOr<CelValue> CelExpressionFlatImpl::Evaluate(
-    const BaseActivation& activation, CelEvaluationState* state) const {
-  return Trace(activation, state, CelEvaluationListener());
+std::unique_ptr<CelEvaluationState> CelExpressionFlatImpl::CreateState() const {
+  return std::make_unique<CelExpressionFlatEvaluationState>(
+      env_->descriptor_pool.get(), env_->MutableMessageFactory(),
+      flat_expression_);
 }
 
 absl::StatusOr<std::unique_ptr<CelExpressionRecursiveImpl>>
@@ -126,25 +139,36 @@ CelExpressionRecursiveImpl::Create(
 
 absl::StatusOr<CelValue> CelExpressionRecursiveImpl::Trace(
     const BaseActivation& activation, google::protobuf::Arena* arena,
-    CelEvaluationListener callback) const {
+    CelEvaluationListener callback, CelEvaluationState* state) const {
+  std::unique_ptr<CelEvaluationState> inline_state;
+  if (state == nullptr) {
+    inline_state = CreateState();
+    state = inline_state.get();
+  }
+  auto derived_state = ::cel::internal::down_cast<EvaluationState*>(state);
+  if (arena != nullptr) {
+    derived_state->Rebind(arena);
+  } else {
+    arena = derived_state->arena();
+  }
+  if (state != inline_state.get()) {
+    derived_state->comprehension_slots().Reset();
+  }
+  ABSL_DCHECK(arena != nullptr)
+      << "arena must be implicitly provided when using InitializeState() or "
+         "explicitly provided when using CreateState()";
   cel::interop_internal::AdapterActivationImpl modern_activation(activation);
-  ComprehensionSlots slots(flat_expression_.comprehension_slots_size());
   ExecutionFrameBase execution_frame(
       modern_activation, AdaptListener(callback), flat_expression_.options(),
       flat_expression_.type_provider(), env_->descriptor_pool.get(),
       env_->MutableMessageFactory(), arena,
-      /*embedder_context=*/nullptr, slots);
+      /*embedder_context=*/nullptr, derived_state->comprehension_slots());
 
   cel::Value result;
   AttributeTrail trail;
   CEL_RETURN_IF_ERROR(root_->Evaluate(execution_frame, result, trail));
 
   return cel::interop_internal::ModernValueToLegacyValueOrDie(arena, result);
-}
-
-absl::StatusOr<CelValue> CelExpressionRecursiveImpl::Evaluate(
-    const BaseActivation& activation, google::protobuf::Arena* arena) const {
-  return Trace(activation, arena, /*callback=*/nullptr);
 }
 
 }  // namespace google::api::expr::runtime
