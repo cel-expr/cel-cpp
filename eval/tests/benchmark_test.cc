@@ -100,12 +100,13 @@ static void BM_Eval(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&root_expr, &source_info));
+  auto cel_proc = cel_expr->CreateState();
+
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsInt64());
     ASSERT_TRUE(result.Int64OrDie() == len + 1);
   }
@@ -147,12 +148,14 @@ static void BM_Eval_Trace(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&root_expr, &source_info));
+  auto cel_proc = cel_expr->CreateState();
+
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
+    ASSERT_OK_AND_ASSIGN(
+        CelValue result,
+        cel_expr->Trace(activation, &arena, EmptyCallback, cel_proc.get()));
     ASSERT_TRUE(result.IsInt64());
     ASSERT_TRUE(result.Int64OrDie() == len + 1);
   }
@@ -190,12 +193,13 @@ static void BM_EvalString(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&root_expr, &source_info));
+  auto cel_proc = cel_expr->CreateState();
+
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsString());
     ASSERT_TRUE(result.StringOrDie().value().size() == len + 1);
   }
@@ -234,12 +238,14 @@ static void BM_EvalString_Trace(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&root_expr, &source_info));
+  auto cel_proc = cel_expr->CreateState();
+
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
+    ASSERT_OK_AND_ASSIGN(
+        CelValue result,
+        cel_expr->Trace(activation, &arena, EmptyCallback, cel_proc.get()));
     ASSERT_TRUE(result.IsString());
     ASSERT_TRUE(result.StringOrDie().value().size() == len + 1);
   }
@@ -318,6 +324,7 @@ void BM_PolicySymbolic(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(
                                           &parsed_expr.expr(), &source_info));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   activation.InsertValue("ip", CelValue::CreateStringView(kIP));
@@ -325,8 +332,8 @@ void BM_PolicySymbolic(benchmark::State& state) {
   activation.InsertValue("token", CelValue::CreateStringView(kToken));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.BoolOrDie());
   }
 }
@@ -375,14 +382,15 @@ void BM_PolicySymbolicMap(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(
                                           &parsed_expr.expr(), &source_info));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   RequestMap request;
   activation.InsertValue("request", CelValue::CreateMap(&request));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.BoolOrDie());
   }
 }
@@ -423,6 +431,7 @@ void BM_PolicySymbolicProto(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   RequestContext request;
@@ -432,8 +441,8 @@ void BM_PolicySymbolicProto(benchmark::State& state) {
   activation.InsertValue("request",
                          CelProtoWrapper::CreateMessage(&request, &arena));
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.BoolOrDie());
   }
 }
@@ -514,9 +523,10 @@ void BM_Comprehension(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&expr, nullptr));
+  auto cel_proc = cel_expr->CreateState();
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsInt64());
     ASSERT_EQ(result.Int64OrDie(), len);
   }
@@ -549,9 +559,11 @@ void BM_Comprehension_Trace(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&expr, nullptr));
+  auto cel_proc = cel_expr->CreateState();
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
+    ASSERT_OK_AND_ASSIGN(
+        CelValue result,
+        cel_expr->Trace(activation, &arena, EmptyCallback, cel_proc.get()));
     ASSERT_TRUE(result.IsInt64());
     ASSERT_EQ(result.Int64OrDie(), len);
   }
@@ -572,6 +584,7 @@ void BM_HasMap(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&parsed_expr.expr(), nullptr));
+  auto cel_proc = cel_expr->CreateState();
 
   std::vector<std::pair<CelValue, CelValue>> map_pairs{
       {CelValue::CreateStringView("path"), CelValue::CreateStringView("path")}};
@@ -581,8 +594,8 @@ void BM_HasMap(benchmark::State& state) {
   activation.InsertValue("request", CelValue::CreateMap((*cel_map).get()));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -618,6 +631,7 @@ void BM_HasProto(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   RequestContext request;
@@ -627,8 +641,8 @@ void BM_HasProto(benchmark::State& state) {
                          CelProtoWrapper::CreateMessage(&request, &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -664,6 +678,7 @@ void BM_HasProtoMap(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   RequestContext request;
@@ -672,8 +687,8 @@ void BM_HasProtoMap(benchmark::State& state) {
                          CelProtoWrapper::CreateMessage(&request, &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -709,6 +724,7 @@ void BM_ReadProtoMap(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   RequestContext request;
@@ -717,8 +733,8 @@ void BM_ReadProtoMap(benchmark::State& state) {
                          CelProtoWrapper::CreateMessage(&request, &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -754,6 +770,7 @@ void BM_NestedProtoFieldRead(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   RequestContext request;
@@ -762,8 +779,8 @@ void BM_NestedProtoFieldRead(benchmark::State& state) {
                          CelProtoWrapper::CreateMessage(&request, &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -799,6 +816,7 @@ void BM_NestedProtoFieldReadDefaults(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   RequestContext request;
@@ -806,8 +824,8 @@ void BM_NestedProtoFieldReadDefaults(benchmark::State& state) {
                          CelProtoWrapper::CreateMessage(&request, &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -844,6 +862,7 @@ void BM_ProtoStructAccess(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   AttributeContext::Request request;
@@ -854,8 +873,8 @@ void BM_ProtoStructAccess(benchmark::State& state) {
                          CelProtoWrapper::CreateMessage(&request, &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -892,6 +911,7 @@ void BM_ProtoListAccess(benchmark::State& state) {
               IsOk());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  auto cel_proc = cel_expr->CreateState();
 
   Activation activation;
   AttributeContext::Request request;
@@ -905,8 +925,8 @@ void BM_ProtoListAccess(benchmark::State& state) {
                          CelProtoWrapper::CreateMessage(&request, &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.BoolOrDie());
   }
@@ -1031,10 +1051,11 @@ void BM_NestedComprehension(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&expr, nullptr));
+  auto cel_proc = cel_expr->CreateState();
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsInt64());
     ASSERT_EQ(result.Int64OrDie(), len * len);
   }
@@ -1067,10 +1088,12 @@ void BM_NestedComprehension_Trace(benchmark::State& state) {
               IsOk());
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder->CreateExpression(&expr, nullptr));
+  auto cel_proc = cel_expr->CreateState();
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
+    ASSERT_OK_AND_ASSIGN(
+        CelValue result,
+        cel_expr->Trace(activation, &arena, EmptyCallback, cel_proc.get()));
     ASSERT_TRUE(result.IsInt64());
     ASSERT_EQ(result.Int64OrDie(), len * len);
   }
@@ -1101,10 +1124,11 @@ void BM_ListComprehension(benchmark::State& state) {
               IsOk());
   ASSERT_OK_AND_ASSIGN(
       auto cel_expr, builder->CreateExpression(&(parsed_expr.expr()), nullptr));
+  auto cel_proc = cel_expr->CreateState();
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsList());
     ASSERT_EQ(result.ListOrDie()->size(), len);
   }
@@ -1137,10 +1161,12 @@ void BM_ListComprehension_Trace(benchmark::State& state) {
               IsOk());
   ASSERT_OK_AND_ASSIGN(
       auto cel_expr, builder->CreateExpression(&(parsed_expr.expr()), nullptr));
+  auto cel_proc = cel_expr->CreateState();
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
+    ASSERT_OK_AND_ASSIGN(
+        CelValue result,
+        cel_expr->Trace(activation, &arena, EmptyCallback, cel_proc.get()));
     ASSERT_TRUE(result.IsList());
     ASSERT_EQ(result.ListOrDie()->size(), len);
   }
@@ -1172,10 +1198,11 @@ void BM_ListComprehension_Opt(benchmark::State& state) {
   ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
   ASSERT_OK_AND_ASSIGN(
       auto cel_expr, builder->CreateExpression(&(parsed_expr.expr()), nullptr));
+  auto cel_proc = cel_expr->CreateState();
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
+    ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena,
+                                                             cel_proc.get()));
     ASSERT_TRUE(result.IsList());
     ASSERT_EQ(result.ListOrDie()->size(), len);
   }

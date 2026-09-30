@@ -255,6 +255,19 @@ class FlatExpressionEvaluatorState {
   FlatExpressionEvaluatorState(
       size_t value_stack_size, size_t comprehension_slot_count,
       const cel::TypeProvider& type_provider,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool)
+      : value_stack_(value_stack_size),
+        // We currently use comprehension_slot_count because it is less of an
+        // over estimate than value_stack_size. In future we should just
+        // calculate the correct capacity.
+        iterator_stack_(comprehension_slot_count),
+        comprehension_slots_(comprehension_slot_count),
+        type_provider_(type_provider),
+        descriptor_pool_(descriptor_pool) {}
+
+  FlatExpressionEvaluatorState(
+      size_t value_stack_size, size_t comprehension_slot_count,
+      const cel::TypeProvider& type_provider,
       const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena)
@@ -286,10 +299,20 @@ class FlatExpressionEvaluatorState {
   }
 
   google::protobuf::MessageFactory* absl_nonnull message_factory() {
+    ABSL_DCHECK(message_factory_ != nullptr);
     return message_factory_;
   }
 
-  google::protobuf::Arena* absl_nonnull arena() { return arena_; }
+  google::protobuf::Arena* absl_nonnull arena() {
+    ABSL_DCHECK(arena_ != nullptr);
+    return arena_;
+  }
+
+  void Rebind(google::protobuf::Arena* absl_nonnull arena,
+              google::protobuf::MessageFactory* absl_nonnull message_factory) {
+    arena_ = arena;
+    message_factory_ = message_factory;
+  }
 
  private:
   EvaluatorStack value_stack_;
@@ -297,8 +320,8 @@ class FlatExpressionEvaluatorState {
   ComprehensionSlots comprehension_slots_;
   const cel::TypeProvider& type_provider_;
   const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool_;
-  google::protobuf::MessageFactory* absl_nonnull message_factory_;
-  google::protobuf::Arena* absl_nonnull arena_;
+  google::protobuf::MessageFactory* absl_nullability_complex message_factory_ = nullptr;
+  google::protobuf::Arena* absl_nullability_complex arena_ = nullptr;
 };
 
 // Context needed for evaluation. This is sufficient for supporting
@@ -665,6 +688,9 @@ class FlatExpression {
       const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena) const;
+
+  FlatExpressionEvaluatorState MakeEvaluatorState(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool) const;
 
   // Evaluate the expression.
   //

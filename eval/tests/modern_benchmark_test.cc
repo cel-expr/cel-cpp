@@ -37,7 +37,6 @@
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "checker/validation_result.h"
-#include "common/allocator.h"
 #include "common/casting.h"
 #include "common/decl.h"
 #include "common/native_type.h"
@@ -158,12 +157,14 @@ static void BM_Eval(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, root_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
+
+  google::protobuf::Arena arena;
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<IntValue>(result));
     ASSERT_TRUE(Cast<IntValue>(result) == len + 1);
   }
@@ -204,12 +205,14 @@ static void BM_Eval_Trace(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, root_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateTraceableProcess());
+
+  google::protobuf::Arena arena;
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Trace(&arena, activation, EmptyCallback));
+                         cel_proc->Trace(&arena, activation, EmptyCallback));
     ASSERT_TRUE(InstanceOf<IntValue>(result));
     ASSERT_TRUE(Cast<IntValue>(result) == len + 1);
   }
@@ -244,12 +247,14 @@ static void BM_EvalString(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, root_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
+
+  google::protobuf::Arena arena;
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<StringValue>(result));
     ASSERT_TRUE(Cast<StringValue>(result).Size() == len + 1);
   }
@@ -285,12 +290,14 @@ static void BM_EvalString_Trace(benchmark::State& state) {
   SourceInfo source_info;
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, root_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateTraceableProcess());
+
+  google::protobuf::Arena arena;
+  Activation activation;
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
-    Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Trace(&arena, activation, EmptyCallback));
+                         cel_proc->Trace(&arena, activation, EmptyCallback));
     ASSERT_TRUE(InstanceOf<StringValue>(result));
     ASSERT_TRUE(Cast<StringValue>(result).Size() == len + 1);
   }
@@ -381,6 +388,7 @@ void BM_PolicySymbolic(benchmark::State& state) {
       StandardRuntimeOrDie(options, &arena, ConstFoldingEnabled::kYes);
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   Activation activation;
   activation.InsertOrAssignValue("ip", StringValue::WrapUnsafe(kIP));
@@ -389,7 +397,7 @@ void BM_PolicySymbolic(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     auto result_bool = As<BoolValue>(result);
     ASSERT_TRUE(result_bool && result_bool->NativeValue());
   }
@@ -493,6 +501,7 @@ void BM_PolicySymbolicMap(benchmark::State& state) {
   auto runtime = StandardRuntimeOrDie(options);
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   Activation activation;
   CustomMapValue map_value(google::protobuf::Arena::Create<RequestMapImpl>(&arena),
@@ -502,7 +511,7 @@ void BM_PolicySymbolicMap(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -538,6 +547,7 @@ void BM_PolicySymbolicProto(benchmark::State& state) {
       StandardRuntimeOrDie(options, google::protobuf::DescriptorPool::generated_pool());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   Activation activation;
   RequestContext request;
@@ -547,7 +557,7 @@ void BM_PolicySymbolicProto(benchmark::State& state) {
   activation.InsertOrAssignValue("request", WrapMessageOrDie(request, &arena));
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(result.IsBool() && result.GetBool().NativeValue());
   }
 }
@@ -627,9 +637,10 @@ void BM_Comprehension(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<IntValue>(result));
     ASSERT_EQ(Cast<IntValue>(result), len);
   }
@@ -650,6 +661,7 @@ void BM_Comprehension_Trace(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateTraceableProcess());
 
   auto list_builder = cel::NewListValueBuilder(&arena);
 
@@ -662,7 +674,7 @@ void BM_Comprehension_Trace(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Trace(&arena, activation, EmptyCallback));
+                         cel_proc->Trace(&arena, activation, EmptyCallback));
     ASSERT_TRUE(InstanceOf<IntValue>(result));
     ASSERT_EQ(Cast<IntValue>(result), len);
   }
@@ -681,6 +693,7 @@ void BM_HasMap(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   auto map_builder = cel::NewMapValueBuilder(&arena);
 
@@ -692,7 +705,7 @@ void BM_HasMap(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -721,6 +734,7 @@ void BM_HasProto(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -732,7 +746,7 @@ void BM_HasProto(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -761,6 +775,7 @@ void BM_HasProtoMap(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -771,7 +786,7 @@ void BM_HasProtoMap(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -801,6 +816,7 @@ void BM_ReadProtoMap(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -811,7 +827,7 @@ void BM_ReadProtoMap(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -841,6 +857,7 @@ void BM_NestedProtoFieldRead(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -851,7 +868,7 @@ void BM_NestedProtoFieldRead(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -881,6 +898,7 @@ void BM_NestedProtoFieldReadDefaults(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -890,7 +908,7 @@ void BM_NestedProtoFieldReadDefaults(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -921,6 +939,7 @@ void BM_ProtoStructAccess(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -933,7 +952,7 @@ void BM_ProtoStructAccess(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -964,6 +983,7 @@ void BM_ProtoListAccess(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -979,7 +999,7 @@ void BM_ProtoListAccess(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
                 Cast<BoolValue>(result).NativeValue());
   }
@@ -1104,10 +1124,11 @@ void BM_NestedComprehension(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<IntValue>(result));
     ASSERT_EQ(Cast<IntValue>(result), len * len);
   }
@@ -1141,10 +1162,11 @@ void BM_NestedComprehension_Trace(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateTraceableProcess());
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Trace(&arena, activation, &EmptyCallback));
+                         cel_proc->Trace(&arena, activation, &EmptyCallback));
     ASSERT_TRUE(InstanceOf<IntValue>(result));
     ASSERT_EQ(Cast<IntValue>(result), len * len);
   }
@@ -1175,10 +1197,11 @@ void BM_ListComprehension(benchmark::State& state) {
   }
 
   activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<ListValue>(result));
     ASSERT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(len));
   }
@@ -1198,6 +1221,7 @@ void BM_ListComprehension_Trace(benchmark::State& state) {
   auto runtime = StandardRuntimeOrDie(options);
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateTraceableProcess());
 
   Activation activation;
 
@@ -1213,7 +1237,7 @@ void BM_ListComprehension_Trace(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Trace(&arena, activation, EmptyCallback));
+                         cel_proc->Trace(&arena, activation, EmptyCallback));
     ASSERT_TRUE(InstanceOf<ListValue>(result));
     ASSERT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(len));
   }
@@ -1230,6 +1254,7 @@ void BM_ExistsComprehensionBestCase(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -1243,7 +1268,7 @@ void BM_ExistsComprehensionBestCase(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.GetBool().NativeValue());
   }
@@ -1260,6 +1285,7 @@ void BM_ExistsComprehensionWorstCase(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -1277,7 +1303,7 @@ void BM_ExistsComprehensionWorstCase(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(result.IsBool());
     ASSERT_FALSE(result.GetBool().NativeValue());
   }
@@ -1294,6 +1320,7 @@ void BM_AllComprehensionBestCase(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -1307,7 +1334,7 @@ void BM_AllComprehensionBestCase(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(result.IsBool());
     ASSERT_FALSE(result.GetBool().NativeValue());
   }
@@ -1324,6 +1351,7 @@ void BM_AllComprehensionWorstCase(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   google::protobuf::Arena arena;
   Activation activation;
@@ -1341,7 +1369,7 @@ void BM_AllComprehensionWorstCase(benchmark::State& state) {
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(result.IsBool());
     ASSERT_TRUE(result.GetBool().NativeValue());
   }
@@ -1374,10 +1402,11 @@ void BM_ListComprehension_Opt(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<ListValue>(result));
     ASSERT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(len));
   }
@@ -1456,10 +1485,11 @@ void BM_MapTransformComprehension(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(auto cel_expr, ProtobufRuntimeAdapter::CreateProgram(
                                           *runtime, parsed_expr.parsed_expr()));
+  ASSERT_OK_AND_ASSIGN(auto cel_proc, cel_expr->CreateProcess());
 
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
-                         cel_expr->Evaluate(&arena, activation));
+                         cel_proc->Evaluate(&arena, activation));
     ASSERT_TRUE(InstanceOf<MapValue>(result));
     ASSERT_THAT(Cast<MapValue>(result).Size(), IsOkAndHolds(len));
   }
