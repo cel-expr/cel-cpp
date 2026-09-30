@@ -40,11 +40,11 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
+#include "absl/types/optional_ref.h"
 #include "absl/types/source_location.h"
 #include "absl/types/variant.h"
 #include "common/allocator.h"
 #include "common/memory.h"
-#include "common/optional_ref.h"
 #include "common/type.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
@@ -2008,7 +2008,7 @@ Value Value::WrapMapFieldValueUnsafe(
                                        message_factory, arena);
 }
 
-optional_ref<const BytesValue> Value::AsBytes() const& {
+absl::optional_ref<const BytesValue> Value::AsBytes() const& {
   if (const auto* alternative = variant_.As<BytesValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2039,7 +2039,7 @@ absl::optional<DurationValue> Value::AsDuration() const {
   return std::nullopt;
 }
 
-optional_ref<const ErrorValue> Value::AsError() const& {
+absl::optional_ref<const ErrorValue> Value::AsError() const& {
   if (const auto* alternative = variant_.As<ErrorValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2166,7 +2166,7 @@ absl::optional<NullValue> Value::AsNull() const {
   return std::nullopt;
 }
 
-optional_ref<const OpaqueValue> Value::AsOpaque() const& {
+absl::optional_ref<const OpaqueValue> Value::AsOpaque() const& {
   if (const auto* alternative = variant_.As<OpaqueValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2181,7 +2181,7 @@ absl::optional<OpaqueValue> Value::AsOpaque() && {
   return std::nullopt;
 }
 
-optional_ref<const OptionalValue> Value::AsOptional() const& {
+absl::optional_ref<const OptionalValue> Value::AsOptional() const& {
   if (const auto* alternative = variant_.As<OpaqueValue>();
       alternative != nullptr && alternative->IsOptional()) {
     return static_cast<const OptionalValue&>(*alternative);
@@ -2197,7 +2197,7 @@ absl::optional<OptionalValue> Value::AsOptional() && {
   return std::nullopt;
 }
 
-optional_ref<const ParsedJsonListValue> Value::AsParsedJsonList() const& {
+absl::optional_ref<const ParsedJsonListValue> Value::AsParsedJsonList() const& {
   if (const auto* alternative = variant_.As<ParsedJsonListValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2213,7 +2213,7 @@ absl::optional<ParsedJsonListValue> Value::AsParsedJsonList() && {
   return std::nullopt;
 }
 
-optional_ref<const ParsedJsonMapValue> Value::AsParsedJsonMap() const& {
+absl::optional_ref<const ParsedJsonMapValue> Value::AsParsedJsonMap() const& {
   if (const auto* alternative = variant_.As<ParsedJsonMapValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2229,7 +2229,7 @@ absl::optional<ParsedJsonMapValue> Value::AsParsedJsonMap() && {
   return std::nullopt;
 }
 
-optional_ref<const CustomListValue> Value::AsCustomList() const& {
+absl::optional_ref<const CustomListValue> Value::AsCustomList() const& {
   if (const auto* alternative = variant_.As<CustomListValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2245,7 +2245,7 @@ absl::optional<CustomListValue> Value::AsCustomList() && {
   return std::nullopt;
 }
 
-optional_ref<const CustomMapValue> Value::AsCustomMap() const& {
+absl::optional_ref<const CustomMapValue> Value::AsCustomMap() const& {
   if (const auto* alternative = variant_.As<CustomMapValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2261,7 +2261,7 @@ absl::optional<CustomMapValue> Value::AsCustomMap() && {
   return std::nullopt;
 }
 
-optional_ref<const ParsedMapFieldValue> Value::AsParsedMapField() const& {
+absl::optional_ref<const ParsedMapFieldValue> Value::AsParsedMapField() const& {
   if (const auto* alternative = variant_.As<ParsedMapFieldValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2277,7 +2277,7 @@ absl::optional<ParsedMapFieldValue> Value::AsParsedMapField() && {
   return std::nullopt;
 }
 
-optional_ref<const ParsedMessageValue> Value::AsParsedMessage() const& {
+absl::optional_ref<const ParsedMessageValue> Value::AsParsedMessage() const& {
   if (const auto* alternative = variant_.As<ParsedMessageValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2293,8 +2293,8 @@ absl::optional<ParsedMessageValue> Value::AsParsedMessage() && {
   return std::nullopt;
 }
 
-optional_ref<const ParsedRepeatedFieldValue> Value::AsParsedRepeatedField()
-    const& {
+absl::optional_ref<const ParsedRepeatedFieldValue>
+Value::AsParsedRepeatedField() const& {
   if (const auto* alternative = variant_.As<ParsedRepeatedFieldValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2310,7 +2310,7 @@ absl::optional<ParsedRepeatedFieldValue> Value::AsParsedRepeatedField() && {
   return std::nullopt;
 }
 
-optional_ref<const CustomStructValue> Value::AsCustomStruct() const& {
+absl::optional_ref<const CustomStructValue> Value::AsCustomStruct() const& {
   if (const auto* alternative = variant_.As<CustomStructValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2326,7 +2326,7 @@ absl::optional<CustomStructValue> Value::AsCustomStruct() && {
   return std::nullopt;
 }
 
-optional_ref<const StringValue> Value::AsString() const& {
+absl::optional_ref<const StringValue> Value::AsString() const& {
   if (const auto* alternative = variant_.As<StringValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2382,7 +2382,7 @@ absl::optional<TimestampValue> Value::AsTimestamp() const {
   return std::nullopt;
 }
 
-optional_ref<const TypeValue> Value::AsType() const& {
+absl::optional_ref<const TypeValue> Value::AsType() const& {
   if (const auto* alternative = variant_.As<TypeValue>();
       alternative != nullptr) {
     return *alternative;
@@ -2405,7 +2405,7 @@ absl::optional<UintValue> Value::AsUint() const {
   return std::nullopt;
 }
 
-optional_ref<const UnknownValue> Value::AsUnknown() const& {
+absl::optional_ref<const UnknownValue> Value::AsUnknown() const& {
   if (const auto* alternative = variant_.As<UnknownValue>();
       alternative != nullptr) {
     return *alternative;

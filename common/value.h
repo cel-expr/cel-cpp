@@ -32,6 +32,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "absl/types/optional_ref.h"
 #include "absl/types/span.h"
 #include "absl/utility/utility.h"
 #include "base/attribute.h"
@@ -806,10 +807,12 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a bytes value,
   // returning a non-empty optional with either a value or reference to the
   // bytes value. Otherwise an empty optional is returned.
-  optional_ref<const BytesValue> AsBytes() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  absl::optional_ref<const BytesValue> AsBytes() &
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsBytes();
   }
-  optional_ref<const BytesValue> AsBytes() const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
+  absl::optional_ref<const BytesValue> AsBytes()
+      const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<BytesValue> AsBytes() &&;
   absl::optional<BytesValue> AsBytes() const&& {
     return common_internal::AsOptional(AsBytes());
@@ -828,10 +831,12 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to an error value,
   // returning a non-empty optional with either a value or reference to the
   // error value. Otherwise an empty optional is returned.
-  optional_ref<const ErrorValue> AsError() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  absl::optional_ref<const ErrorValue> AsError() &
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsError();
   }
-  optional_ref<const ErrorValue> AsError() const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
+  absl::optional_ref<const ErrorValue> AsError()
+      const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<ErrorValue> AsError() &&;
   absl::optional<ErrorValue> AsError() const&& {
     return common_internal::AsOptional(AsError());
@@ -882,10 +887,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to an opaque value,
   // returning a non-empty optional with either a value or reference to the
   // opaque value. Otherwise an empty optional is returned.
-  optional_ref<const OpaqueValue> AsOpaque() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  absl::optional_ref<const OpaqueValue> AsOpaque() &
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsOpaque();
   }
-  optional_ref<const OpaqueValue> AsOpaque()
+  absl::optional_ref<const OpaqueValue> AsOpaque()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<OpaqueValue> AsOpaque() &&;
   absl::optional<OpaqueValue> AsOpaque() const&& {
@@ -895,11 +901,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to an optional value,
   // returning a non-empty optional with either a value or reference to the
   // optional value. Otherwise an empty optional is returned.
-  optional_ref<const OptionalValue> AsOptional() &
+  absl::optional_ref<const OptionalValue> AsOptional() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsOptional();
   }
-  optional_ref<const OptionalValue> AsOptional()
+  absl::optional_ref<const OptionalValue> AsOptional()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<OptionalValue> AsOptional() &&;
   absl::optional<OptionalValue> AsOptional() const&& {
@@ -909,11 +915,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a parsed JSON list value,
   // returning a non-empty optional with either a value or reference to the
   // parsed message value. Otherwise an empty optional is returned.
-  optional_ref<const ParsedJsonListValue> AsParsedJsonList() &
+  absl::optional_ref<const ParsedJsonListValue> AsParsedJsonList() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsParsedJsonList();
   }
-  optional_ref<const ParsedJsonListValue> AsParsedJsonList()
+  absl::optional_ref<const ParsedJsonListValue> AsParsedJsonList()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<ParsedJsonListValue> AsParsedJsonList() &&;
   absl::optional<ParsedJsonListValue> AsParsedJsonList() const&& {
@@ -923,11 +929,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a parsed JSON map value,
   // returning a non-empty optional with either a value or reference to the
   // parsed message value. Otherwise an empty optional is returned.
-  optional_ref<const ParsedJsonMapValue> AsParsedJsonMap() &
+  absl::optional_ref<const ParsedJsonMapValue> AsParsedJsonMap() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsParsedJsonMap();
   }
-  optional_ref<const ParsedJsonMapValue> AsParsedJsonMap()
+  absl::optional_ref<const ParsedJsonMapValue> AsParsedJsonMap()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<ParsedJsonMapValue> AsParsedJsonMap() &&;
   absl::optional<ParsedJsonMapValue> AsParsedJsonMap() const&& {
@@ -937,11 +943,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a custom list value,
   // returning a non-empty optional with either a value or reference to the
   // custom list value. Otherwise an empty optional is returned.
-  optional_ref<const CustomListValue> AsCustomList() &
+  absl::optional_ref<const CustomListValue> AsCustomList() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsCustomList();
   }
-  optional_ref<const CustomListValue> AsCustomList()
+  absl::optional_ref<const CustomListValue> AsCustomList()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<CustomListValue> AsCustomList() &&;
   absl::optional<CustomListValue> AsCustomList() const&& {
@@ -951,11 +957,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a custom map value,
   // returning a non-empty optional with either a value or reference to the
   // custom map value. Otherwise an empty optional is returned.
-  optional_ref<const CustomMapValue> AsCustomMap() &
+  absl::optional_ref<const CustomMapValue> AsCustomMap() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsCustomMap();
   }
-  optional_ref<const CustomMapValue> AsCustomMap()
+  absl::optional_ref<const CustomMapValue> AsCustomMap()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<CustomMapValue> AsCustomMap() &&;
   absl::optional<CustomMapValue> AsCustomMap() const&& {
@@ -965,11 +971,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a parsed map field value,
   // returning a non-empty optional with either a value or reference to the
   // parsed map field value. Otherwise an empty optional is returned.
-  optional_ref<const ParsedMapFieldValue> AsParsedMapField() &
+  absl::optional_ref<const ParsedMapFieldValue> AsParsedMapField() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsParsedMapField();
   }
-  optional_ref<const ParsedMapFieldValue> AsParsedMapField()
+  absl::optional_ref<const ParsedMapFieldValue> AsParsedMapField()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<ParsedMapFieldValue> AsParsedMapField() &&;
   absl::optional<ParsedMapFieldValue> AsParsedMapField() const&& {
@@ -979,11 +985,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a parsed message value,
   // returning a non-empty optional with either a value or reference to the
   // parsed message value. Otherwise an empty optional is returned.
-  optional_ref<const ParsedMessageValue> AsParsedMessage() &
+  absl::optional_ref<const ParsedMessageValue> AsParsedMessage() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsParsedMessage();
   }
-  optional_ref<const ParsedMessageValue> AsParsedMessage()
+  absl::optional_ref<const ParsedMessageValue> AsParsedMessage()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<ParsedMessageValue> AsParsedMessage() &&;
   absl::optional<ParsedMessageValue> AsParsedMessage() const&& {
@@ -993,11 +999,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a parsed repeated field value,
   // returning a non-empty optional with either a value or reference to the
   // parsed repeated field value. Otherwise an empty optional is returned.
-  optional_ref<const ParsedRepeatedFieldValue> AsParsedRepeatedField() &
+  absl::optional_ref<const ParsedRepeatedFieldValue> AsParsedRepeatedField() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsParsedRepeatedField();
   }
-  optional_ref<const ParsedRepeatedFieldValue> AsParsedRepeatedField()
+  absl::optional_ref<const ParsedRepeatedFieldValue> AsParsedRepeatedField()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<ParsedRepeatedFieldValue> AsParsedRepeatedField() &&;
   absl::optional<ParsedRepeatedFieldValue> AsParsedRepeatedField() const&& {
@@ -1007,11 +1013,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a custom struct value,
   // returning a non-empty optional with either a value or reference to the
   // custom struct value. Otherwise an empty optional is returned.
-  optional_ref<const CustomStructValue> AsCustomStruct() &
+  absl::optional_ref<const CustomStructValue> AsCustomStruct() &
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsCustomStruct();
   }
-  optional_ref<const CustomStructValue> AsCustomStruct()
+  absl::optional_ref<const CustomStructValue> AsCustomStruct()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<CustomStructValue> AsCustomStruct() &&;
   absl::optional<CustomStructValue> AsCustomStruct() const&& {
@@ -1021,10 +1027,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a string value,
   // returning a non-empty optional with either a value or reference to the
   // string value. Otherwise an empty optional is returned.
-  optional_ref<const StringValue> AsString() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  absl::optional_ref<const StringValue> AsString() &
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsString();
   }
-  optional_ref<const StringValue> AsString()
+  absl::optional_ref<const StringValue> AsString()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<StringValue> AsString() &&;
   absl::optional<StringValue> AsString() const&& {
@@ -1051,10 +1058,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to a type value,
   // returning a non-empty optional with either a value or reference to the
   // type value. Otherwise an empty optional is returned.
-  optional_ref<const TypeValue> AsType() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  absl::optional_ref<const TypeValue> AsType() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsType();
   }
-  optional_ref<const TypeValue> AsType() const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
+  absl::optional_ref<const TypeValue> AsType()
+      const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<TypeValue> AsType() &&;
   absl::optional<TypeValue> AsType() const&& {
     return common_internal::AsOptional(AsType());
@@ -1068,10 +1076,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to an unknown value,
   // returning a non-empty optional with either a value or reference to the
   // unknown value. Otherwise an empty optional is returned.
-  optional_ref<const UnknownValue> AsUnknown() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  absl::optional_ref<const UnknownValue> AsUnknown() &
+      ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return std::as_const(*this).AsUnknown();
   }
-  optional_ref<const UnknownValue> AsUnknown()
+  absl::optional_ref<const UnknownValue> AsUnknown()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<UnknownValue> AsUnknown() &&;
   absl::optional<UnknownValue> AsUnknown() const&& {
@@ -1105,13 +1114,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsBytes()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<BytesValue, T>,
-                       optional_ref<const BytesValue>>
+                       absl::optional_ref<const BytesValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsBytes();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<BytesValue, T>,
-                   optional_ref<const BytesValue>>
+                   absl::optional_ref<const BytesValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsBytes();
   }
@@ -1180,13 +1189,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsError()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<ErrorValue, T>,
-                       optional_ref<const ErrorValue>>
+                       absl::optional_ref<const ErrorValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsError();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<ErrorValue, T>,
-                   optional_ref<const ErrorValue>>
+                   absl::optional_ref<const ErrorValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsError();
   }
@@ -1324,13 +1333,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsOpaque()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<OpaqueValue, T>,
-                       optional_ref<const OpaqueValue>>
+                       absl::optional_ref<const OpaqueValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsOpaque();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<OpaqueValue, T>,
-                   optional_ref<const OpaqueValue>>
+                   absl::optional_ref<const OpaqueValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsOpaque();
   }
@@ -1349,13 +1358,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsOptional()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<OptionalValue, T>,
-                       optional_ref<const OptionalValue>>
+                       absl::optional_ref<const OptionalValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsOptional();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<OptionalValue, T>,
-                   optional_ref<const OptionalValue>>
+                   absl::optional_ref<const OptionalValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsOptional();
   }
@@ -1376,13 +1385,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsParsedJsonList()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<ParsedJsonListValue, T>,
-                       optional_ref<const ParsedJsonListValue>>
+                       absl::optional_ref<const ParsedJsonListValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedJsonList();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<ParsedJsonListValue, T>,
-                   optional_ref<const ParsedJsonListValue>>
+                   absl::optional_ref<const ParsedJsonListValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedJsonList();
   }
@@ -1403,13 +1412,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsParsedJsonMap()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<ParsedJsonMapValue, T>,
-                       optional_ref<const ParsedJsonMapValue>>
+                       absl::optional_ref<const ParsedJsonMapValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedJsonMap();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<ParsedJsonMapValue, T>,
-                   optional_ref<const ParsedJsonMapValue>>
+                   absl::optional_ref<const ParsedJsonMapValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedJsonMap();
   }
@@ -1430,13 +1439,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsCustomList()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<CustomListValue, T>,
-                       optional_ref<const CustomListValue>>
+                       absl::optional_ref<const CustomListValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsCustomList();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<CustomListValue, T>,
-                   optional_ref<const CustomListValue>>
+                   absl::optional_ref<const CustomListValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsCustomList();
   }
@@ -1457,13 +1466,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsCustomMap()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<CustomMapValue, T>,
-                       optional_ref<const CustomMapValue>>
+                       absl::optional_ref<const CustomMapValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsCustomMap();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<CustomMapValue, T>,
-                   optional_ref<const CustomMapValue>>
+                   absl::optional_ref<const CustomMapValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsCustomMap();
   }
@@ -1484,13 +1493,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsParsedMapField()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<ParsedMapFieldValue, T>,
-                       optional_ref<const ParsedMapFieldValue>>
+                       absl::optional_ref<const ParsedMapFieldValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedMapField();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<ParsedMapFieldValue, T>,
-                   optional_ref<const ParsedMapFieldValue>>
+                   absl::optional_ref<const ParsedMapFieldValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedMapField();
   }
@@ -1511,13 +1520,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsParsedMessage()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<ParsedMessageValue, T>,
-                       optional_ref<const ParsedMessageValue>>
+                       absl::optional_ref<const ParsedMessageValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedMessage();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<ParsedMessageValue, T>,
-                   optional_ref<const ParsedMessageValue>>
+                   absl::optional_ref<const ParsedMessageValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedMessage();
   }
@@ -1538,13 +1547,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsParsedRepeatedField()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<ParsedRepeatedFieldValue, T>,
-                       optional_ref<const ParsedRepeatedFieldValue>>
+                       absl::optional_ref<const ParsedRepeatedFieldValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedRepeatedField();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<ParsedRepeatedFieldValue, T>,
-                   optional_ref<const ParsedRepeatedFieldValue>>
+                   absl::optional_ref<const ParsedRepeatedFieldValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsParsedRepeatedField();
   }
@@ -1565,13 +1574,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsCustomStruct()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<CustomStructValue, T>,
-                       optional_ref<const CustomStructValue>>
+                       absl::optional_ref<const CustomStructValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsCustomStruct();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<CustomStructValue, T>,
-                   optional_ref<const CustomStructValue>>
+                   absl::optional_ref<const CustomStructValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsCustomStruct();
   }
@@ -1592,13 +1601,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsString()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<StringValue, T>,
-                       optional_ref<const StringValue>>
+                       absl::optional_ref<const StringValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsString();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<StringValue, T>,
-                   optional_ref<const StringValue>>
+                   absl::optional_ref<const StringValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsString();
   }
@@ -1667,12 +1676,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsType()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<TypeValue, T>,
-                       optional_ref<const TypeValue>>
+                       absl::optional_ref<const TypeValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsType();
   }
   template <typename T>
-  std::enable_if_t<std::is_same_v<TypeValue, T>, optional_ref<const TypeValue>>
+  std::enable_if_t<std::is_same_v<TypeValue, T>,
+                   absl::optional_ref<const TypeValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsType();
   }
@@ -1714,13 +1724,13 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsUnknown()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<UnknownValue, T>,
-                       optional_ref<const UnknownValue>>
+                       absl::optional_ref<const UnknownValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsUnknown();
   }
   template <typename T>
   std::enable_if_t<std::is_same_v<UnknownValue, T>,
-                   optional_ref<const UnknownValue>>
+                   absl::optional_ref<const UnknownValue>>
   As() const& ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsUnknown();
   }
