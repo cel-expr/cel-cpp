@@ -15,11 +15,13 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_CEL_EXPRESSION_FLAT_IMPL_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_CEL_EXPRESSION_FLAT_IMPL_H_
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "eval/eval/comprehension_slots.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/public/base_activation.h"
@@ -42,8 +44,17 @@ class CelExpressionFlatEvaluationState : public CelEvaluationState {
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       const FlatExpression& expr);
 
+  CelExpressionFlatEvaluationState(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      const FlatExpression& expr);
+
   google::protobuf::Arena* arena() { return state_.arena(); }
   FlatExpressionEvaluatorState& state() { return state_; }
+
+  void Rebind(google::protobuf::Arena* arena) {
+    state_.Rebind(arena, state_.message_factory());
+  }
 
  private:
   FlatExpressionEvaluatorState state_;
@@ -70,22 +81,14 @@ class CelExpressionFlatImpl : public CelExpression {
   std::unique_ptr<CelEvaluationState> InitializeState(
       google::protobuf::Arena* arena) const override;
 
-  absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
-                                    google::protobuf::Arena* arena) const override {
-    return Evaluate(activation, InitializeState(arena).get());
-  }
+  // Implement CelExpression.
+  std::unique_ptr<CelEvaluationState> CreateState() const override;
 
-  absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
-                                    CelEvaluationState* state) const override;
-  absl::StatusOr<CelValue> Trace(
-      const BaseActivation& activation, google::protobuf::Arena* arena,
-      CelEvaluationListener callback) const override {
-    return Trace(activation, InitializeState(arena).get(), callback);
-  }
-
+  using CelExpression::Trace;
   absl::StatusOr<CelValue> Trace(const BaseActivation& activation,
-                                 CelEvaluationState* state,
-                                 CelEvaluationListener callback) const override;
+                                 google::protobuf::Arena* arena,
+                                 CelEvaluationListener callback,
+                                 CelEvaluationState* state) const override;
 
   // Exposed for inspection in tests.
   const FlatExpression& flat_expression() const { return flat_expression_; }
@@ -105,11 +108,21 @@ class CelExpressionRecursiveImpl : public CelExpression {
  private:
   class EvaluationState : public CelEvaluationState {
    public:
-    explicit EvaluationState(google::protobuf::Arena* arena) : arena_(arena) {}
+    explicit EvaluationState(size_t comprehension_slots)
+        : EvaluationState(nullptr, comprehension_slots) {}
+
+    EvaluationState(google::protobuf::Arena* arena, size_t comprehension_slots)
+        : arena_(arena), comprehension_slots_(comprehension_slots) {}
+
     google::protobuf::Arena* arena() { return arena_; }
+
+    void Rebind(google::protobuf::Arena* arena) { arena_ = arena; }
+
+    ComprehensionSlots& comprehension_slots() { return comprehension_slots_; }
 
    private:
     google::protobuf::Arena* arena_;
+    ComprehensionSlots comprehension_slots_;
   };
 
  public:
@@ -127,28 +140,20 @@ class CelExpressionRecursiveImpl : public CelExpression {
   // Implement CelExpression.
   std::unique_ptr<CelEvaluationState> InitializeState(
       google::protobuf::Arena* arena) const override {
-    return std::make_unique<EvaluationState>(arena);
+    return std::make_unique<EvaluationState>(
+        arena, flat_expression_.comprehension_slots_size());
   }
 
-  absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
-                                    google::protobuf::Arena* arena) const override;
-
-  absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
-                                    CelEvaluationState* state) const override {
-    auto* state_impl = cel::internal::down_cast<EvaluationState*>(state);
-    return Evaluate(activation, state_impl->arena());
+  // Implement CelExpression.
+  std::unique_ptr<CelEvaluationState> CreateState() const override {
+    return std::make_unique<EvaluationState>(
+        flat_expression_.comprehension_slots_size());
   }
 
   absl::StatusOr<CelValue> Trace(const BaseActivation& activation,
                                  google::protobuf::Arena* arena,
-                                 CelEvaluationListener callback) const override;
-
-  absl::StatusOr<CelValue> Trace(
-      const BaseActivation& activation, CelEvaluationState* state,
-      CelEvaluationListener callback) const override {
-    auto* state_impl = cel::internal::down_cast<EvaluationState*>(state);
-    return Trace(activation, state_impl->arena(), callback);
-  }
+                                 CelEvaluationListener callback,
+                                 CelEvaluationState* state) const override;
 
   // Exposed for inspection in tests.
   const FlatExpression& flat_expression() const { return flat_expression_; }
