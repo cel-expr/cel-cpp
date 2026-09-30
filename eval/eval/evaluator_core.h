@@ -35,8 +35,10 @@
 #include "common/value.h"
 #include "eval/eval/attribute_utility.h"
 #include "eval/eval/comprehension_slots.h"
+#include "eval/eval/comprehension_step.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_stack.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/eval/iterator_stack.h"
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
@@ -59,8 +61,6 @@ class ExecutionFrame;
 
 using EvaluationListener = cel::TraceableProgram::EvaluationListener;
 
-class ExpressionStepLogic;
-
 enum class ExpressionStepKind : uint16_t {
   kMovedFrom = 0,
   kGenericLogic = 1,
@@ -78,6 +78,15 @@ enum class ExpressionStepKind : uint16_t {
   kNotStrictlyFalse = 12,
   kBooleanOr = 13,
   kBooleanAnd = 14,
+  // Comprehension steps.
+  // Init step doesn't fit inline and is slow anyway, so just use a generic
+  // step.
+  kComprehensionFinish = 15,
+  kComprehensionNext = 16,
+  kComprehensionCond = 17,
+  kComprehensionNext2 = 18,
+  kComprehensionCond2 = 19,
+  kReadSlot = 20,
 };
 
 class ExpressionStep {
@@ -170,6 +179,44 @@ class ExpressionStep {
     return step;
   }
 
+  static ExpressionStep MakeComprehensionFinishStep(size_t accu_slot,
+                                                    int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kComprehensionFinish, id);
+    step.u_.slot_index = accu_slot;
+    return step;
+  }
+
+  static ExpressionStep MakeComprehensionNextStep(int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kComprehensionNext, id);
+    step.u_.next_step = ComprehensionNextStep();
+    return step;
+  }
+
+  static ExpressionStep MakeComprehensionNext2Step(int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kComprehensionNext2, id);
+    step.u_.next_step = ComprehensionNextStep();
+    return step;
+  }
+
+  static ExpressionStep MakeComprehensionCondStep(int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kComprehensionCond, id);
+    step.u_.cond_step = ComprehensionCondStep();
+    return step;
+  }
+
+  static ExpressionStep MakeComprehensionCond2Step(int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kComprehensionCond2, id);
+    step.u_.cond_step = ComprehensionCondStep();
+    return step;
+  }
+
+  static ExpressionStep MakeReadSlotStep(size_t slot_index, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kReadSlot, id);
+    ABSL_DCHECK_LT(slot_index, std::numeric_limits<uint32_t>::max());
+    step.u_.slot_index = slot_index;
+    return step;
+  }
+
  private:
   struct Header {
     ExpressionStepKind kind;
@@ -201,6 +248,10 @@ class ExpressionStep {
 
   friend bool GetIfConstant(const ExpressionStep& step, cel::Value& out);
   friend bool IsConstant(const ExpressionStep& step);
+  friend ComprehensionCondStep* GetIfComprehensionCondStep(
+      ExpressionStep& step);
+  friend ComprehensionNextStep* GetIfComprehensionNextStep(
+      ExpressionStep& step);
 
   Header header_;
   // Note: ptr members are 'owned' by the step.
@@ -217,6 +268,8 @@ class ExpressionStep {
     size_t slot_index;
     ClearSlotStepInfo clear_slots;
     size_t arg_count;
+    ComprehensionCondStep cond_step;
+    ComprehensionNextStep next_step;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -231,28 +284,6 @@ class ExpressionStep {
 // larger.
 static_assert(sizeof(ExpressionStep) == 16);
 #endif
-
-// Class Expression represents single execution step.
-class ExpressionStepLogic {
- public:
-  virtual ~ExpressionStepLogic() = default;
-
-  // Performs actual evaluation.
-  // Values are passed between Expression objects via EvaluatorStack, which is
-  // supplied with context.
-  // Also, Expression gets values supplied by caller though Activation
-  // interface.
-  // ExpressionStep instances can in specific cases
-  // modify execution order(perform jumps).
-  virtual absl::Status Evaluate(ExecutionFrame* context) const = 0;
-
-  // Return the type of the underlying expression step for special handling in
-  // the planning phase. This should only be overridden by special cases, and
-  // callers must not make any assumptions about the default case.
-  virtual cel::NativeTypeId GetNativeTypeId() const {
-    return cel::NativeTypeId();
-  }
-};
 
 // Wrapper for direct steps to work with the stack machine impl.
 class WrappedDirectStep : public ExpressionStepLogic {
@@ -575,6 +606,21 @@ class ExecutionFrame : public ExecutionFrameBase {
     return absl::OkStatus();
   }
 
+  void JumpToOrAbort(int offset) {
+    ABSL_DCHECK_LE(offset, static_cast<int>(execution_path_.size()));
+    ABSL_DCHECK_GE(offset, -static_cast<int>(pc_));
+
+    int new_pc = static_cast<int>(pc_) + offset;
+    if (new_pc < 0 || new_pc > static_cast<int>(execution_path_.size())) {
+      Abort(absl::Status(absl::StatusCode::kInternal,
+                         absl::StrCat("Jump address out of range: position: ",
+                                      pc_, ", offset: ", offset,
+                                      ", range: ", execution_path_.size())));
+      return;
+    }
+    pc_ = static_cast<size_t>(new_pc);
+  }
+
   // Move pc to a subexpression.
   //
   // Unlike a `Call` in a programming language, the subexpression is evaluated
@@ -740,6 +786,9 @@ bool GetIfConstant(const ExpressionStep& step, cel::Value& out);
 // Checks if the step is a constant.
 bool IsConstant(const ExpressionStep& step);
 
+ComprehensionCondStep* GetIfComprehensionCondStep(ExpressionStep& step);
+ComprehensionNextStep* GetIfComprehensionNextStep(ExpressionStep& step);
+
 // Implementation details.
 
 inline ExpressionStep::~ExpressionStep() {
@@ -763,6 +812,12 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kNotStrictlyFalse:
     case ExpressionStepKind::kBooleanOr:
     case ExpressionStepKind::kBooleanAnd:
+    case ExpressionStepKind::kComprehensionFinish:
+    case ExpressionStepKind::kComprehensionCond:
+    case ExpressionStepKind::kComprehensionNext:
+    case ExpressionStepKind::kComprehensionCond2:
+    case ExpressionStepKind::kComprehensionNext2:
+    case ExpressionStepKind::kReadSlot:
       break;
     default:
       ABSL_UNREACHABLE();

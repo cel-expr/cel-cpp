@@ -7,7 +7,6 @@
 
 #include "cel/expr/syntax.pb.h"
 #include "google/protobuf/struct.pb.h"
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -44,7 +43,6 @@ using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::BoolValue;
 using ::cel::Expr;
-using ::cel::IdentExpr;
 using ::cel::IntValue;
 using ::cel::TypeProvider;
 using ::cel::Value;
@@ -56,12 +54,6 @@ using ::testing::_;
 using ::testing::Eq;
 using ::testing::Return;
 using ::testing::SizeIs;
-
-IdentExpr CreateIdent(const std::string& var) {
-  IdentExpr expr;
-  expr.set_name(var);
-  return expr;
-}
 
 class ListKeysStepTest : public testing::Test {
  public:
@@ -104,7 +96,8 @@ MATCHER_P(CelStringValue, val, "") {
 TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
   ExecutionPath path;
   path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("var")));
-  auto init_step = std::make_unique<ComprehensionInitStep>();
+  auto init_step =
+      std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
   init_step->set_error_jump_offset(1);
   path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
   path.push_back(ExpressionStep::MakeGenericStep(
@@ -141,7 +134,8 @@ TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
 TEST_F(ListKeysStepTest, ErrorPassedThrough) {
   ExecutionPath path;
   path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("var")));
-  auto init_step = std::make_unique<ComprehensionInitStep>();
+  auto init_step =
+      std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
   init_step->set_error_jump_offset(1);
   path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
   path.push_back(ExpressionStep::MakeGenericStep(
@@ -165,7 +159,8 @@ TEST_F(ListKeysStepTest, ErrorPassedThrough) {
 TEST_F(ListKeysStepTest, UnknownSetPassedThrough) {
   ExecutionPath path;
   path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("var")));
-  auto init_step = std::make_unique<ComprehensionInitStep>();
+  auto init_step =
+      std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
   init_step->set_error_jump_offset(1);
   path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
   path.push_back(ExpressionStep::MakeGenericStep(

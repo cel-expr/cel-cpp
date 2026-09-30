@@ -35,11 +35,13 @@ package_group(
 cc_library(
     name = "evaluator_core",
     srcs = [
+        "comprehension_step.cc",
         "evaluator_core.cc",
         "lazy_init_step.cc",
         "logic_step.cc",
     ],
     hdrs = [
+        "comprehension_step.h",
         "evaluator_core.h",
         "lazy_init_step.h",
         "logic_step.h",
@@ -50,7 +52,9 @@ cc_library(
         ":comprehension_slots",
         ":direct_expression_step",
         ":evaluator_stack",
+        ":expression_step_logic",
         ":iterator_stack",
+        "//base:attributes",
         "//base:builtins",
         "//base:data",
         "//common:casting",
@@ -64,6 +68,7 @@ cc_library(
         "//runtime:runtime_options",
         "//runtime/internal:activation_attribute_matcher_access",
         "//runtime/internal:errors",
+        "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_check",
@@ -181,11 +186,25 @@ cc_test(
 )
 
 cc_library(
+    name = "expression_step_logic",
+    hdrs = [
+        "expression_step_logic.h",
+    ],
+    deps = [
+        "//common:native_type",
+        "@com_google_absl//absl/status",
+    ],
+)
+
+cc_library(
     name = "expression_step_base",
     hdrs = [
         "expression_step_base.h",
     ],
-    deps = [":evaluator_core"],
+    deps = [
+        ":evaluator_core",
+        ":expression_step_logic",
+    ],
 )
 
 cc_library(
@@ -267,6 +286,7 @@ cc_library(
         ":direct_expression_step",
         ":evaluator_core",
         ":expression_step_base",
+        ":expression_step_logic",
         "//common:value",
         "//eval/internal:errors",
         "//internal:status_macros",
@@ -490,35 +510,6 @@ cc_test(
     ],
 )
 
-cc_library(
-    name = "comprehension_step",
-    srcs = [
-        "comprehension_step.cc",
-    ],
-    hdrs = [
-        "comprehension_step.h",
-    ],
-    deps = [
-        ":attribute_trail",
-        ":comprehension_slots",
-        ":direct_expression_step",
-        ":evaluator_core",
-        ":expression_step_base",
-        "//base:attributes",
-        "//common:casting",
-        "//common:value",
-        "//common:value_kind",
-        "//eval/internal:errors",
-        "//internal:status_macros",
-        "@com_google_absl//absl/base",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_absl//absl/log:absl_check",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-    ],
-)
-
 cc_test(
     name = "comprehension_step_test",
     size = "small",
@@ -529,7 +520,6 @@ cc_test(
         ":attribute_trail",
         ":cel_expression_flat_impl",
         ":comprehension_slots",
-        ":comprehension_step",
         ":const_value_step",
         ":direct_expression_step",
         ":evaluator_core",

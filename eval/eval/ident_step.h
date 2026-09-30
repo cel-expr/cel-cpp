@@ -5,10 +5,9 @@
 #include <cstdint>
 #include <memory>
 
-#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "eval/eval/direct_expression_step.h"
-#include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 
 namespace google::api::expr::runtime {
 
@@ -20,10 +19,6 @@ std::unique_ptr<DirectExpressionStep> CreateDirectSlotIdentStep(
 
 // Factory method for Ident - based Execution step
 std::unique_ptr<ExpressionStepLogic> CreateIdentStep(absl::string_view name);
-
-// Factory method for identifier that has been assigned to a slot.
-std::unique_ptr<ExpressionStepLogic> CreateIdentStepForSlot(
-    absl::string_view name, size_t slot_index);
 
 }  // namespace google::api::expr::runtime
 

@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "absl/algorithm/container.h"
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/node_hash_map.h"
@@ -71,6 +72,7 @@
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/equality_steps.h"
 #include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/eval/function_step.h"
 #include "eval/eval/ident_step.h"
 #include "eval/eval/jump_step.h"
@@ -427,13 +429,11 @@ bool IsBlock(const cel::CallExpr* call) { return call->function() == kBlock; }
 // Visitor for Comprehension expressions.
 class ComprehensionVisitor {
  public:
-  explicit ComprehensionVisitor(FlatExprVisitor* visitor, bool short_circuiting,
-                                bool is_trivial, size_t iter_slot,
-                                size_t iter2_slot, size_t accu_slot)
+  explicit ComprehensionVisitor(FlatExprVisitor* visitor, bool is_trivial,
+                                size_t iter_slot, size_t iter2_slot,
+                                size_t accu_slot)
       : visitor_(visitor),
-        next_step_(nullptr),
-        cond_step_(nullptr),
-        short_circuiting_(short_circuiting),
+        init_step_(nullptr),
         is_trivial_(is_trivial),
         accu_init_extracted_(false),
         iter_slot_(iter_slot),
@@ -461,14 +461,14 @@ class ComprehensionVisitor {
   absl::Status PostVisitArgDefault(cel::ComprehensionArg arg_num,
                                    const cel::Expr* comprehension_expr);
 
+  ComprehensionCondStep* absl_nullable GetCondStep();
+  ComprehensionNextStep* absl_nullable GetNextStep();
+
   FlatExprVisitor* visitor_;
   ComprehensionInitStep* init_step_;
-  ComprehensionNextStep* next_step_;
-  ComprehensionCondStep* cond_step_;
   ProgramStepIndex init_step_pos_;
-  ProgramStepIndex next_step_pos_;
-  ProgramStepIndex cond_step_pos_;
-  bool short_circuiting_;
+  std::optional<ProgramStepIndex> next_step_pos_;
+  std::optional<ProgramStepIndex> cond_step_pos_;
   bool is_trivial_;
   bool accu_init_extracted_;
   size_t iter_slot_;
@@ -865,8 +865,7 @@ class FlatExprVisitor : public cel::AstVisitor {
             CreateDirectSlotIdentStep(ident_expr.name(), slot.slot, expr.id()),
             1);
       } else {
-        AddStep(CreateIdentStepForSlot(ident_expr.name(), slot.slot),
-                expr.id());
+        AddStep(ExpressionStep::MakeReadSlotStep(slot.slot, expr.id()));
       }
       return;
     }
@@ -1439,9 +1438,8 @@ class FlatExprVisitor : public cel::AstVisitor {
          /*.iter_var2_in_scope=*/false,
          /*.accu_var_in_scope=*/false,
          /*.in_accu_init=*/false,
-         std::make_unique<ComprehensionVisitor>(this, options_.short_circuiting,
-                                                is_bind, iter_slot, iter2_slot,
-                                                accu_slot)});
+         std::make_unique<ComprehensionVisitor>(this, is_bind, iter_slot,
+                                                iter2_slot, accu_slot)});
     comprehension_stack_.back().visitor->PreVisit(&expr);
   }
 
@@ -2433,6 +2431,30 @@ void ComprehensionVisitor::PreVisit(const cel::Expr* expr) {
   }
 }
 
+ComprehensionCondStep* absl_nullable ComprehensionVisitor::GetCondStep() {
+  if (!cond_step_pos_) {
+    return nullptr;
+  }
+  ExpressionStep* step =
+      cond_step_pos_->subexpression->GetIfExpressionStep(cond_step_pos_->index);
+  if (!step) {
+    return nullptr;
+  }
+  return GetIfComprehensionCondStep(*step);
+}
+
+ComprehensionNextStep* absl_nullable ComprehensionVisitor::GetNextStep() {
+  if (!next_step_pos_) {
+    return nullptr;
+  }
+  ExpressionStep* step =
+      next_step_pos_->subexpression->GetIfExpressionStep(next_step_pos_->index);
+  if (!step) {
+    return nullptr;
+  }
+  return GetIfComprehensionNextStep(*step);
+}
+
 absl::Status ComprehensionVisitor::PostVisitArgDefault(
     cel::ComprehensionArg arg_num, const cel::Expr* expr) {
   if (visitor_->PlanRecursiveProgram()) {
@@ -2441,19 +2463,31 @@ absl::Status ComprehensionVisitor::PostVisitArgDefault(
   switch (arg_num) {
     case cel::ITER_RANGE: {
       init_step_pos_ = visitor_->GetCurrentIndex();
-      init_step_ = visitor_->AddStep(std::make_unique<ComprehensionInitStep>());
+      if (iter_slot_ != iter2_slot_) {
+        init_step_ = visitor_->AddStep(std::make_unique<ComprehensionInitStep>(
+            iter_slot_, iter2_slot_, accu_slot_));
+      } else {
+        init_step_ = visitor_->AddStep(
+            std::make_unique<ComprehensionInitStep>(iter_slot_, accu_slot_));
+      }
       break;
     }
     case cel::ACCU_INIT: {
       next_step_pos_ = visitor_->GetCurrentIndex();
-      next_step_ = visitor_->AddStep(std::make_unique<ComprehensionNextStep>(
-          iter_slot_, iter2_slot_, accu_slot_));
+      if (iter_slot_ != iter2_slot_) {
+        visitor_->AddStep(ExpressionStep::MakeComprehensionNext2Step());
+      } else {
+        visitor_->AddStep(ExpressionStep::MakeComprehensionNextStep());
+      }
       break;
     }
     case cel::LOOP_CONDITION: {
       cond_step_pos_ = visitor_->GetCurrentIndex();
-      cond_step_ = visitor_->AddStep(std::make_unique<ComprehensionCondStep>(
-          iter_slot_, iter2_slot_, accu_slot_, short_circuiting_));
+      if (iter_slot_ != iter2_slot_) {
+        visitor_->AddStep(ExpressionStep::MakeComprehensionCond2Step());
+      } else {
+        visitor_->AddStep(ExpressionStep::MakeComprehensionCondStep());
+      }
       break;
     }
     case cel::LOOP_STEP: {
@@ -2464,46 +2498,51 @@ absl::Status ComprehensionVisitor::PostVisitArgDefault(
       }
       Jump jump_helper(index, jump_to_next);
       visitor_->SetProgressStatusIfError(
-          jump_helper.set_target(next_step_pos_));
+          jump_helper.set_target(*next_step_pos_));
 
       // Set offsets jumping to the result step.
-      if (cond_step_) {
-        CEL_ASSIGN_OR_RETURN(
-            int jump_from_cond,
-            Jump::CalculateOffset(cond_step_pos_, visitor_->GetCurrentIndex()));
-        cond_step_->set_jump_offset(jump_from_cond);
+      if (auto* cond_step = GetCondStep(); cond_step != nullptr) {
+        CEL_ASSIGN_OR_RETURN(int jump_from_cond,
+                             Jump::CalculateOffset(
+                                 *cond_step_pos_, visitor_->GetCurrentIndex()));
+        cond_step->set_jump_offset(jump_from_cond);
       }
 
-      if (next_step_) {
-        CEL_ASSIGN_OR_RETURN(
-            int jump_from_next,
-            Jump::CalculateOffset(next_step_pos_, visitor_->GetCurrentIndex()));
+      if (auto* next_step = GetNextStep(); next_step != nullptr) {
+        CEL_ASSIGN_OR_RETURN(int jump_from_next,
+                             Jump::CalculateOffset(
+                                 *next_step_pos_, visitor_->GetCurrentIndex()));
 
-        next_step_->set_jump_offset(jump_from_next);
+        next_step->set_jump_offset(jump_from_next);
       }
       break;
     }
     case cel::RESULT: {
-      if (!init_step_ || !next_step_ || !cond_step_) {
+      if (!init_step_ || !next_step_pos_ || !cond_step_pos_) {
         // Encountered an error earlier. Can't determine where to jump.
         break;
       }
-      visitor_->AddStep(CreateComprehensionFinishStep(accu_slot_), expr->id());
+      visitor_->AddStep(
+          ExpressionStep::MakeComprehensionFinishStep(accu_slot_, expr->id()));
       // Set offsets jumping past the result step in case of errors.
       CEL_ASSIGN_OR_RETURN(
           int jump_from_init,
           Jump::CalculateOffset(init_step_pos_, visitor_->GetCurrentIndex()));
       init_step_->set_error_jump_offset(jump_from_init);
 
-      CEL_ASSIGN_OR_RETURN(
-          int jump_from_next,
-          Jump::CalculateOffset(next_step_pos_, visitor_->GetCurrentIndex()));
-      next_step_->set_error_jump_offset(jump_from_next);
+      if (auto* next_step = GetNextStep(); next_step != nullptr) {
+        CEL_ASSIGN_OR_RETURN(int jump_from_next,
+                             Jump::CalculateOffset(
+                                 *next_step_pos_, visitor_->GetCurrentIndex()));
+        next_step->set_error_jump_offset(jump_from_next);
+      }
 
-      CEL_ASSIGN_OR_RETURN(
-          int jump_from_cond,
-          Jump::CalculateOffset(cond_step_pos_, visitor_->GetCurrentIndex()));
-      cond_step_->set_error_jump_offset(jump_from_cond);
+      if (auto* cond_step = GetCondStep(); cond_step != nullptr) {
+        CEL_ASSIGN_OR_RETURN(int jump_from_cond,
+                             Jump::CalculateOffset(
+                                 *cond_step_pos_, visitor_->GetCurrentIndex()));
+        cond_step->set_error_jump_offset(jump_from_cond);
+      }
       break;
     }
   }

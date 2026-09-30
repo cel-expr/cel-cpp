@@ -17,6 +17,7 @@
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/internal/errors.h"
 #include "internal/status_macros.h"
 
@@ -94,24 +95,6 @@ absl::StatusOr<ComprehensionSlots::Slot* absl_nonnull> LookupSlot(
   return slot;
 }
 
-class SlotStep : public ExpressionStepBase {
- public:
-  SlotStep(absl::string_view name, size_t slot_index)
-      : name_(name), slot_index_(slot_index) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    CEL_ASSIGN_OR_RETURN(const ComprehensionSlots::Slot* slot,
-                         LookupSlot(name_, slot_index_, *frame));
-    frame->value_stack().Push(slot->value(), slot->attribute());
-    return absl::OkStatus();
-  }
-
- private:
-  std::string name_;
-
-  size_t slot_index_;
-};
-
 class DirectIdentStep : public DirectExpressionStep {
  public:
   DirectIdentStep(absl::string_view name, int64_t expr_id)
@@ -165,11 +148,6 @@ std::unique_ptr<DirectExpressionStep> CreateDirectSlotIdentStep(
 std::unique_ptr<ExpressionStepLogic> CreateIdentStep(
     const absl::string_view name) {
   return std::make_unique<IdentStep>(name);
-}
-
-std::unique_ptr<ExpressionStepLogic> CreateIdentStepForSlot(
-    const absl::string_view name, size_t slot_index) {
-  return std::make_unique<SlotStep>(name, slot_index);
 }
 
 }  // namespace google::api::expr::runtime

@@ -26,6 +26,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "absl/base/attributes.h"
@@ -45,6 +46,7 @@
 #include "eval/compiler/resolver.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/eval/trace_step.h"
 #include "internal/casts.h"
 #include "runtime/internal/issue_collector.h"
@@ -123,6 +125,13 @@ class ProgramBuilder {
       ABSL_DCHECK(absl::holds_alternative<TreePlan>(program_));
       ABSL_DCHECK(owner_ == expr->owner_);
       elements().push_back(expr);
+    }
+
+    ExpressionStep* absl_nullable GetIfExpressionStep(size_t index) {
+      if (index >= elements().size()) {
+        return nullptr;
+      }
+      return std::get_if<ExpressionStep>(&elements()[index]);
     }
 
     // Accessor for elements (either simple steps or subexpressions).
@@ -288,9 +297,8 @@ class ProgramBuilder {
   // Add a program step to the current subexpression.
   // If successful, returns the step pointer.
   //
-  // Note: If successful, the pointer should remain valid until the parent
-  // expression is finalized. Optimizers may modify the program plan which may
-  // free the step at that point.
+  // Note: If successful, the pointer should remain valid until a further call
+  // to AddStep, AddSubexpression, or Flatten.
   ExpressionStep* absl_nullable AddStep(ExpressionStep step);
 
   void Reset();

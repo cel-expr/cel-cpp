@@ -30,6 +30,8 @@
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
+#include "eval/eval/comprehension_slots.h"
+#include "eval/eval/comprehension_step.h"
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
 #include "internal/status_macros.h"
@@ -108,6 +110,17 @@ class EvaluationStatus final {
   alignas(absl::Status) char status_[sizeof(absl::Status)];
 };
 
+void EvaluateReadSlotStep(size_t slot_index, ExecutionFrame& frame) {
+  const ComprehensionSlots::Slot* slot =
+      frame.comprehension_slots().Get(slot_index);
+  if (!slot->Has()) {
+    frame.Abort(absl::InternalError(absl::StrCat(
+        "Comprehension variable read out of scope: ", slot_index)));
+    return;
+  }
+  frame.value_stack().Push(slot->value(), slot->attribute());
+}
+
 }  // namespace
 
 void ExpressionStep::Evaluate(ExecutionFrame* context) const {
@@ -158,11 +171,31 @@ void ExpressionStep::Evaluate(ExecutionFrame* context) const {
     case ExpressionStepKind::kBooleanAnd:
       EvaluateBoolLogicStep(BoolLogicKind::kAnd, u_.arg_count, *context);
       break;
+    case ExpressionStepKind::kComprehensionFinish:
+      EvaluateComprehensionFinishStep(u_.slot_index, *context);
+      break;
+    case ExpressionStepKind::kComprehensionNext:
+      u_.next_step.Evaluate1(context);
+      break;
+    case ExpressionStepKind::kComprehensionNext2:
+      u_.next_step.Evaluate2(context);
+      break;
+    case ExpressionStepKind::kComprehensionCond:
+      u_.cond_step.Evaluate1(context);
+      break;
+    case ExpressionStepKind::kComprehensionCond2:
+      u_.cond_step.Evaluate2(context);
+      break;
+    case ExpressionStepKind::kReadSlot:
+      EvaluateReadSlotStep(u_.slot_index, *context);
+      break;
     case ExpressionStepKind::kMovedFrom:
-    default:
       context->Abort(
           absl::InternalError("ExpressionStep::Evaluate called on moved-from "
                               "object"));
+      break;
+    default:
+      ABSL_UNREACHABLE();
   }
 }
 
@@ -311,6 +344,22 @@ bool IsConstant(const ExpressionStep& step) {
     default:
       return false;
   }
+}
+
+ComprehensionCondStep* GetIfComprehensionCondStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kComprehensionCond ||
+      step.header_.kind == ExpressionStepKind::kComprehensionCond2) {
+    return &step.u_.cond_step;
+  }
+  return nullptr;
+}
+
+ComprehensionNextStep* GetIfComprehensionNextStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kComprehensionNext ||
+      step.header_.kind == ExpressionStepKind::kComprehensionNext2) {
+    return &step.u_.next_step;
+  }
+  return nullptr;
 }
 
 absl::Status WrappedDirectStep::Evaluate(ExecutionFrame* frame) const {

@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-#include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 
 namespace google::api::expr::runtime {
 
