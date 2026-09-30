@@ -37,10 +37,12 @@ cc_library(
     srcs = [
         "evaluator_core.cc",
         "lazy_init_step.cc",
+        "logic_step.cc",
     ],
     hdrs = [
         "evaluator_core.h",
         "lazy_init_step.h",
+        "logic_step.h",
     ],
     deps = [
         ":attribute_trail",
@@ -49,15 +51,19 @@ cc_library(
         ":direct_expression_step",
         ":evaluator_stack",
         ":iterator_stack",
+        "//base:builtins",
         "//base:data",
+        "//common:casting",
         "//common:native_type",
         "//common:value",
         "//common:value_kind",
+        "//eval/internal:errors",
         "//internal:status_macros",
         "//runtime",
         "//runtime:activation_interface",
         "//runtime:runtime_options",
         "//runtime/internal:activation_attribute_matcher_access",
+        "//runtime/internal:errors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_check",
@@ -65,6 +71,7 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
         "@com_google_cel_spec//proto/cel/expr:value_cc_proto",
         "@com_google_protobuf//:protobuf",
@@ -431,33 +438,6 @@ cc_library(
 )
 
 cc_library(
-    name = "logic_step",
-    srcs = [
-        "logic_step.cc",
-    ],
-    hdrs = [
-        "logic_step.h",
-    ],
-    deps = [
-        ":attribute_trail",
-        ":direct_expression_step",
-        ":evaluator_core",
-        ":expression_step_base",
-        "//base:builtins",
-        "//common:casting",
-        "//common:value",
-        "//common:value_kind",
-        "//eval/internal:errors",
-        "//internal:status_macros",
-        "//runtime/internal:errors",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
-        "@com_google_absl//absl/types:span",
-    ],
-)
-
-cc_library(
     name = "equality_steps",
     srcs = [
         "equality_steps.cc",
@@ -760,7 +740,6 @@ cc_test(
         ":direct_expression_step",
         ":evaluator_core",
         ":ident_step",
-        ":logic_step",
         "//base:attributes",
         "//base:data",
         "//common:casting",
@@ -1175,6 +1154,7 @@ cc_test(
     srcs = ["lazy_init_step_test.cc"],
     deps = [
         ":comprehension_slots",
+        ":const_value_step",
         ":evaluator_core",
         "//base:data",
         "//common:value",

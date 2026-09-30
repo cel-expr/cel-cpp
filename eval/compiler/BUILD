@@ -123,7 +123,6 @@ cc_library(
         "//eval/eval:function_step",
         "//eval/eval:ident_step",
         "//eval/eval:jump_step",
-        "//eval/eval:logic_step",
         "//eval/eval:optional_or_step",
         "//eval/eval:select_step",
         "//eval/eval:shadowable_value_step",

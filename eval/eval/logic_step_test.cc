@@ -69,9 +69,9 @@ class LogicStepTest : public testing::TestWithParam<bool> {
     ExecutionPath path;
     path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name0")));
     path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name1")));
-    path.push_back(ExpressionStep::MakeGenericStep(
-        (is_or) ? CreateOrStep(/*num_args=*/2) : CreateAndStep(/*num_args=*/2),
-        /*expr_id=*/2));
+    path.push_back(
+        (is_or) ? ExpressionStep::MakeBooleanOrStep(/*num_args=*/2, /*id=*/2)
+                : ExpressionStep::MakeBooleanAndStep(/*num_args=*/2, /*id=*/2));
 
     auto dummy_expr = std::make_unique<Expr>();
     cel::RuntimeOptions options;
@@ -641,6 +641,45 @@ INSTANTIATE_TEST_SUITE_P(
                        OpArg::kFalse, OpResult::kFalse}}),
     [](const testing::TestParamInfo<DirectUnaryLogicStepTest::ParamType>& info)
         -> std::string { return info.param.name; });
+
+TEST(UnaryLogicStepTest, BooleanNot) {
+  ExecutionPath path;
+  path.push_back(ExpressionStep::MakeConstant(cel::BoolValue(true)));
+  path.push_back(ExpressionStep::MakeBooleanNotStep());
+
+  google::protobuf::Arena arena;
+  cel::runtime_internal::RuntimeTypeProvider type_provider(
+      cel::internal::GetTestingDescriptorPool());
+  FlatExpressionEvaluatorState state(
+      2, 0, type_provider, cel::internal::GetTestingDescriptorPool(),
+      cel::internal::GetTestingMessageFactory(), &arena);
+  cel::Activation activation;
+  cel::RuntimeOptions options;
+  ExecutionFrame frame(path, activation, options, state);
+  ASSERT_OK_AND_ASSIGN(cel::Value value, frame.Evaluate());
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_FALSE(value.GetBool().NativeValue());
+}
+
+TEST(UnaryLogicStepTest, NotStrictlyFalse) {
+  ExecutionPath path;
+  path.push_back(ExpressionStep::MakeConstant(
+      cel::ErrorValue(absl::InternalError("error"))));
+  path.push_back(ExpressionStep::MakeNotStrictlyFalseStep());
+
+  google::protobuf::Arena arena;
+  cel::runtime_internal::RuntimeTypeProvider type_provider(
+      cel::internal::GetTestingDescriptorPool());
+  FlatExpressionEvaluatorState state(
+      2, 0, type_provider, cel::internal::GetTestingDescriptorPool(),
+      cel::internal::GetTestingMessageFactory(), &arena);
+  cel::Activation activation;
+  cel::RuntimeOptions options;
+  ExecutionFrame frame(path, activation, options, state);
+  ASSERT_OK_AND_ASSIGN(cel::Value value, frame.Evaluate());
+  ASSERT_TRUE(value.IsBool());
+  EXPECT_TRUE(value.GetBool().NativeValue());
+}
 
 }  // namespace
 

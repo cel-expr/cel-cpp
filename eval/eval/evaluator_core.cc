@@ -31,6 +31,7 @@
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/lazy_init_step.h"
+#include "eval/eval/logic_step.h"
 #include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
 #include "google/protobuf/arena.h"
@@ -144,6 +145,18 @@ void ExpressionStep::Evaluate(ExecutionFrame* context) const {
       break;
     case ExpressionStepKind::kClearSlots:
       EvaluateClearSlotStep(u_.clear_slots, *context);
+      break;
+    case ExpressionStepKind::kBooleanNot:
+      EvaluateNotStep(*context);
+      break;
+    case ExpressionStepKind::kNotStrictlyFalse:
+      EvaluateNotStrictlyFalseStep(*context);
+      break;
+    case ExpressionStepKind::kBooleanOr:
+      EvaluateBoolLogicStep(BoolLogicKind::kOr, u_.arg_count, *context);
+      break;
+    case ExpressionStepKind::kBooleanAnd:
+      EvaluateBoolLogicStep(BoolLogicKind::kAnd, u_.arg_count, *context);
       break;
     case ExpressionStepKind::kMovedFrom:
     default:

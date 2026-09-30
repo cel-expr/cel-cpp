@@ -2067,7 +2067,7 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleNot(
                      *depth + 1);
     return CallHandlerResult::kIntercepted;
   }
-  AddStep(CreateNotStep(), expr.id());
+  AddStep(ExpressionStep::MakeBooleanNotStep(expr.id()));
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2092,7 +2092,7 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleNotStrictlyFalse(
         *depth + 1);
     return CallHandlerResult::kIntercepted;
   }
-  AddStep(CreateNotStrictlyFalseStep(), expr.id());
+  AddStep(ExpressionStep::MakeNotStrictlyFalseStep(expr.id()));
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2257,9 +2257,11 @@ void LogicalCondVisitor::PostVisitArg(int arg_num, const cel::Expr* expr) {
   const size_t num_args = expr->call_expr().args().size();
   if (arg_num == last_arg_index) {
     if (is_or_) {
-      visitor_->AddStep(CreateOrStep(num_args), expr->id());
+      visitor_->AddStep(
+          ExpressionStep::MakeBooleanOrStep(num_args, expr->id()));
     } else {
-      visitor_->AddStep(CreateAndStep(num_args), expr->id());
+      visitor_->AddStep(
+          ExpressionStep::MakeBooleanAndStep(num_args, expr->id()));
     }
     if (short_circuiting_ && !jump_steps_.empty()) {
       for (auto& jump : jump_steps_) {

@@ -7,8 +7,7 @@
 #include <utility>
 
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/types/optional.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "base/builtins.h"
 #include "common/casting.h"
@@ -17,7 +16,6 @@
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_base.h"
 #include "eval/internal/errors.h"
 #include "internal/status_macros.h"
 #include "runtime/internal/errors.h"
@@ -35,11 +33,9 @@ using ::cel::Value;
 using ::cel::ValueKind;
 using ::cel::runtime_internal::CreateNoMatchingOverloadError;
 
-enum class OpType { kAnd, kOr };
-
 // Shared logic for the fall through case (we didn't see the shortcircuit
 // value).
-absl::Status ReturnLogicResult(ExecutionFrameBase& frame, OpType op_type,
+absl::Status ReturnLogicResult(ExecutionFrameBase& frame, BoolLogicKind op_type,
                                Value& lhs_result, Value& rhs_result,
                                AttributeTrail& attribute_trail,
                                AttributeTrail& rhs_attr) {
@@ -78,8 +74,9 @@ absl::Status ReturnLogicResult(ExecutionFrameBase& frame, OpType op_type,
   // Otherwise, add a no overload error.
   attribute_trail = AttributeTrail();
   lhs_result = cel::ErrorValue::From(
-      CreateNoMatchingOverloadError(
-          op_type == OpType::kOr ? cel::builtin::kOr : cel::builtin::kAnd),
+      CreateNoMatchingOverloadError(op_type == BoolLogicKind::kOr
+                                        ? cel::builtin::kOr
+                                        : cel::builtin::kAnd),
       frame.arena());
   return absl::OkStatus();
 }
@@ -88,7 +85,7 @@ class ExhaustiveDirectLogicStep : public DirectExpressionStep {
  public:
   explicit ExhaustiveDirectLogicStep(std::unique_ptr<DirectExpressionStep> lhs,
                                      std::unique_ptr<DirectExpressionStep> rhs,
-                                     OpType op_type, int64_t expr_id)
+                                     BoolLogicKind op_type, int64_t expr_id)
       : DirectExpressionStep(expr_id),
         lhs_(std::move(lhs)),
         rhs_(std::move(rhs)),
@@ -100,7 +97,7 @@ class ExhaustiveDirectLogicStep : public DirectExpressionStep {
  private:
   std::unique_ptr<DirectExpressionStep> lhs_;
   std::unique_ptr<DirectExpressionStep> rhs_;
-  OpType op_type_;
+  BoolLogicKind op_type_;
 };
 
 absl::Status ExhaustiveDirectLogicStep::Evaluate(
@@ -116,16 +113,16 @@ absl::Status ExhaustiveDirectLogicStep::Evaluate(
   ValueKind rhs_kind = rhs_result.kind();
   if (lhs_kind == ValueKind::kBool) {
     bool lhs_bool = Cast<BoolValue>(result).NativeValue();
-    if ((op_type_ == OpType::kOr && lhs_bool) ||
-        (op_type_ == OpType::kAnd && !lhs_bool)) {
+    if ((op_type_ == BoolLogicKind::kOr && lhs_bool) ||
+        (op_type_ == BoolLogicKind::kAnd && !lhs_bool)) {
       return absl::OkStatus();
     }
   }
 
   if (rhs_kind == ValueKind::kBool) {
     bool rhs_bool = Cast<BoolValue>(rhs_result).NativeValue();
-    if ((op_type_ == OpType::kOr && rhs_bool) ||
-        (op_type_ == OpType::kAnd && !rhs_bool)) {
+    if ((op_type_ == BoolLogicKind::kOr && rhs_bool) ||
+        (op_type_ == BoolLogicKind::kAnd && !rhs_bool)) {
       result = std::move(rhs_result);
       attribute_trail = std::move(rhs_attr);
       return absl::OkStatus();
@@ -140,7 +137,7 @@ class DirectLogicStep : public DirectExpressionStep {
  public:
   explicit DirectLogicStep(std::unique_ptr<DirectExpressionStep> lhs,
                            std::unique_ptr<DirectExpressionStep> rhs,
-                           OpType op_type, int64_t expr_id)
+                           BoolLogicKind op_type, int64_t expr_id)
       : DirectExpressionStep(expr_id),
         lhs_(std::move(lhs)),
         rhs_(std::move(rhs)),
@@ -152,7 +149,7 @@ class DirectLogicStep : public DirectExpressionStep {
  private:
   std::unique_ptr<DirectExpressionStep> lhs_;
   std::unique_ptr<DirectExpressionStep> rhs_;
-  OpType op_type_;
+  BoolLogicKind op_type_;
 };
 
 absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
@@ -161,8 +158,8 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
   ValueKind lhs_kind = result.kind();
   if (lhs_kind == ValueKind::kBool) {
     bool lhs_bool = Cast<BoolValue>(result).NativeValue();
-    if ((op_type_ == OpType::kOr && lhs_bool) ||
-        (op_type_ == OpType::kAnd && !lhs_bool)) {
+    if ((op_type_ == BoolLogicKind::kOr && lhs_bool) ||
+        (op_type_ == BoolLogicKind::kAnd && !lhs_bool)) {
       return absl::OkStatus();
     }
   }
@@ -176,8 +173,8 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
 
   if (rhs_kind == ValueKind::kBool) {
     bool rhs_bool = Cast<BoolValue>(rhs_result).NativeValue();
-    if ((op_type_ == OpType::kOr && rhs_bool) ||
-        (op_type_ == OpType::kAnd && !rhs_bool)) {
+    if ((op_type_ == BoolLogicKind::kOr && rhs_bool) ||
+        (op_type_ == BoolLogicKind::kAnd && !rhs_bool)) {
       result = std::move(rhs_result);
       attribute_trail = std::move(rhs_attr);
       return absl::OkStatus();
@@ -188,94 +185,10 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
                            rhs_attr);
 }
 
-class LogicalOpStep : public ExpressionStepBase {
- public:
-  // Constructs FunctionStep that uses overloads specified.
-  LogicalOpStep(OpType op_type, size_t count)
-      : shortcircuit_(op_type == OpType::kOr),
-        op_type_(op_type),
-        count_(count) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-
- private:
-  void Calculate(ExecutionFrame* frame, absl::Span<const Value> args,
-                 Value& result) const {
-    std::optional<size_t> error_pos;
-
-    for (size_t i = 0; i < args.size(); i++) {
-      const Value& arg = args[i];
-      switch (arg.kind()) {
-        case ValueKind::kBool:
-          if (arg.GetBool() == shortcircuit_) {
-            result = arg;
-            return;
-          }
-          break;
-        case ValueKind::kUnknown:
-          break;
-        case ValueKind::kError:
-        default:
-          if (!error_pos.has_value()) {
-            error_pos = i;
-          }
-          break;
-      }
-    }
-
-    // As opposed to regular function, logical operation treat Unknowns with
-    // higher precedence than error. This is due to the fact that after Unknown
-    // is resolved to actual value, it may short-circuit and thus hide the
-    // error.
-    if (frame->enable_unknowns()) {
-      // Check if unknown?
-      absl::optional<cel::UnknownValue> unknown_set =
-          frame->attribute_utility().MergeUnknowns(args);
-      if (unknown_set.has_value()) {
-        result = std::move(*unknown_set);
-        return;
-      }
-    }
-
-    if (!error_pos.has_value()) {
-      result = cel::BoolValue(!shortcircuit_);
-      return;
-    }
-
-    result = args[error_pos.value()];
-    if (!result.IsError()) {
-      result = cel::ErrorValue::From(
-          CreateNoMatchingOverloadError((op_type_ == OpType::kOr)
-                                            ? cel::builtin::kOr
-                                            : cel::builtin::kAnd),
-          frame->arena());
-    }
-  }
-
-  bool shortcircuit_;
-  const OpType op_type_;
-  size_t count_;
-};
-
-absl::Status LogicalOpStep::Evaluate(ExecutionFrame* frame) const {
-  // Must have 2 or more values on the stack.
-  if (!frame->value_stack().HasEnough(count_)) {
-    return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
-  }
-
-  // Create Span object that contains input arguments to the function.
-  auto args = frame->value_stack().GetSpan(count_);
-  Value result;
-  Calculate(frame, args, result);
-  frame->value_stack().PopAndPush(args.size(), std::move(result));
-
-  return absl::OkStatus();
-}
-
 std::unique_ptr<DirectExpressionStep> CreateDirectLogicStep(
     std::unique_ptr<DirectExpressionStep> lhs,
-    std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id, OpType op_type,
-    bool shortcircuiting) {
+    std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id,
+    BoolLogicKind op_type, bool shortcircuiting) {
   if (shortcircuiting) {
     return std::make_unique<DirectLogicStep>(std::move(lhs), std::move(rhs),
                                              op_type, expr_id);
@@ -326,47 +239,6 @@ absl::Status DirectNotStep::Evaluate(ExecutionFrameBase& frame, Value& result,
   return absl::OkStatus();
 }
 
-class IterativeNotStep : public ExpressionStepBase {
- public:
-  IterativeNotStep() = default;
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-};
-
-absl::Status IterativeNotStep::Evaluate(ExecutionFrame* frame) const {
-  if (!frame->value_stack().HasEnough(1)) {
-    return absl::InternalError("Value stack underflow");
-  }
-  const Value& operand = frame->value_stack().Peek();
-
-  if (frame->unknown_processing_enabled()) {
-    const AttributeTrail& attribute_trail =
-        frame->value_stack().PeekAttribute();
-    if (frame->attribute_utility().CheckForUnknownPartial(attribute_trail)) {
-      frame->value_stack().PopAndPush(
-          frame->attribute_utility().CreateUnknownSet(
-              attribute_trail.attribute()));
-      return absl::OkStatus();
-    }
-  }
-
-  switch (operand.kind()) {
-    case ValueKind::kBool:
-      frame->value_stack().PopAndPush(
-          BoolValue{!operand.GetBool().NativeValue()});
-      break;
-    case ValueKind::kUnknown:
-    case ValueKind::kError:
-      // just forward.
-      break;
-    default:
-      frame->value_stack().PopAndPush(cel::ErrorValue::From(
-          CreateNoMatchingOverloadError(cel::builtin::kNot), frame->arena()));
-      break;
-  }
-
-  return absl::OkStatus();
-}
 
 class DirectNotStrictlyFalseStep : public DirectExpressionStep {
  public:
@@ -402,19 +274,46 @@ absl::Status DirectNotStrictlyFalseStep::Evaluate(
   return absl::OkStatus();
 }
 
-class IterativeNotStrictlyFalseStep : public ExpressionStepBase {
- public:
-  IterativeNotStrictlyFalseStep() = default;
+}  // namespace
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-};
-
-absl::Status IterativeNotStrictlyFalseStep::Evaluate(
-    ExecutionFrame* frame) const {
-  if (!frame->value_stack().HasEnough(1)) {
-    return absl::InternalError("Value stack underflow");
+void EvaluateNotStep(ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(1)) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+    return;
   }
-  const Value& operand = frame->value_stack().Peek();
+  const Value& operand = frame.value_stack().Peek();
+
+  if (frame.unknown_processing_enabled()) {
+    const AttributeTrail& attribute_trail = frame.value_stack().PeekAttribute();
+    if (frame.attribute_utility().CheckForUnknownPartial(attribute_trail)) {
+      frame.value_stack().PopAndPush(frame.attribute_utility().CreateUnknownSet(
+          attribute_trail.attribute()));
+      return;
+    }
+  }
+
+  switch (operand.kind()) {
+    case ValueKind::kBool:
+      frame.value_stack().PopAndPush(
+          BoolValue{!operand.GetBool().NativeValue()});
+      break;
+    case ValueKind::kUnknown:
+    case ValueKind::kError:
+      // just forward.
+      break;
+    default:
+      frame.value_stack().PopAndPush(cel::ErrorValue::From(
+          CreateNoMatchingOverloadError(cel::builtin::kNot), frame.arena()));
+      break;
+  }
+}
+
+void EvaluateNotStrictlyFalseStep(ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(1)) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+    return;
+  }
+  const Value& operand = frame.value_stack().Peek();
 
   switch (operand.kind()) {
     case ValueKind::kBool:
@@ -422,25 +321,81 @@ absl::Status IterativeNotStrictlyFalseStep::Evaluate(
       break;
     case ValueKind::kUnknown:
     case ValueKind::kError:
-      frame->value_stack().PopAndPush(BoolValue(true));
+      frame.value_stack().PopAndPush(BoolValue(true));
       break;
     default:
-      frame->value_stack().PopAndPush(cel::ErrorValue::From(
-          CreateNoMatchingOverloadError(cel::builtin::kNot), frame->arena()));
+      frame.value_stack().PopAndPush(cel::ErrorValue::From(
+          CreateNoMatchingOverloadError(cel::builtin::kNot), frame.arena()));
       break;
   }
-
-  return absl::OkStatus();
 }
 
-}  // namespace
+void EvaluateBoolLogicStep(BoolLogicKind kind, size_t num_args,
+                           ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(num_args)) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+    return;
+  }
+
+  const bool shortcircuit = kind == BoolLogicKind::kOr;
+  const absl::string_view op_name =
+      kind == BoolLogicKind::kOr ? cel::builtin::kOr : cel::builtin::kAnd;
+  absl::Span<const Value> args = frame.value_stack().GetSpan(num_args);
+  std::optional<size_t> error_pos;
+
+  for (size_t i = 0; i < args.size(); i++) {
+    const Value& arg = args[i];
+    switch (arg.kind()) {
+      case ValueKind::kBool:
+        if (arg.GetBool() == shortcircuit) {
+          frame.value_stack().PopAndPush(num_args,
+                                         cel::BoolValue(shortcircuit));
+          return;
+        }
+        break;
+      case ValueKind::kUnknown:
+        break;
+      case ValueKind::kError:
+      default:
+        if (!error_pos.has_value()) {
+          error_pos = i;
+        }
+        break;
+    }
+  }
+
+  // As opposed to regular function, logical operation treat Unknowns with
+  // higher precedence than error. This is due to the fact that after Unknown
+  // is resolved to actual value, it may short-circuit and thus hide the
+  // error.
+  if (frame.enable_unknowns()) {
+    // Check if unknown?
+    std::optional<cel::UnknownValue> unknown_set =
+        frame.attribute_utility().MergeUnknowns(args);
+    if (unknown_set.has_value()) {
+      frame.value_stack().PopAndPush(num_args, *std::move(unknown_set));
+      return;
+    }
+  }
+
+  if (!error_pos.has_value()) {
+    frame.value_stack().PopAndPush(num_args, cel::BoolValue(!shortcircuit));
+    return;
+  }
+
+  cel::Value result = args[error_pos.value()];
+  if (!result.IsError()) {
+    result = cel::ErrorValue(CreateNoMatchingOverloadError(op_name));
+  }
+  frame.value_stack().PopAndPush(num_args, std::move(result));
+}
 
 std::unique_ptr<DirectExpressionStep> CreateDirectAndStep(
     std::unique_ptr<DirectExpressionStep> lhs,
     std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id,
     bool shortcircuiting) {
   return CreateDirectLogicStep(std::move(lhs), std::move(rhs), expr_id,
-                               OpType::kAnd, shortcircuiting);
+                               BoolLogicKind::kAnd, shortcircuiting);
 }
 
 std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
@@ -448,17 +403,7 @@ std::unique_ptr<DirectExpressionStep> CreateDirectOrStep(
     std::unique_ptr<DirectExpressionStep> rhs, int64_t expr_id,
     bool shortcircuiting) {
   return CreateDirectLogicStep(std::move(lhs), std::move(rhs), expr_id,
-                               OpType::kOr, shortcircuiting);
-}
-
-// Factory method for "And" Execution step
-std::unique_ptr<ExpressionStepLogic> CreateAndStep(size_t num_args) {
-  return std::make_unique<LogicalOpStep>(OpType::kAnd, num_args);
-}
-
-// Factory method for "Or" Execution step
-std::unique_ptr<ExpressionStepLogic> CreateOrStep(size_t num_args) {
-  return std::make_unique<LogicalOpStep>(OpType::kOr, num_args);
+                               BoolLogicKind::kOr, shortcircuiting);
 }
 
 // Factory method for recursive logical not "!" Execution step
@@ -467,21 +412,11 @@ std::unique_ptr<DirectExpressionStep> CreateDirectNotStep(
   return std::make_unique<DirectNotStep>(std::move(operand), expr_id);
 }
 
-// Factory method for iterative logical not "!" Execution step
-std::unique_ptr<ExpressionStepLogic> CreateNotStep() {
-  return std::make_unique<IterativeNotStep>();
-}
-
 // Factory method for recursive logical "@not_strictly_false" Execution step.
 std::unique_ptr<DirectExpressionStep> CreateDirectNotStrictlyFalseStep(
     std::unique_ptr<DirectExpressionStep> operand, int64_t expr_id) {
   return std::make_unique<DirectNotStrictlyFalseStep>(std::move(operand),
                                                       expr_id);
-}
-
-// Factory method for iterative logical "@not_strictly_false" Execution step.
-std::unique_ptr<ExpressionStepLogic> CreateNotStrictlyFalseStep() {
-  return std::make_unique<IterativeNotStrictlyFalseStep>();
 }
 
 }  // namespace google::api::expr::runtime

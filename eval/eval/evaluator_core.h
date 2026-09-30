@@ -39,6 +39,7 @@
 #include "eval/eval/evaluator_stack.h"
 #include "eval/eval/iterator_stack.h"
 #include "eval/eval/lazy_init_step.h"
+#include "eval/eval/logic_step.h"
 #include "runtime/activation_interface.h"
 #include "runtime/internal/activation_attribute_matcher_access.h"
 #include "runtime/runtime.h"
@@ -73,6 +74,10 @@ enum class ExpressionStepKind : uint16_t {
   kLazyInit = 8,
   kAssignSlotAndPop = 9,
   kClearSlots = 10,
+  kBooleanNot = 11,
+  kNotStrictlyFalse = 12,
+  kBooleanOr = 13,
+  kBooleanAnd = 14,
 };
 
 class ExpressionStep {
@@ -143,6 +148,28 @@ class ExpressionStep {
     return step;
   }
 
+  static ExpressionStep MakeBooleanNotStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kBooleanNot, id);
+  }
+
+  static ExpressionStep MakeNotStrictlyFalseStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kNotStrictlyFalse, id);
+  }
+
+  static ExpressionStep MakeBooleanOrStep(size_t num_args, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBooleanOr, id);
+    ABSL_DCHECK_LT(num_args, std::numeric_limits<uint32_t>::max());
+    step.u_.arg_count = num_args;
+    return step;
+  }
+
+  static ExpressionStep MakeBooleanAndStep(size_t num_args, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBooleanAnd, id);
+    ABSL_DCHECK_LT(num_args, std::numeric_limits<uint32_t>::max());
+    step.u_.arg_count = num_args;
+    return step;
+  }
+
  private:
   struct Header {
     ExpressionStepKind kind;
@@ -189,6 +216,7 @@ class ExpressionStep {
     LazyInitStepInfo lazy_init;
     size_t slot_index;
     ClearSlotStepInfo clear_slots;
+    size_t arg_count;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -731,6 +759,10 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kLazyInit:
     case ExpressionStepKind::kAssignSlotAndPop:
     case ExpressionStepKind::kClearSlots:
+    case ExpressionStepKind::kBooleanNot:
+    case ExpressionStepKind::kNotStrictlyFalse:
+    case ExpressionStepKind::kBooleanOr:
+    case ExpressionStepKind::kBooleanAnd:
       break;
     default:
       ABSL_UNREACHABLE();
