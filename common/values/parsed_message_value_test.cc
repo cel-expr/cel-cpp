@@ -19,6 +19,7 @@
 #include "absl/status/status_matchers.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
+#include "base/attribute.h"
 #include "common/memory.h"
 #include "common/type.h"
 #include "common/value.h"
@@ -120,6 +121,101 @@ TEST_F(ParsedMessageValueTest, GetFieldByNumber) {
   EXPECT_THAT(
       value.GetFieldByNumber(13, descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(BoolValueIs(false)));
+}
+
+// A message that is not owned by the evaluation arena, wrapped via the unsafe
+// (borrowing) API, must not be deep-copied onto the arena when fields are
+// selected through `Qualify()`.
+TEST_F(ParsedMessageValueTest, QualifyUnsafeBorrowsMessageField) {
+  TestAllTypesProto3 message;  // Heap-allocated, not on `arena()`.
+  message.mutable_standalone_message()->set_bb(42);
+  Value wrapped = Value::WrapMessageUnsafe(&message, descriptor_pool(),
+                                           message_factory(), arena());
+  ASSERT_TRUE(wrapped.IsParsedMessage());
+
+  const SelectQualifier qualifiers[] = {FieldSpecifier{
+      TestAllTypesProto3::kStandaloneMessageFieldNumber, "standalone_message"}};
+  Value result;
+  int count = 0;
+  ASSERT_THAT(wrapped.GetParsedMessage().Qualify(
+                  qualifiers, /*presence_test=*/false, descriptor_pool(),
+                  message_factory(), arena(), &result, &count),
+              IsOk());
+  ASSERT_TRUE(result.IsParsedMessage());
+  EXPECT_EQ(result.GetParsedMessage().message(), &message.standalone_message());
+
+  ParsedMessageValue safe_wrapped(&message, arena());
+  ASSERT_THAT(safe_wrapped.Qualify(qualifiers, /*presence_test=*/false,
+                                   descriptor_pool(), message_factory(),
+                                   arena(), &result, &count),
+              IsOk());
+  ASSERT_TRUE(result.IsParsedMessage());
+  EXPECT_NE(result.GetParsedMessage().message(), &message.standalone_message());
+  EXPECT_EQ(result.GetParsedMessage().message()->GetArena(), arena());
+}
+
+TEST_F(ParsedMessageValueTest, QualifyUnsafeBorrowsRepeatedMessageField) {
+  TestAllTypesProto3 message;  // Heap-allocated, not on `arena()`.
+  message.add_repeated_nested_message()->set_bb(42);
+  Value wrapped = Value::WrapMessageUnsafe(&message, descriptor_pool(),
+                                           message_factory(), arena());
+  ASSERT_TRUE(wrapped.IsParsedMessage());
+
+  const SelectQualifier qualifiers[] = {
+      FieldSpecifier{TestAllTypesProto3::kRepeatedNestedMessageFieldNumber,
+                     "repeated_nested_message"},
+      AttributeQualifier::OfInt(0)};
+  Value result;
+  int count = 0;
+  ASSERT_THAT(wrapped.GetParsedMessage().Qualify(
+                  qualifiers, /*presence_test=*/false, descriptor_pool(),
+                  message_factory(), arena(), &result, &count),
+              IsOk());
+  ASSERT_TRUE(result.IsParsedMessage());
+  EXPECT_EQ(result.GetParsedMessage().message(),
+            &message.repeated_nested_message(0));
+
+  ParsedMessageValue safe_wrapped(&message, arena());
+  ASSERT_THAT(safe_wrapped.Qualify(qualifiers, /*presence_test=*/false,
+                                   descriptor_pool(), message_factory(),
+                                   arena(), &result, &count),
+              IsOk());
+  ASSERT_TRUE(result.IsParsedMessage());
+  EXPECT_NE(result.GetParsedMessage().message(),
+            &message.repeated_nested_message(0));
+  EXPECT_EQ(result.GetParsedMessage().message()->GetArena(), arena());
+}
+
+TEST_F(ParsedMessageValueTest, QualifyUnsafeBorrowsMapMessageField) {
+  TestAllTypesProto3 message;  // Heap-allocated, not on `arena()`.
+  (*message.mutable_map_string_message())["key"].set_bb(42);
+  Value wrapped = Value::WrapMessageUnsafe(&message, descriptor_pool(),
+                                           message_factory(), arena());
+  ASSERT_TRUE(wrapped.IsParsedMessage());
+
+  const SelectQualifier qualifiers[] = {
+      FieldSpecifier{TestAllTypesProto3::kMapStringMessageFieldNumber,
+                     "map_string_message"},
+      AttributeQualifier::OfString("key")};
+  Value result;
+  int count = 0;
+  ASSERT_THAT(wrapped.GetParsedMessage().Qualify(
+                  qualifiers, /*presence_test=*/false, descriptor_pool(),
+                  message_factory(), arena(), &result, &count),
+              IsOk());
+  ASSERT_TRUE(result.IsParsedMessage());
+  EXPECT_EQ(result.GetParsedMessage().message(),
+            &message.map_string_message().at("key"));
+
+  ParsedMessageValue safe_wrapped(&message, arena());
+  ASSERT_THAT(safe_wrapped.Qualify(qualifiers, /*presence_test=*/false,
+                                   descriptor_pool(), message_factory(),
+                                   arena(), &result, &count),
+              IsOk());
+  ASSERT_TRUE(result.IsParsedMessage());
+  EXPECT_NE(result.GetParsedMessage().message(),
+            &message.map_string_message().at("key"));
+  EXPECT_EQ(result.GetParsedMessage().message()->GetArena(), arena());
 }
 
 }  // namespace

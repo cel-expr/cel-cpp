@@ -278,12 +278,13 @@ class ParsedMessageValueQualifyState final
       const google::protobuf::Message* absl_nonnull message,
       const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
       google::protobuf::MessageFactory* absl_nonnull message_factory,
-      google::protobuf::Arena* absl_nonnull arena)
+      google::protobuf::Arena* absl_nonnull arena, bool unsafe)
       : ProtoQualifyState(message, message->GetDescriptor(),
                           message->GetReflection()),
         descriptor_pool_(descriptor_pool),
         message_factory_(message_factory),
-        arena_(arena) {}
+        arena_(arena),
+        unsafe_(unsafe) {}
 
   absl::optional<Value>& result() { return result_; }
 
@@ -294,11 +295,18 @@ class ParsedMessageValueQualifyState final
 
   void SetResultFromBool(bool value) override { result_ = BoolValue(value); }
 
+  // When `unsafe_` is set, the qualified message is externally managed (see
+  // `UnsafeParsedMessageValue()`), so borrow field values instead of copying
+  // them onto `arena_`. This matches `ParsedMessageValue::GetField()`.
   absl::Status SetResultFromField(const google::protobuf::Message* message,
                                   const google::protobuf::FieldDescriptor* field,
                                   ProtoWrapperTypeOptions unboxing_option,
                                   cel::MemoryManagerRef) override {
-    result_ = Value::WrapField(unboxing_option, message, field,
+    result_ =
+        unsafe_
+            ? Value::WrapFieldUnsafe(unboxing_option, message, field,
+                                     descriptor_pool_, message_factory_, arena_)
+            : Value::WrapField(unboxing_option, message, field,
                                descriptor_pool_, message_factory_, arena_);
     return absl::OkStatus();
   }
@@ -307,8 +315,12 @@ class ParsedMessageValueQualifyState final
                                           const google::protobuf::FieldDescriptor* field,
                                           int index,
                                           cel::MemoryManagerRef) override {
-    result_ = Value::WrapRepeatedField(index, message, field, descriptor_pool_,
-                                       message_factory_, arena_);
+    result_ = unsafe_ ? Value::WrapRepeatedFieldUnsafe(index, message, field,
+                                                       descriptor_pool_,
+                                                       message_factory_, arena_)
+                      : Value::WrapRepeatedField(index, message, field,
+                                                 descriptor_pool_,
+                                                 message_factory_, arena_);
     return absl::OkStatus();
   }
 
@@ -316,14 +328,19 @@ class ParsedMessageValueQualifyState final
                                      const google::protobuf::FieldDescriptor* field,
                                      const google::protobuf::MapValueConstRef& value,
                                      cel::MemoryManagerRef) override {
-    result_ = Value::WrapMapFieldValue(value, message, field, descriptor_pool_,
-                                       message_factory_, arena_);
+    result_ = unsafe_ ? Value::WrapMapFieldValueUnsafe(value, message, field,
+                                                       descriptor_pool_,
+                                                       message_factory_, arena_)
+                      : Value::WrapMapFieldValue(value, message, field,
+                                                 descriptor_pool_,
+                                                 message_factory_, arena_);
     return absl::OkStatus();
   }
 
   const google::protobuf::DescriptorPool* absl_nonnull const descriptor_pool_;
   google::protobuf::MessageFactory* absl_nonnull const message_factory_;
   google::protobuf::Arena* absl_nonnull const arena_;
+  const bool unsafe_;
   absl::optional<Value> result_;
 };
 
@@ -345,8 +362,8 @@ absl::Status ParsedMessageValue::Qualify(
   if (ABSL_PREDICT_FALSE(qualifiers.empty())) {
     return absl::InvalidArgumentError("invalid select qualifier path.");
   }
-  ParsedMessageValueQualifyState qualify_state(value_, descriptor_pool,
-                                               message_factory, arena);
+  ParsedMessageValueQualifyState qualify_state(
+      value_, descriptor_pool, message_factory, arena, is_unsafe());
   for (int i = 0; i < qualifiers.size() - 1; i++) {
     const auto& qualifier = qualifiers[i];
     CEL_RETURN_IF_ERROR(qualify_state.ApplySelectQualifier(
