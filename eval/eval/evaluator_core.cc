@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/base/attributes.h"
@@ -28,6 +29,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
@@ -52,7 +54,7 @@ void FlatExpressionEvaluatorState::Reset() {
   comprehension_slots_.Reset();
 }
 
-const ExpressionStep* ExecutionFrame::Next() {
+const ExpressionStep* ExecutionFrame::NextSlow() {
   while (true) {
     const size_t end_pos = execution_path_.size();
 
@@ -77,6 +79,13 @@ const ExpressionStep* ExecutionFrame::Next() {
     }
     return nullptr;
   }
+}
+
+void ExecutionFrame::AbortJumpOutOfRange(int offset) {
+  Abort(absl::Status(
+      absl::StatusCode::kInternal,
+      absl::StrCat("Jump address out of range: position: ", pc_,
+                   ", offset: ", offset, ", range: ", execution_path_.size())));
 }
 
 namespace {
@@ -114,64 +123,9 @@ class EvaluationStatus final {
   alignas(absl::Status) char status_[sizeof(absl::Status)];
 };
 
-void EvaluateReadSlotStep(size_t slot_index, ExecutionFrame& frame) {
-  const ComprehensionSlots::Slot* slot =
-      frame.comprehension_slots().Get(slot_index);
-  if (!slot->Has()) {
-    frame.Abort(absl::InternalError(absl::StrCat(
-        "Comprehension variable read out of scope: ", slot_index)));
-    return;
-  }
-  frame.value_stack().Push(slot->value(), slot->attribute());
-}
+}  // namespace
 
-void EvaluateBoolJumpStep(const BoolJumpStepInfo& step, bool target,
-                          ExecutionFrame& frame) {
-  ABSL_DCHECK(step.set) << "BoolJumpStep did not have a value set.";
-  if (!frame.value_stack().HasEnough(step.arg_count)) {
-    frame.Abort(
-        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
-    return;
-  }
-  const cel::Value& value = frame.value_stack().Peek();
-  if (value.IsBool() && value.GetBool().NativeValue() == target) {
-    frame.value_stack().SwapAndPop(step.arg_count, step.arg_count - 1);
-    frame.JumpToOrAbort(step.offset);
-  }
-  // No-op if the value is not a bool or the value is not the target.
-  // Cleanup will happen if we hit a later jump or we fall-through.
-}
-
-void EvaluateTernaryJumpStep(const TernaryJumpStepInfo& step,
-                             ExecutionFrame& frame) {
-  ABSL_DCHECK(step.set) << "TernaryJumpStep did not have a value set.";
-  if (!frame.value_stack().HasEnough(1)) {
-    frame.Abort(absl::InternalError("TernaryJumpStep: value stack underflow"));
-    return;
-  }
-  const cel::Value& condition = frame.value_stack().Peek();
-  switch (condition.kind()) {
-    case cel::ValueKind::kBool:
-      if (!condition.GetBool().NativeValue()) {
-        frame.JumpToOrAbort(step.jump_to_second_offset);
-      }
-      frame.value_stack().Pop();
-      break;
-    default:
-      frame.value_stack().PopAndPush(cel::ErrorValue::From(
-          cel::runtime_internal::CreateNoMatchingOverloadError(
-              "<ternary_condition>"),
-          frame.arena()));
-      ABSL_FALLTHROUGH_INTENDED;
-    case cel::ValueKind::kError:
-    case cel::ValueKind::kUnknown:
-      // Propagate the error or unknown set.
-      frame.JumpToOrAbort(step.error_offset);
-      break;
-  }
-}
-
-void EvaluateMutableListAppendStep(ExecutionFrame& frame) {
+void ExpressionStep::EvaluateMutableListAppendStep(ExecutionFrame& frame) {
   if (!frame.value_stack().HasEnough(2)) {
     frame.Abort(
         absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
@@ -187,7 +141,7 @@ void EvaluateMutableListAppendStep(ExecutionFrame& frame) {
     return;
   }
   if (frame.unknown_processing_enabled()) {
-    absl::optional<cel::UnknownValue> unknown_set =
+    std::optional<cel::UnknownValue> unknown_set =
         frame.attribute_utility().IdentifyAndMergeUnknowns(
             args, frame.value_stack().GetAttributeSpan(2),
             /*use_partial=*/true);
@@ -211,114 +165,33 @@ void EvaluateMutableListAppendStep(ExecutionFrame& frame) {
       absl::InvalidArgumentError("Unexpected call to runtime list append."));
 }
 
-}  // namespace
+void ExecutionFrame::Interpret() {
+  for (const ExpressionStep* expr = Next(); expr != nullptr; expr = Next()) {
+    expr->Evaluate(*this);
+  }
+}
 
-void ExpressionStep::Evaluate(ExecutionFrame* context) const {
-  switch (header_.kind) {
-    case ExpressionStepKind::kGenericLogic:
-      u_.logic->Evaluate(context);
-      break;
-    case ExpressionStepKind::kIntConstant:
-      context->value_stack().Push(cel::IntValue(u_.int_val));
-      break;
-    case ExpressionStepKind::kBoolConstant:
-      context->value_stack().Push(cel::BoolValue(u_.bool_val));
-      break;
-    case ExpressionStepKind::kDoubleConstant:
-      context->value_stack().Push(cel::DoubleValue(u_.double_val));
-      break;
-    case ExpressionStepKind::kNullConstant:
-      context->value_stack().Push(cel::NullValue());
-      break;
-    case ExpressionStepKind::kUintConstant:
-      context->value_stack().Push(cel::UintValue(u_.uint_val));
-      break;
-    case ExpressionStepKind::kOtherConstant:
-      context->value_stack().Push(*u_.other_val);
-      break;
-    case ExpressionStepKind::kLazyInit:
-      EvaluateLazyInitStep(u_.lazy_init, *context);
-      break;
-    case ExpressionStepKind::kAssignSlotAndPop:
-      EvaluateAssignSlotAndPop(u_.slot_index, *context);
-      break;
-    case ExpressionStepKind::kClearSlots:
-      EvaluateClearSlotStep(u_.clear_slots, *context);
-      break;
-    case ExpressionStepKind::kBooleanNot:
-      EvaluateNotStep(*context);
-      break;
-    case ExpressionStepKind::kNotStrictlyFalse:
-      EvaluateNotStrictlyFalseStep(*context);
-      break;
-    case ExpressionStepKind::kBooleanOr:
-      EvaluateBoolLogicStep(BoolLogicKind::kOr, u_.arg_count, *context);
-      break;
-    case ExpressionStepKind::kBooleanAnd:
-      EvaluateBoolLogicStep(BoolLogicKind::kAnd, u_.arg_count, *context);
-      break;
-    case ExpressionStepKind::kComprehensionFinish:
-      EvaluateComprehensionFinishStep(u_.slot_index, *context);
-      break;
-    case ExpressionStepKind::kComprehensionNext:
-      u_.next_step.Evaluate1(context);
-      break;
-    case ExpressionStepKind::kComprehensionNext2:
-      u_.next_step.Evaluate2(context);
-      break;
-    case ExpressionStepKind::kComprehensionCond:
-      u_.cond_step.Evaluate1(context);
-      break;
-    case ExpressionStepKind::kComprehensionCond2:
-      u_.cond_step.Evaluate2(context);
-      break;
-    case ExpressionStepKind::kReadSlot:
-      EvaluateReadSlotStep(u_.slot_index, *context);
-      break;
-    case ExpressionStepKind::kBooleanOrJump:
-      EvaluateBoolJumpStep(u_.bool_jump_step, true, *context);
-      break;
-    case ExpressionStepKind::kBooleanAndJump:
-      EvaluateBoolJumpStep(u_.bool_jump_step, false, *context);
-      break;
-    case ExpressionStepKind::kTernaryJump:
-      EvaluateTernaryJumpStep(u_.ternary_jump_step, *context);
-      break;
-    case ExpressionStepKind::kFixedJump:
-      ABSL_DCHECK(u_.fixed_jump_step.set)
-          << "FixedJumpStep did not have a value set.";
-      context->JumpToOrAbort(u_.fixed_jump_step.offset);
-      break;
-    case ExpressionStepKind::kEagerFunction:
-      u_.eager_function_step->Evaluate(*context);
-      break;
-    case ExpressionStepKind::kLazyFunction:
-      u_.lazy_function_step->Evaluate(*context);
-      break;
-    case ExpressionStepKind::kFastIn:
-      EvaluateFastInStep(*context);
-      break;
-    case ExpressionStepKind::kFastEqual:
-      EvaluateFastEqualStep(/*negation=*/false, *context);
-      break;
-    case ExpressionStepKind::kFastNotEqual:
-      EvaluateFastEqualStep(/*negation=*/true, *context);
-      break;
-    case ExpressionStepKind::kNewMutableList:
-      context->value_stack().Push(cel::CustomListValue(
-          cel::common_internal::NewMutableListValue(context->arena()),
-          context->arena()));
-      break;
-    case ExpressionStepKind::kMutableListAppend:
-      EvaluateMutableListAppendStep(*context);
-      break;
-    case ExpressionStepKind::kMovedFrom:
-      context->Abort(
-          absl::InternalError("ExpressionStep::Evaluate called on moved-from "
-                              "object"));
-      break;
-    default:
-      ABSL_UNREACHABLE();
+void ExecutionFrame::InterpretWithCallback(EvaluationListener& listener) {
+  for (const ExpressionStep* expr = Next(); expr != nullptr; expr = Next()) {
+    expr->Evaluate(*this);
+    if (pc_ == 0 || !expr->comes_from_ast() || !abort_status().ok()) {
+      // Skip if we just started a Call, if the step doesn't map to an AST
+      // id, or if evaluation was aborted.
+      continue;
+    }
+
+    if (ABSL_PREDICT_FALSE(value_stack().empty())) {
+      ABSL_LOG(ERROR) << "Stack is empty after a ExpressionStep.Evaluate. "
+                         "Try to disable short-circuiting.";
+      continue;
+    }
+    if (EvaluationStatus status(listener(expr->id(), value_stack().Peek(),
+                                         descriptor_pool(), message_factory(),
+                                         arena()));
+        !status.ok()) {
+      Abort(std::move(status).Consume());
+      return;
+    }
   }
 }
 
@@ -327,32 +200,9 @@ absl::StatusOr<cel::Value> ExecutionFrame::Evaluate(
   const size_t initial_stack_size = value_stack().size();
 
   if (!listener) {
-    for (const ExpressionStep* expr = Next();
-         ABSL_PREDICT_TRUE(expr != nullptr); expr = Next()) {
-      expr->Evaluate(this);
-    }
+    Interpret();
   } else {
-    for (const ExpressionStep* expr = Next();
-         ABSL_PREDICT_TRUE(expr != nullptr); expr = Next()) {
-      expr->Evaluate(this);
-      if (pc_ == 0 || !expr->comes_from_ast() || !abort_status().ok()) {
-        // Skip if we just started a Call or if the step doesn't map to an
-        // AST id.
-        continue;
-      }
-
-      if (ABSL_PREDICT_FALSE(value_stack().empty())) {
-        ABSL_LOG(ERROR) << "Stack is empty after a ExpressionStep.Evaluate. "
-                           "Try to disable short-circuiting.";
-        continue;
-      }
-      if (EvaluationStatus status(listener(expr->id(), value_stack().Peek(),
-                                           descriptor_pool(), message_factory(),
-                                           arena()));
-          !status.ok()) {
-        return std::move(status).Consume();
-      }
-    }
+    InterpretWithCallback(listener);
   }
 
   if (!abort_status().ok()) {

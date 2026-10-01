@@ -19,9 +19,10 @@
 #include <memory>
 
 #include "eval/eval/direct_expression_step.h"
-#include "eval/eval/evaluator_core.h"
 
 namespace google::api::expr::runtime {
+
+class ExecutionFrame;
 
 // Factory method for recursive _==_/_!=_ Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectEqualityStep(
