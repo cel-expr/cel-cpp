@@ -278,9 +278,9 @@ class EvaluatorStack {
     PopAndPush(n, std::forward<V>(value), absl::nullopt);
   }
 
-  // Swaps the `n - i` element (from the top of the stack) with the `n` element,
-  // and pops `n - 1` elements. This results in the `n - i` element being at the
-  // top of the stack.
+  // Given the top `n` the elements of the stack, swap the `i`th element with
+  // the 0th, then pop n - 1 elements (leaving the `i`th element as the new
+  // top).
   void SwapAndPop(size_t n, size_t i) {
     ABSL_DCHECK_GT(n, 0);
     ABSL_DCHECK_LT(i, n);

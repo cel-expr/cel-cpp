@@ -87,10 +87,19 @@ enum class ExpressionStepKind : uint16_t {
   kComprehensionNext2 = 18,
   kComprehensionCond2 = 19,
   kReadSlot = 20,
+  // Jumps steps.
   kBooleanOrJump = 21,
   kBooleanAndJump = 22,
   kTernaryJump = 23,
   kFixedJump = 24,
+  // fast built-ins. These are used if we know they haven't been extended.
+  // otherwise we use normal function call steps.
+  kFastIn = 25,
+  kFastEqual = 26,
+  kFastNotEqual = 27,
+  // Special built-in steps for mutable lists implementing map/filter.
+  kNewMutableList = 28,
+  kMutableListAppend = 29,
 };
 
 struct BoolJumpStepInfo {
@@ -265,6 +274,26 @@ class ExpressionStep {
     ExpressionStep step(ExpressionStepKind::kFixedJump, id);
     step.u_.fixed_jump_step = FixedJumpStepInfo{false, 0, 0};
     return step;
+  }
+
+  static ExpressionStep MakeFastInStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kFastIn, id);
+  }
+
+  static ExpressionStep MakeFastEqualStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kFastEqual, id);
+  }
+
+  static ExpressionStep MakeFastNotEqualStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kFastNotEqual, id);
+  }
+
+  static ExpressionStep MakeNewMutableListStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kNewMutableList, id);
+  }
+
+  static ExpressionStep MakeMutableListAppendStep(int64_t id = -1) {
+    return ExpressionStep(ExpressionStepKind::kMutableListAppend, id);
   }
 
  private:
@@ -902,6 +931,11 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kBooleanAndJump:
     case ExpressionStepKind::kTernaryJump:
     case ExpressionStepKind::kFixedJump:
+    case ExpressionStepKind::kFastIn:
+    case ExpressionStepKind::kFastEqual:
+    case ExpressionStepKind::kFastNotEqual:
+    case ExpressionStepKind::kNewMutableList:
+    case ExpressionStepKind::kMutableListAppend:
       break;
     default:
       ABSL_UNREACHABLE();

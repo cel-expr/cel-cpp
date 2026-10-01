@@ -28,16 +28,14 @@ std::unique_ptr<DirectExpressionStep> CreateDirectEqualityStep(
     std::unique_ptr<DirectExpressionStep> lhs,
     std::unique_ptr<DirectExpressionStep> rhs, bool negation, int64_t expr_id);
 
-// Factory method for iterative _==_/_!=_ Execution step
-std::unique_ptr<ExpressionStepLogic> CreateEqualityStep(bool negation);
+void EvaluateFastEqualStep(bool negation, ExecutionFrame& frame);
 
 // Factory method for recursive @in Execution step
 std::unique_ptr<DirectExpressionStep> CreateDirectInStep(
     std::unique_ptr<DirectExpressionStep> item,
     std::unique_ptr<DirectExpressionStep> container, int64_t expr_id);
 
-// Factory method for iterative @in Execution step
-std::unique_ptr<ExpressionStepLogic> CreateInStep();
+void EvaluateFastInStep(ExecutionFrame& frame);
 
 }  // namespace google::api::expr::runtime
 

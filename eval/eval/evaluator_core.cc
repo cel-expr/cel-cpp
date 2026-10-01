@@ -30,9 +30,11 @@
 #include "absl/strings/str_cat.h"
 #include "common/value.h"
 #include "common/value_kind.h"
+#include "common/values/list_value_builder.h"
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/comprehension_step.h"
+#include "eval/eval/equality_steps.h"
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
 #include "internal/status_macros.h"
@@ -170,6 +172,46 @@ void EvaluateTernaryJumpStep(const TernaryJumpStepInfo& step,
   }
 }
 
+void EvaluateMutableListAppendStep(ExecutionFrame& frame) {
+  if (!frame.value_stack().HasEnough(2)) {
+    frame.Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  absl::Span<const cel::Value> args = frame.value_stack().GetSpan(2);
+  if (args[0].IsError()) {
+    frame.value_stack().Pop(1);
+    return;
+  }
+  if (args[1].IsError()) {
+    frame.value_stack().SwapAndPop(2, 1);
+    return;
+  }
+  if (frame.unknown_processing_enabled()) {
+    absl::optional<cel::UnknownValue> unknown_set =
+        frame.attribute_utility().IdentifyAndMergeUnknowns(
+            args, frame.value_stack().GetAttributeSpan(2),
+            /*use_partial=*/true);
+    if (unknown_set.has_value()) {
+      frame.value_stack().PopAndPush(2, std::move(*unknown_set));
+      return;
+    }
+  }
+  if (const cel::common_internal::MutableListValue* mutable_list_value =
+          cel::common_internal::AsMutableListValue(args[0]);
+      mutable_list_value != nullptr) {
+    absl::Status status = mutable_list_value->Append(args[1]);
+    if (!status.ok()) {
+      frame.Abort(std::move(status));
+      return;
+    }
+    frame.value_stack().Pop(1);
+    return;
+  }
+  frame.Abort(
+      absl::InvalidArgumentError("Unexpected call to runtime list append."));
+}
+
 }  // namespace
 
 void ExpressionStep::Evaluate(ExecutionFrame* context) const {
@@ -251,6 +293,23 @@ void ExpressionStep::Evaluate(ExecutionFrame* context) const {
       ABSL_DCHECK(u_.fixed_jump_step.set)
           << "FixedJumpStep did not have a value set.";
       context->JumpToOrAbort(u_.fixed_jump_step.offset);
+      break;
+    case ExpressionStepKind::kFastIn:
+      EvaluateFastInStep(*context);
+      break;
+    case ExpressionStepKind::kFastEqual:
+      EvaluateFastEqualStep(/*negation=*/false, *context);
+      break;
+    case ExpressionStepKind::kFastNotEqual:
+      EvaluateFastEqualStep(/*negation=*/true, *context);
+      break;
+    case ExpressionStepKind::kNewMutableList:
+      context->value_stack().Push(cel::CustomListValue(
+          cel::common_internal::NewMutableListValue(context->arena()),
+          context->arena()));
+      break;
+    case ExpressionStepKind::kMutableListAppend:
+      EvaluateMutableListAppendStep(*context);
       break;
     case ExpressionStepKind::kMovedFrom:
       context->Abort(

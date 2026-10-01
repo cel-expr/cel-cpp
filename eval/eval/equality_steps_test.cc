@@ -153,7 +153,7 @@ TEST(IterativeTest, PartialAttrUnknown) {
       std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo"))));
   steps.push_back(ExpressionStep::MakeGenericStep(
       std::make_unique<ValueStep>(IntValue(2))));
-  steps.push_back(ExpressionStep::MakeGenericStep(CreateEqualityStep(false)));
+  steps.push_back(ExpressionStep::MakeFastEqualStep());
 
   activation.SetUnknownPatterns({cel::AttributePattern(
       "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
@@ -184,7 +184,7 @@ TEST(IterativeTest, PartialAttrUnknownDisabled) {
       std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo"))));
   steps.push_back(ExpressionStep::MakeGenericStep(
       std::make_unique<ValueStep>(IntValue(2))));
-  steps.push_back(ExpressionStep::MakeGenericStep(CreateEqualityStep(false)));
+  steps.push_back(ExpressionStep::MakeFastEqualStep());
 
   activation.SetUnknownPatterns({cel::AttributePattern(
       "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
@@ -291,8 +291,8 @@ TEST_P(EqualsTest, Iterative) {
       std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena))));
   steps.push_back(ExpressionStep::MakeGenericStep(
       std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena))));
-  steps.push_back(
-      ExpressionStep::MakeGenericStep(CreateEqualityStep(test_case.negation)));
+  steps.push_back(test_case.negation ? ExpressionStep::MakeFastNotEqualStep()
+                                     : ExpressionStep::MakeFastEqualStep());
 
   ExecutionFrame frame(steps, activation, opts, state);
 
@@ -473,7 +473,7 @@ TEST_P(InTest, Iterative) {
       std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena))));
   steps.push_back(ExpressionStep::MakeGenericStep(
       std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena))));
-  steps.push_back(ExpressionStep::MakeGenericStep(CreateInStep()));
+  steps.push_back(ExpressionStep::MakeFastInStep());
 
   ExecutionFrame frame(steps, activation, opts, state);
 

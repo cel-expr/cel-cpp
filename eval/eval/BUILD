@@ -36,12 +36,14 @@ cc_library(
     name = "evaluator_core",
     srcs = [
         "comprehension_step.cc",
+        "equality_steps.cc",
         "evaluator_core.cc",
         "lazy_init_step.cc",
         "logic_step.cc",
     ],
     hdrs = [
         "comprehension_step.h",
+        "equality_steps.h",
         "evaluator_core.h",
         "lazy_init_step.h",
         "logic_step.h",
@@ -62,12 +64,14 @@ cc_library(
         "//common:value",
         "//common:value_kind",
         "//eval/internal:errors",
+        "//internal:number",
         "//internal:status_macros",
         "//runtime",
         "//runtime:activation_interface",
         "//runtime:runtime_options",
         "//runtime/internal:activation_attribute_matcher_access",
         "//runtime/internal:errors",
+        "//runtime/standard:equality_functions",
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
@@ -440,26 +444,8 @@ cc_library(
 
 cc_library(
     name = "equality_steps",
-    srcs = [
-        "equality_steps.cc",
-    ],
-    hdrs = [
-        "equality_steps.h",
-    ],
     deps = [
-        ":attribute_trail",
-        ":direct_expression_step",
         ":evaluator_core",
-        ":expression_step_base",
-        "//base:builtins",
-        "//common:value",
-        "//common:value_kind",
-        "//internal:number",
-        "//internal:status_macros",
-        "//runtime/internal:errors",
-        "//runtime/standard:equality_functions",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
     ],
 )
 

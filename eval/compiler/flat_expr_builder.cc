@@ -1568,7 +1568,7 @@ class FlatExprVisitor : public cel::AstVisitor {
             SetRecursiveStep(CreateDirectMutableListStep(expr.id()), 1);
             return;
           }
-          AddStep(CreateMutableListStep(), expr.id());
+          AddStep(ExpressionStep::MakeNewMutableListStep(expr.id()));
           return;
         }
         if (GetOptimizableListAppendOperand(comprehension.comprehension) ==
@@ -2143,21 +2143,25 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleListAppend(
     const cel::ComprehensionExpr* comprehension =
         comprehension_stack_.back().comprehension;
     const cel::Expr& loop_step = comprehension->loop_step();
+
     // Macro loop_step for a map() will contain a list concat operation:
     //   accu_var + [elem]
-    if (&loop_step == &expr) {
-      AddResolvedFunctionStep(&call_expr, &expr,
-                              cel::builtin::kRuntimeListAppend);
-      return CallHandlerResult::kIntercepted;
-    }
+    const bool is_map_loop_step = &loop_step == &expr;
+
     // Macro loop_step for a filter() will contain a ternary:
     //   filter ? accu_var + [elem] : accu_var
-    if (loop_step.has_call_expr() &&
+    const bool is_filter_loop_step =
+        loop_step.has_call_expr() &&
         loop_step.call_expr().function() == cel::builtin::kTernary &&
         loop_step.call_expr().args().size() == 3 &&
-        &(loop_step.call_expr().args()[1]) == &expr) {
-      AddResolvedFunctionStep(&call_expr, &expr,
-                              cel::builtin::kRuntimeListAppend);
+        &(loop_step.call_expr().args()[1]) == &expr;
+    if (is_map_loop_step || is_filter_loop_step) {
+      if (RecursionEligible().has_value()) {
+        AddResolvedFunctionStep(&call_expr, &expr,
+                                cel::builtin::kRuntimeListAppend);
+      } else {
+        AddStep(ExpressionStep::MakeMutableListAppendStep(expr.id()));
+      }
       return CallHandlerResult::kIntercepted;
     }
   }
@@ -2186,7 +2190,8 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleHeterogeneousEquality(
         *depth + 1);
     return CallHandlerResult::kIntercepted;
   }
-  AddStep(CreateEqualityStep(inequality), expr.id());
+  AddStep(inequality ? ExpressionStep::MakeFastNotEqualStep(expr.id())
+                     : ExpressionStep::MakeFastEqualStep(expr.id()));
   return CallHandlerResult::kIntercepted;
 }
 
@@ -2211,7 +2216,7 @@ FlatExprVisitor::HandleHeterogeneousEqualityIn(const cel::Expr& expr,
     return CallHandlerResult::kIntercepted;
   }
 
-  AddStep(CreateInStep(), expr.id());
+  AddStep(ExpressionStep::MakeFastInStep(expr.id()));
   return CallHandlerResult::kIntercepted;
 }
 

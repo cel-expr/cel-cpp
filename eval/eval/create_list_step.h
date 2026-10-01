@@ -26,12 +26,6 @@ absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateCreateListStep(
 //
 // This is intended for the list construction step is generated for a
 // list-building comprehension (rather than a user authored expression).
-std::unique_ptr<ExpressionStepLogic> CreateMutableListStep();
-
-// Factory method for CreateList which constructs a mutable list.
-//
-// This is intended for the list construction step is generated for a
-// list-building comprehension (rather than a user authored expression).
 std::unique_ptr<DirectExpressionStep> CreateDirectMutableListStep(
     int64_t expr_id);
 

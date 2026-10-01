@@ -221,20 +221,6 @@ class CreateListDirectStep : public DirectExpressionStep {
   absl::flat_hash_set<int32_t> optional_indices_;
 };
 
-class MutableListStep : public ExpressionStepBase {
- public:
-  MutableListStep() = default;
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
-};
-
-absl::Status MutableListStep::Evaluate(ExecutionFrame* frame) const {
-  frame->value_stack().Push(cel::CustomListValue(
-      cel::common_internal::NewMutableListValue(frame->arena()),
-      frame->arena()));
-  return absl::OkStatus();
-}
-
 class DirectMutableListStep : public DirectExpressionStep {
  public:
   explicit DirectMutableListStep(int64_t expr_id)
@@ -266,10 +252,6 @@ absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateCreateListStep(
   return std::make_unique<CreateListStep>(
       create_list_expr.elements().size(),
       MakeOptionalIndicesSet(create_list_expr));
-}
-
-std::unique_ptr<ExpressionStepLogic> CreateMutableListStep() {
-  return std::make_unique<MutableListStep>();
 }
 
 std::unique_ptr<DirectExpressionStep> CreateDirectMutableListStep(
