@@ -246,7 +246,7 @@ absl::Status ParsedRepeatedFieldValue::Get(
                          index >= std::numeric_limits<int>::max() ||
                          static_cast<int>(index) >=
                              GetReflection()->FieldSize(*message_, field_))) {
-    *result = IndexOutOfBoundsError(index);
+    *result = IndexOutOfBoundsError(index, arena);
     return absl::OkStatus();
   }
   if (arena_ == nullptr) {

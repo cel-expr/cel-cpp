@@ -108,8 +108,9 @@ absl::StatusOr<Value> Replace1(
   return string.Replace(old_sub, new_sub, -1, arena);
 }
 
-Value CharAt(const StringValue& string, int64_t pos) {
-  return string.CharAt(pos);
+Value CharAt(const StringValue& string, int64_t pos,
+             const Function::InvokeContext& context) {
+  return string.CharAt(pos, context.arena());
 }
 
 int64_t IndexOf2(const StringValue& haystack, const StringValue& needle) {
@@ -140,12 +141,14 @@ Value LastIndexOf3(const StringValue& haystack, const StringValue& needle,
   return IntValue(haystack.LastIndexOf(needle, pos).value_or(-1));
 }
 
-Value Substring2(const StringValue& string, int64_t start) {
-  return string.Substring(start);
+Value Substring2(const StringValue& string, int64_t start,
+                 const Function::InvokeContext& context) {
+  return string.Substring(start, context.arena());
 }
 
-Value Substring3(const StringValue& string, int64_t start, int64_t end) {
-  return string.Substring(start, end);
+Value Substring3(const StringValue& string, int64_t start, int64_t end,
+                 const Function::InvokeContext& context) {
+  return string.Substring(start, end, context.arena());
 }
 
 StringValue Trim(const StringValue& string) { return string.Trim(); }

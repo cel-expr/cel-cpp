@@ -76,7 +76,8 @@ std::unique_ptr<DirectExpressionStep> MockExpectCallDirectStep() {
       .Times(1)
       .WillRepeatedly(
           [](ExecutionFrameBase& frame, Value& result, AttributeTrail& attr) {
-            result = ErrorValue(absl::InternalError("expected to be unused"));
+            result = ErrorValue::From(
+                absl::InternalError("expected to be unused"), frame.arena());
             return absl::OkStatus();
           });
   return absl::WrapUnique(mock);
@@ -122,7 +123,8 @@ TEST_F(OptionalOrTest, OptionalOrLeftErrorShortcutsRight) {
 
   std::unique_ptr<DirectExpressionStep> step = CreateDirectOptionalOrStep(
       /*expr_id=*/-1,
-      CreateConstValueDirectStep(ErrorValue(absl::InternalError("error"))),
+      CreateConstValueDirectStep(
+          ErrorValue::From(absl::InternalError("error"), &arena_)),
       MockNeverCalledDirectStep(),
       /*is_or_value=*/false,
       /*short_circuiting=*/true);
@@ -142,7 +144,8 @@ TEST_F(OptionalOrTest, OptionalOrLeftErrorExhaustiveRight) {
 
   std::unique_ptr<DirectExpressionStep> step = CreateDirectOptionalOrStep(
       /*expr_id=*/-1,
-      CreateConstValueDirectStep(ErrorValue(absl::InternalError("error"))),
+      CreateConstValueDirectStep(
+          ErrorValue::From(absl::InternalError("error"), &arena_)),
       MockExpectCallDirectStep(),
       /*is_or_value=*/false,
       /*short_circuiting=*/false);
@@ -308,7 +311,8 @@ TEST_F(OptionalOrTest, OptionalOrValueLeftErrorShortcutsRight) {
 
   std::unique_ptr<DirectExpressionStep> step = CreateDirectOptionalOrStep(
       /*expr_id=*/-1,
-      CreateConstValueDirectStep(ErrorValue(absl::InternalError("error"))),
+      CreateConstValueDirectStep(
+          ErrorValue::From(absl::InternalError("error"), &arena_)),
       MockNeverCalledDirectStep(),
       /*is_or_value=*/true,
       /*short_circuiting=*/true);

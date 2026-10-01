@@ -259,7 +259,8 @@ TEST_P(TernaryStepDirectTest, ForwardError) {
                            cel::internal::GetTestingDescriptorPool(),
                            cel::internal::GetTestingMessageFactory(), &arena_);
 
-  cel::Value error_value = cel::ErrorValue(absl::InternalError("test error"));
+  cel::Value error_value =
+      cel::ErrorValue::From(absl::InternalError("test error"), &arena_);
 
   std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
       CreateConstValueDirectStep(error_value, -1),

@@ -28,7 +28,6 @@
 #include "absl/strings/cord.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "common/allocator.h"
 #include "common/memory.h"
 #include "common/value.h"
 #include "common/values/parsed_json_value.h"
@@ -40,7 +39,6 @@
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/io/zero_copy_stream.h"
-#include "google/protobuf/map.h"
 #include "google/protobuf/map_field.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/message_lite.h"
@@ -218,7 +216,7 @@ absl::Status ParsedJsonMapValue::Get(
   CEL_ASSIGN_OR_RETURN(
       bool ok, Find(key, descriptor_pool, message_factory, arena, result));
   if (ABSL_PREDICT_FALSE(!ok) && !(result->IsError() || result->IsUnknown())) {
-    *result = NoSuchKeyError(key.DebugString());
+    *result = NoSuchKeyError(key.DebugString(), arena);
   }
   return absl::OkStatus();
 }

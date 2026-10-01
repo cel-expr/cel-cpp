@@ -721,7 +721,7 @@ absl::Status LegacyMapValue::Get(
   CEL_ASSIGN_OR_RETURN(auto cel_key, LegacyValue(arena, key));
   auto cel_value = impl_->Get(arena, cel_key);
   if (!cel_value.has_value()) {
-    *result = NoSuchKeyError(key.DebugString());
+    *result = NoSuchKeyError(key.DebugString(), arena);
     return absl::OkStatus();
   }
   CEL_RETURN_IF_ERROR(ModernValue(arena, *cel_value, *result));
@@ -928,7 +928,7 @@ absl::Status LegacyStructValue::GetFieldByName(
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
   if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
-    *result = NoSuchFieldError(name);
+    *result = NoSuchFieldError(name, arena);
     return absl::OkStatus();
   }
 
@@ -939,7 +939,7 @@ absl::Status LegacyStructValue::GetFieldByName(
     field = descriptor->file()->pool()->FindExtensionByPrintableName(descriptor,
                                                                      name);
     if (field == nullptr) {
-      *result = NoSuchFieldError(name);
+      *result = NoSuchFieldError(name, arena);
       return absl::OkStatus();
     }
   }
@@ -962,7 +962,7 @@ absl::StatusOr<bool> LegacyStructValue::HasFieldByName(
     absl::string_view name) const {
   ABSL_DCHECK(message_ptr_ != nullptr);
   if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
-    return NoSuchFieldError(name).ToStatus();
+    return common_internal::MakeNoSuchFieldError(name);
   }
   return UnsafeParsedMessageValue(message_ptr_).HasFieldByName(name);
 }
@@ -970,7 +970,7 @@ absl::StatusOr<bool> LegacyStructValue::HasFieldByName(
 absl::StatusOr<bool> LegacyStructValue::HasFieldByNumber(int64_t number) const {
   ABSL_DCHECK(message_ptr_ != nullptr);
   if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
-    return NoSuchFieldError(absl::StrCat(number)).ToStatus();
+    return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
   }
   return UnsafeParsedMessageValue(message_ptr_).HasFieldByNumber(number);
 }
@@ -1008,7 +1008,7 @@ absl::Status LegacyStructValue::Qualify(
               return field.GetStringKey().value_or("<invalid field>");
             }),
         qualifiers.front());
-    *result = NoSuchFieldError(field_name);
+    *result = NoSuchFieldError(field_name, arena);
     *count = -1;
     return absl::OkStatus();
   }
@@ -1084,7 +1084,7 @@ absl::Status ModernValue(google::protobuf::Arena* arena,
       return absl::OkStatus();
     }
     case CelValue::Type::kError:
-      result = ErrorValue{*legacy_value.ErrorOrDie()};
+      result = ErrorValue::From(*legacy_value.ErrorOrDie(), arena);
       return absl::OkStatus();
     case CelValue::Type::kAny:
       return absl::InternalError(absl::StrCat(

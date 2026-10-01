@@ -220,14 +220,14 @@ absl::Status ParsedJsonListValue::Get(
   ABSL_DCHECK(result != nullptr);
 
   if (value_ == nullptr) {
-    *result = IndexOutOfBoundsError(index);
+    *result = IndexOutOfBoundsError(index, arena);
     return absl::OkStatus();
   }
   const auto reflection =
       well_known_types::GetListValueReflectionOrDie(value_->GetDescriptor());
   if (ABSL_PREDICT_FALSE(index >=
                          static_cast<size_t>(reflection.ValuesSize(*value_)))) {
-    *result = IndexOutOfBoundsError(index);
+    *result = IndexOutOfBoundsError(index, arena);
     return absl::OkStatus();
   }
   *result = common_internal::ParsedJsonValue(

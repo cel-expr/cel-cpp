@@ -117,7 +117,7 @@ class CustomStructValueInterfaceTest final : public CustomStructValueInterface {
       *result = IntValue(1);
       return absl::OkStatus();
     }
-    return NoSuchFieldError(name).ToStatus();
+    return common_internal::MakeNoSuchFieldError(name);
   }
 
   absl::Status GetFieldByNumber(
@@ -134,7 +134,7 @@ class CustomStructValueInterfaceTest final : public CustomStructValueInterface {
       *result = IntValue(1);
       return absl::OkStatus();
     }
-    return NoSuchFieldError(absl::StrCat(number)).ToStatus();
+    return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
   }
 
   absl::StatusOr<bool> HasFieldByName(absl::string_view name) const override {
@@ -144,7 +144,7 @@ class CustomStructValueInterfaceTest final : public CustomStructValueInterface {
     if (name == "bar") {
       return true;
     }
-    return NoSuchFieldError(name).ToStatus();
+    return common_internal::MakeNoSuchFieldError(name);
   }
 
   absl::StatusOr<bool> HasFieldByNumber(int64_t number) const override {
@@ -154,7 +154,7 @@ class CustomStructValueInterfaceTest final : public CustomStructValueInterface {
     if (number == 2) {
       return true;
     }
-    return NoSuchFieldError(absl::StrCat(number)).ToStatus();
+    return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
   }
 
   absl::Status ForEachField(
@@ -283,7 +283,7 @@ class CustomStructValueTest : public common_internal::ValueTest<> {
           *result = IntValue(1);
           return absl::OkStatus();
         }
-        return NoSuchFieldError(name).ToStatus();
+        return common_internal::MakeNoSuchFieldError(name);
       },
       .get_field_by_number =
           [](const CustomStructValueDispatcher* absl_nonnull dispatcher,
@@ -301,7 +301,7 @@ class CustomStructValueTest : public common_internal::ValueTest<> {
           *result = IntValue(1);
           return absl::OkStatus();
         }
-        return NoSuchFieldError(absl::StrCat(number)).ToStatus();
+        return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
       },
       .has_field_by_name =
           [](const CustomStructValueDispatcher* absl_nonnull dispatcher,
@@ -313,7 +313,7 @@ class CustomStructValueTest : public common_internal::ValueTest<> {
         if (name == "bar") {
           return true;
         }
-        return NoSuchFieldError(name).ToStatus();
+        return common_internal::MakeNoSuchFieldError(name);
       },
       .has_field_by_number =
           [](const CustomStructValueDispatcher* absl_nonnull dispatcher,
@@ -325,7 +325,7 @@ class CustomStructValueTest : public common_internal::ValueTest<> {
         if (number == 2) {
           return true;
         }
-        return NoSuchFieldError(absl::StrCat(number)).ToStatus();
+        return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
       },
       .for_each_field =
           [](const CustomStructValueDispatcher* absl_nonnull dispatcher,

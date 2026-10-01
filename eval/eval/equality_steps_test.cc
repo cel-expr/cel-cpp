@@ -228,7 +228,7 @@ Value MakeValue(InputType type, google::protobuf::Arena* absl_nonnull arena) {
     }
     case InputType::kError:
     default:
-      return ErrorValue(absl::InternalError("error"));
+      return ErrorValue::From(absl::InternalError("error"), arena);
   }
 }
 

@@ -266,7 +266,7 @@ class TestPartialQualifyStruct : public CustomStructValueInterface {
       *result = leaf_value_;
       return absl::OkStatus();
     }
-    return NoSuchFieldError(name).ToStatus();
+    return common_internal::MakeNoSuchFieldError(name);
   }
 
   absl::Status GetFieldByNumber(int64_t number,

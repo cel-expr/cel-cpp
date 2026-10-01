@@ -169,7 +169,7 @@ absl::StatusOr<absl::optional<bool>> OpaqueEqual(
   if (auto bool_value = result.AsBool(); bool_value) {
     return bool_value->NativeValue();
   }
-  return TypeConversionError(result.GetTypeName(), "bool").NativeValue();
+  return common_internal::MakeTypeConversionError(result.GetTypeName(), "bool");
 }
 
 absl::optional<Number> NumberFromValue(const Value& value) {

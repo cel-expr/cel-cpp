@@ -24,7 +24,6 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "common/memory.h"
 #include "common/native_type.h"
 #include "common/value.h"
@@ -121,7 +120,7 @@ class CustomListValueInterfaceTest final : public CustomListValueInterface {
       *result = IntValue(1);
       return absl::OkStatus();
     }
-    *result = IndexOutOfBoundsError(index);
+    *result = IndexOutOfBoundsError(index, arena);
     return absl::OkStatus();
   }
 
@@ -221,7 +220,7 @@ class CustomListValueTest : public common_internal::ValueTest<> {
           *result = IntValue(1);
           return absl::OkStatus();
         }
-        *result = IndexOutOfBoundsError(index);
+        *result = IndexOutOfBoundsError(index, arena);
         return absl::OkStatus();
       },
       .clone = [](const CustomListValueDispatcher* absl_nonnull dispatcher,

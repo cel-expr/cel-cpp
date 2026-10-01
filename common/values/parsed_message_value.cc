@@ -40,7 +40,6 @@
 #include "internal/json.h"
 #include "internal/message_equality.h"
 #include "internal/status_macros.h"
-#include "internal/well_known_types.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
@@ -185,7 +184,7 @@ absl::Status ParsedMessageValue::GetFieldByName(
     field = descriptor->file()->pool()->FindExtensionByPrintableName(descriptor,
                                                                      name);
     if (field == nullptr) {
-      *result = NoSuchFieldError(name);
+      *result = NoSuchFieldError(name, arena);
       return absl::OkStatus();
     }
   }
@@ -206,12 +205,12 @@ absl::Status ParsedMessageValue::GetFieldByNumber(
   const auto* descriptor = GetDescriptor();
   if (number < std::numeric_limits<int32_t>::min() ||
       number > std::numeric_limits<int32_t>::max()) {
-    *result = NoSuchFieldError(absl::StrCat(number));
+    *result = NoSuchFieldError(absl::StrCat(number), arena);
     return absl::OkStatus();
   }
   const auto* field = descriptor->FindFieldByNumber(static_cast<int>(number));
   if (field == nullptr) {
-    *result = NoSuchFieldError(absl::StrCat(number));
+    *result = NoSuchFieldError(absl::StrCat(number), arena);
     return absl::OkStatus();
   }
   return GetField(field, unboxing_options, descriptor_pool, message_factory,
@@ -226,7 +225,7 @@ absl::StatusOr<bool> ParsedMessageValue::HasFieldByName(
     field = descriptor->file()->pool()->FindExtensionByPrintableName(descriptor,
                                                                      name);
     if (field == nullptr) {
-      return NoSuchFieldError(name).NativeValue();
+      return common_internal::MakeNoSuchFieldError(name);
     }
   }
   return HasField(field);
@@ -237,11 +236,11 @@ absl::StatusOr<bool> ParsedMessageValue::HasFieldByNumber(
   const auto* descriptor = GetDescriptor();
   if (number < std::numeric_limits<int32_t>::min() ||
       number > std::numeric_limits<int32_t>::max()) {
-    return NoSuchFieldError(absl::StrCat(number)).NativeValue();
+    return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
   }
   const auto* field = descriptor->FindFieldByNumber(static_cast<int>(number));
   if (field == nullptr) {
-    return NoSuchFieldError(absl::StrCat(number)).NativeValue();
+    return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
   }
   return HasField(field);
 }

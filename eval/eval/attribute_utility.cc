@@ -20,6 +20,7 @@
 #include "eval/internal/errors.h"
 #include "internal/status_macros.h"
 #include "runtime/internal/attribute_matcher.h"
+#include "google/protobuf/arena.h"
 
 namespace google::api::expr::runtime {
 
@@ -209,10 +210,10 @@ UnknownValue AttributeUtility::CreateUnknownSet(cel::Attribute attr) const {
 }
 
 absl::StatusOr<ErrorValue> AttributeUtility::CreateMissingAttributeError(
-    const cel::Attribute& attr) const {
+    const cel::Attribute& attr, google::protobuf::Arena* arena) const {
   CEL_ASSIGN_OR_RETURN(std::string message, attr.AsString());
-  return cel::ErrorValue(
-      cel::runtime_internal::CreateMissingAttributeError(message));
+  return cel::ErrorValue::From(
+      cel::runtime_internal::CreateMissingAttributeError(message), arena);
 }
 
 UnknownValue AttributeUtility::CreateUnknownSet(

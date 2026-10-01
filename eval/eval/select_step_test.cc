@@ -1583,8 +1583,8 @@ TEST_F(DirectSelectStepTest, ForwardErrorValue) {
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
 
   auto step = CreateDirectSelectStep(
-      CreateConstValueDirectStep(cel::ErrorValue(absl::InternalError("test1")),
-                                 -1),
+      CreateConstValueDirectStep(
+          cel::ErrorValue::From(absl::InternalError("test1"), &arena_), -1),
       "single_int64",
       /*test_only=*/false, -1,
       /*enable_wrapper_type_null_unboxing=*/true);

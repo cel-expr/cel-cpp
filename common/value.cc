@@ -200,9 +200,8 @@ absl::Status Value::ConvertToJsonArray(
                                               json);
       },
       [](const auto& alternative) -> absl::Status {
-        return TypeConversionError(alternative.GetTypeName(),
-                                   "google.protobuf.ListValue")
-            .NativeValue();
+        return common_internal::MakeTypeConversionError(
+            alternative.GetTypeName(), "google.protobuf.ListValue");
       }));
 }
 
@@ -257,9 +256,8 @@ absl::Status Value::ConvertToJsonObject(
                                                json);
       },
       [](const auto& alternative) -> absl::Status {
-        return TypeConversionError(alternative.GetTypeName(),
-                                   "google.protobuf.Struct")
-            .NativeValue();
+        return common_internal::MakeTypeConversionError(
+            alternative.GetTypeName(), "google.protobuf.Struct");
       }));
 }
 

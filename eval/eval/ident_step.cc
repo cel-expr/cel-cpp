@@ -46,7 +46,7 @@ absl::Status LookupIdent(absl::string_view name, ExecutionFrameBase& frame,
         frame.attribute_utility().CheckForMissingAttribute(attribute)) {
       CEL_ASSIGN_OR_RETURN(
           result, frame.attribute_utility().CreateMissingAttributeError(
-                      attribute.attribute()));
+                      attribute.attribute(), frame.arena()));
       return absl::OkStatus();
     }
     if (frame.unknown_processing_enabled() &&

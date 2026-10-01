@@ -696,7 +696,7 @@ absl::StatusOr<std::optional<Value>> CheckForMarkedAttributes(
   if (frame.missing_attribute_errors_enabled() &&
       frame.attribute_utility().CheckForMissingAttribute(attribute_trail)) {
     return frame.attribute_utility().CreateMissingAttributeError(
-        attribute_trail.attribute());
+        attribute_trail.attribute(), frame.arena());
   }
 
   return std::nullopt;

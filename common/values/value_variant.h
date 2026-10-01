@@ -88,8 +88,8 @@ enum class ValueIndex : uint8_t {
   kOpaque,
   kBytes,
   kString,
-  // Keep non-trivial alternatives together to aid in compiling optimizations.
   kError,
+  // Keep non-trivial alternatives together to aid in compiling optimizations.
   kUnknown,
 };
 
@@ -351,7 +351,7 @@ template <>
 struct ValueAlternative<BytesValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kBytes;
   static constexpr ValueKind kKind = BytesValue::kKind;
-  static constexpr bool kAlwaysTrivial = false;
+  static constexpr bool kAlwaysTrivial = true;
 
   static ValueFlags Flags(const BytesValue* absl_nonnull alternative) {
     return ValueFlags::kNone;
@@ -362,7 +362,7 @@ template <>
 struct ValueAlternative<StringValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kString;
   static constexpr ValueKind kKind = StringValue::kKind;
-  static constexpr bool kAlwaysTrivial = false;
+  static constexpr bool kAlwaysTrivial = true;
 
   static ValueFlags Flags(const StringValue* absl_nonnull alternative) {
     return ValueFlags::kNone;
@@ -373,12 +373,10 @@ template <>
 struct ValueAlternative<ErrorValue> {
   static constexpr ValueIndex kIndex = ValueIndex::kError;
   static constexpr ValueKind kKind = ErrorValue::kKind;
-  static constexpr bool kAlwaysTrivial = false;
+  static constexpr bool kAlwaysTrivial = true;
 
   static ValueFlags Flags(const ErrorValue* absl_nonnull alternative) {
-    return ArenaTraits<ErrorValue>::trivially_destructible(*alternative)
-               ? ValueFlags::kNone
-               : ValueFlags::kNonTrivial;
+    return ValueFlags::kNone;
   }
 };
 

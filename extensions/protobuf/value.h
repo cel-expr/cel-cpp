@@ -89,9 +89,8 @@ inline absl::Status ProtoMessageFromValue(const Value& value,
       return absl::OkStatus();
     }
   }
-  return TypeConversionError(value.GetRuntimeType(),
-                             MessageType(dest_descriptor))
-      .NativeValue();
+  return common_internal::MakeTypeConversionError(value.GetRuntimeType(),
+                                                  MessageType(dest_descriptor));
 }
 
 }  // namespace cel::extensions

@@ -589,6 +589,7 @@ cc_test(
         "//internal:testing",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/time",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 

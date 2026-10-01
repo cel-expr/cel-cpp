@@ -33,28 +33,30 @@ using ErrorValueTest = common_internal::ValueTest<>;
 
 TEST_F(ErrorValueTest, Default) {
   ErrorValue value;
-  EXPECT_THAT(value.NativeValue(), StatusIs(absl::StatusCode::kUnknown));
+  EXPECT_THAT(value.ToStatus(), StatusIs(absl::StatusCode::kUnknown));
 }
 
 TEST_F(ErrorValueTest, OkStatus) {
-  EXPECT_DEBUG_DEATH(static_cast<void>(ErrorValue(absl::OkStatus())), _);
+  EXPECT_DEBUG_DEATH(
+      static_cast<void>(ErrorValue::From(absl::OkStatus(), arena())), _);
 }
 
 TEST_F(ErrorValueTest, Kind) {
-  EXPECT_EQ(ErrorValue(absl::CancelledError()).kind(), ErrorValue::kKind);
-  EXPECT_EQ(Value(ErrorValue(absl::CancelledError())).kind(),
+  EXPECT_EQ(ErrorValue::From(absl::CancelledError(), arena()).kind(),
+            ErrorValue::kKind);
+  EXPECT_EQ(Value(ErrorValue::From(absl::CancelledError(), arena())).kind(),
             ErrorValue::kKind);
 }
 
 TEST_F(ErrorValueTest, DebugString) {
   {
     std::ostringstream out;
-    out << ErrorValue(absl::CancelledError());
+    out << ErrorValue::From(absl::CancelledError(), arena());
     EXPECT_THAT(out.str(), Not(IsEmpty()));
   }
   {
     std::ostringstream out;
-    out << Value(ErrorValue(absl::CancelledError()));
+    out << Value(ErrorValue::From(absl::CancelledError(), arena()));
     EXPECT_THAT(out.str(), Not(IsEmpty()));
   }
 }
@@ -74,9 +76,10 @@ TEST_F(ErrorValueTest, ConvertToJson) {
 }
 
 TEST_F(ErrorValueTest, NativeTypeId) {
-  EXPECT_EQ(NativeTypeId::Of(ErrorValue(absl::CancelledError())),
+  EXPECT_EQ(NativeTypeId::Of(ErrorValue::From(absl::CancelledError(), arena())),
             NativeTypeId::For<ErrorValue>());
-  EXPECT_EQ(NativeTypeId::Of(Value(ErrorValue(absl::CancelledError()))),
+  EXPECT_EQ(NativeTypeId::Of(
+                Value(ErrorValue::From(absl::CancelledError(), arena()))),
             NativeTypeId::For<ErrorValue>());
 }
 

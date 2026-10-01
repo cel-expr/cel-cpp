@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -24,7 +25,6 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "common/memory.h"
 #include "common/native_type.h"
 #include "common/value.h"
@@ -591,7 +591,8 @@ TEST_F(CustomMapValueTest, Interface_Find_InvalidKeyType) {
 TEST_F(CustomMapValueTest, Dispatcher_Find_SpecialKeys) {
   CustomMapValue map = MakeDispatcher();
   Value result;
-  ErrorValue error_key(absl::CancelledError("cancelled"));
+  ErrorValue error_key =
+      ErrorValue::From(absl::CancelledError("cancelled"), arena());
   ASSERT_THAT(map.Find(error_key, descriptor_pool(), message_factory(), arena(),
                        &result),
               IsOkAndHolds(false));
@@ -623,7 +624,8 @@ TEST_F(CustomMapValueTest, Dispatcher_Find_SpecialKeys) {
 TEST_F(CustomMapValueTest, Interface_Find_SpecialKeys) {
   CustomMapValue map = MakeInterface();
   Value result;
-  ErrorValue error_key(absl::CancelledError("cancelled"));
+  ErrorValue error_key =
+      ErrorValue::From(absl::CancelledError("cancelled"), arena());
   ASSERT_THAT(map.Find(error_key, descriptor_pool(), message_factory(), arena(),
                        &result),
               IsOkAndHolds(false));
@@ -735,7 +737,8 @@ TEST_F(CustomMapValueTest, Interface_Has_InvalidKeyType) {
 TEST_F(CustomMapValueTest, Dispatcher_Has_SpecialKeys) {
   CustomMapValue map = MakeDispatcher();
   Value result;
-  ErrorValue error_key(absl::CancelledError("cancelled"));
+  ErrorValue error_key =
+      ErrorValue::From(absl::CancelledError("cancelled"), arena());
   ASSERT_THAT(map.Has(error_key, descriptor_pool(), message_factory(), arena(),
                       &result),
               IsOk());
@@ -758,7 +761,8 @@ TEST_F(CustomMapValueTest, Dispatcher_Has_SpecialKeys) {
 TEST_F(CustomMapValueTest, Interface_Has_SpecialKeys) {
   CustomMapValue map = MakeInterface();
   Value result;
-  ErrorValue error_key(absl::CancelledError("cancelled"));
+  ErrorValue error_key =
+      ErrorValue::From(absl::CancelledError("cancelled"), arena());
   ASSERT_THAT(map.Has(error_key, descriptor_pool(), message_factory(), arena(),
                       &result),
               IsOk());

@@ -51,14 +51,14 @@ class LegacyValueBuilder final : public cel::ValueBuilder {
 
   absl::StatusOr<cel::Value> Build() && override {
     CEL_ASSIGN_OR_RETURN(auto value, std::move(*builder_).Build(),
-                         _.With(cel::ErrorValueReturn()));
+                         _.With(cel::ErrorValueReturn(arena_)));
     if (value.Is<MessageValue>()) {
       // Make the value behave like a legacy message. Minimizes further
       // legacy/modern conversions (e.g. on return and when accessing fields).
       CEL_ASSIGN_OR_RETURN(auto legacy_value, LegacyValue(arena_, value),
-                           _.With(cel::ErrorValueReturn()));
+                           _.With(cel::ErrorValueReturn(arena_)));
       CEL_ASSIGN_OR_RETURN(auto result, ModernValue(arena_, legacy_value),
-                           _.With(cel::ErrorValueReturn()));
+                           _.With(cel::ErrorValueReturn(arena_)));
       return result;
     }
     return value;

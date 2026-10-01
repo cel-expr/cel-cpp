@@ -210,8 +210,9 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterWrapFunctionAny) {
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterWrapFunctionReturnError) {
   using FunctionAdapter = UnaryFunctionAdapter<Value, uint64_t>;
   std::unique_ptr<Function> wrapped =
-      FunctionAdapter::WrapFunction([](uint64_t x) -> Value {
-        return ErrorValue(absl::InvalidArgumentError("test_error"));
+      FunctionAdapter::WrapFunction([this](uint64_t x) -> Value {
+        return ErrorValue::From(absl::InvalidArgumentError("test_error"),
+                                arena());
       });
 
   std::vector<Value> args{UintValue(44)};
@@ -539,8 +540,9 @@ TEST_F(FunctionAdapterTest, BinaryFunctionAdapterWrapFunctionAny) {
 TEST_F(FunctionAdapterTest, BinaryFunctionAdapterWrapFunctionReturnError) {
   using FunctionAdapter = BinaryFunctionAdapter<Value, int64_t, uint64_t>;
   std::unique_ptr<Function> wrapped =
-      FunctionAdapter::WrapFunction([](int64_t x, uint64_t y) -> Value {
-        return ErrorValue(absl::InvalidArgumentError("test_error"));
+      FunctionAdapter::WrapFunction([this](int64_t x, uint64_t y) -> Value {
+        return ErrorValue::From(absl::InvalidArgumentError("test_error"),
+                                arena());
       });
 
   std::vector<Value> args{IntValue(44), UintValue(44)};

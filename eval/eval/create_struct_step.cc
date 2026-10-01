@@ -117,7 +117,8 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
           return std::move(*error_value);
         }
       } else {
-        return cel::TypeConversionError(arg.DebugString(), "optional_type");
+        return cel::TypeConversionError(arg.DebugString(), "optional_type",
+                                        frame->arena());
       }
     } else {
       CEL_ASSIGN_OR_RETURN(absl::optional<ErrorValue> error_value,
@@ -230,7 +231,7 @@ absl::Status DirectCreateStructStep::Evaluate(ExecutionFrameBase& frame,
         continue;
       } else {
         result = cel::TypeConversionError(field_value.DebugString(),
-                                          "optional_type");
+                                          "optional_type", frame.arena());
         return absl::OkStatus();
       }
     }

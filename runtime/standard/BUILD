@@ -377,6 +377,7 @@ cc_library(
         "//common:value",
         "//internal:re2_options",
         "//internal:status_macros",
+        "//runtime:function",
         "//runtime:function_registry",
         "//runtime:runtime_options",
         "@com_google_absl//absl/status",
