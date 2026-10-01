@@ -47,10 +47,8 @@ using ::testing::HasSubstr;
 using ::testing::SizeIs;
 
 TEST(IdentStepTest, TestIdentStep) {
-  auto step = CreateIdentStep("name0");
-
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
@@ -73,10 +71,8 @@ TEST(IdentStepTest, TestIdentStep) {
 }
 
 TEST(IdentStepTest, TestIdentStepNameNotFound) {
-  auto step = CreateIdentStep("name0");
-
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
@@ -96,10 +92,8 @@ TEST(IdentStepTest, TestIdentStepNameNotFound) {
 }
 
 TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
-  auto step = CreateIdentStep("name0");
-
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
   auto env = NewTestingRuntimeEnv();
@@ -132,10 +126,8 @@ TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
 }
 
 TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
-  auto step = CreateIdentStep("name0");
-
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
@@ -172,10 +164,8 @@ TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
 }
 
 TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
-  auto step = CreateIdentStep("name0");
-
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
 
   // Expression with unknowns enabled.
   cel::RuntimeOptions options;

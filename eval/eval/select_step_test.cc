@@ -104,14 +104,13 @@ class SelectStepTest : public testing::Test {
 
     auto& ident = expr0.mutable_ident_expr();
     ident.set_name("target");
-    auto step0 = CreateIdentStep(ident.name());
     CEL_ASSIGN_OR_RETURN(
         auto step1,
         CreateSelectStep(select.field(), select.test_only(),
                          options.enable_wrapper_type_null_unboxing));
 
     path.push_back(
-        ExpressionStep::MakeGenericStep(std::move(step0), expr0.id()));
+        ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
     path.push_back(
         ExpressionStep::MakeGenericStep(std::move(step1), expr.id()));
 
@@ -288,7 +287,6 @@ TEST_F(SelectStepTest, MapPresenseIsErrorTest) {
   Expr& expr0 = select_map.mutable_operand();
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("target");
-  auto step0 = CreateIdentStep(ident.name());
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(select_map.field(), select_map.test_only(),
@@ -299,7 +297,7 @@ TEST_F(SelectStepTest, MapPresenseIsErrorTest) {
                        /*enable_wrapper_type_null_unboxing=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1), expr1.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step2), select_expr.id()));
@@ -749,13 +747,12 @@ TEST_P(SelectStepConformanceTest, CelErrorAsArgument) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  auto step0 = CreateIdentStep(ident.name());
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(select.field(), select.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
@@ -791,13 +788,12 @@ TEST_F(SelectStepTest, DisableMissingAttributeOK) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  auto step0 = CreateIdentStep(ident.name());
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(select.field(), select.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
@@ -834,13 +830,12 @@ TEST_F(SelectStepTest, UnrecoverableUnknownValueProducesError) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  auto step0 = CreateIdentStep(ident.name());
   ASSERT_OK_AND_ASSIGN(
       auto step1,
       CreateSelectStep(select.field(), select.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
@@ -883,14 +878,13 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
 
   auto& ident = expr0.mutable_ident_expr();
   ident.set_name("message");
-  auto step0 = CreateIdentStep(ident.name());
   auto step1_status =
       CreateSelectStep(select.field(), select.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false);
 
   ASSERT_THAT(step1_status, IsOk());
 
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(*step1_status),
                                                  dummy_expr.id()));
 
@@ -977,8 +971,6 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
 }
 
 TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
-  auto step0 = CreateIdentStep("message");
-
   cel::StructType resolved_operand_type(
       (cel::MessageType(TestAllTypes::descriptor())));
   const google::protobuf::FieldDescriptor* field_desc =
@@ -994,7 +986,7 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
                       /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   if (GetParam()) {
@@ -1017,8 +1009,6 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
 }
 
 TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
-  auto step0 = CreateIdentStep("message");
-
   cel::StructType resolved_operand_type(
       (cel::MessageType(TestAllTypes::descriptor())));
   const google::protobuf::FieldDescriptor* field_desc =
@@ -1034,7 +1024,7 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
                       /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   if (GetParam()) {
@@ -1054,8 +1044,6 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
 }
 
 TEST_F(SelectStepTest, TypedSelectStepUnknownPatternResolvesToUnknown) {
-  auto step0 = CreateIdentStep("message");
-
   cel::StructType resolved_operand_type(
       (cel::MessageType(TestAllTypes::descriptor())));
   const google::protobuf::FieldDescriptor* field_desc =
@@ -1071,7 +1059,7 @@ TEST_F(SelectStepTest, TypedSelectStepUnknownPatternResolvesToUnknown) {
                       /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;

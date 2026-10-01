@@ -65,9 +65,9 @@ class LogicStepTest : public testing::TestWithParam<bool> {
                              CelValue* result, bool enable_unknown) {
     ExecutionPath path;
 
-    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name0")));
-    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name1")));
-    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name2")));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name1"));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name2"));
     path.push_back(ExpressionStep::MakeGenericStep(CreateTernaryStep(), 4));
 
     cel::RuntimeOptions options;

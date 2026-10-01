@@ -39,6 +39,7 @@ cc_library(
         "equality_steps.cc",
         "evaluator_core.cc",
         "function_step.cc",
+        "ident_step.cc",
         "lazy_init_step.cc",
         "logic_step.cc",
     ],
@@ -47,6 +48,7 @@ cc_library(
         "equality_steps.h",
         "evaluator_core.h",
         "function_step.h",
+        "ident_step.h",
         "lazy_init_step.h",
         "logic_step.h",
     ],
@@ -288,26 +290,8 @@ cc_library(
 
 cc_library(
     name = "ident_step",
-    srcs = [
-        "ident_step.cc",
-    ],
-    hdrs = [
-        "ident_step.h",
-    ],
     deps = [
-        ":attribute_trail",
-        ":comprehension_slots",
-        ":direct_expression_step",
         ":evaluator_core",
-        ":expression_step_base",
-        ":expression_step_logic",
-        "//common:value",
-        "//eval/internal:errors",
-        "//internal:status_macros",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/strings",
     ],
 )
 

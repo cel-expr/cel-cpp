@@ -67,8 +67,8 @@ class LogicStepTest : public testing::TestWithParam<bool> {
   absl::Status EvaluateLogic(CelValue arg0, CelValue arg1, bool is_or,
                              CelValue* result, bool enable_unknown) {
     ExecutionPath path;
-    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name0")));
-    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("name1")));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+    path.push_back(ExpressionStep::MakeIdentifierStep("name1"));
     path.push_back(
         (is_or) ? ExpressionStep::MakeBooleanOrStep(/*num_args=*/2, /*id=*/2)
                 : ExpressionStep::MakeBooleanAndStep(/*num_args=*/2, /*id=*/2));

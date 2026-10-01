@@ -119,7 +119,7 @@ absl::StatusOr<CelValue> RunExpressionWithCelValues(
     expr0.set_id(ind);
     expr0.mutable_ident_expr().set_name(var_name);
 
-    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep(var_name)));
+    path.push_back(ExpressionStep::MakeIdentifierStep(var_name));
     activation.InsertValue(var_name, value);
   }
 

@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -44,6 +45,7 @@
 #include "eval/eval/evaluator_stack.h"
 #include "eval/eval/expression_step_logic.h"
 #include "eval/eval/function_step.h"
+#include "eval/eval/ident_step.h"
 #include "eval/eval/iterator_stack.h"
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
@@ -99,17 +101,19 @@ enum class ExpressionStepKind : uint16_t {
   kBooleanAndJump = 22,
   kTernaryJump = 23,
   kFixedJump = 24,
+  // Identifier
+  kIdentifier = 25,
   // Functions calls.
-  kEagerFunction = 25,
-  kLazyFunction = 26,
+  kEagerFunction = 26,
+  kLazyFunction = 27,
   // fast built-ins. These are used if we know they haven't been extended.
   // otherwise we use normal function call steps.
-  kFastIn = 27,
-  kFastEqual = 28,
-  kFastNotEqual = 29,
+  kFastIn = 28,
+  kFastEqual = 29,
+  kFastNotEqual = 30,
   // Special built-in steps for mutable lists implementing map/filter.
-  kNewMutableList = 30,
-  kMutableListAppend = 31,
+  kNewMutableList = 31,
+  kMutableListAppend = 32,
 };
 
 struct BoolJumpStepInfo {
@@ -288,6 +292,18 @@ class ExpressionStep {
     return step;
   }
 
+  static ExpressionStep MakeIdentifierStep(absl::string_view identifier,
+                                           int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kIdentifier, id);
+    step.u_.identifier = new std::string(identifier);
+    return step;
+  }
+
+  static ExpressionStep MakeIdentStep(absl::string_view identifier,
+                                      int64_t id = -1) {
+    return MakeIdentifierStep(identifier, id);
+  }
+
   static ExpressionStep MakeFastInStep(int64_t id = -1) {
     return ExpressionStep(ExpressionStepKind::kFastIn, id);
   }
@@ -391,6 +407,7 @@ class ExpressionStep {
     FixedJumpStepInfo fixed_jump_step;
     EagerFunctionStep* eager_function_step;
     LazyFunctionStep* lazy_function_step;
+    std::string* identifier;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -949,6 +966,9 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kOtherConstant:
       delete u_.other_val;
       break;
+    case ExpressionStepKind::kIdentifier:
+      delete u_.identifier;
+      break;
     case ExpressionStepKind::kEagerFunction:
       delete u_.eager_function_step;
       break;
@@ -1148,6 +1168,9 @@ inline void ExpressionStep::Evaluate(ExecutionFrame& frame) const {
       ABSL_DCHECK(u_.fixed_jump_step.set)
           << "FixedJumpStep did not have a value set.";
       frame.JumpToOrAbort(u_.fixed_jump_step.offset);
+      break;
+    case ExpressionStepKind::kIdentifier:
+      EvaluateIdentifierStep(*u_.identifier, frame);
       break;
     case ExpressionStepKind::kEagerFunction:
       u_.eager_function_step->Evaluate(frame);

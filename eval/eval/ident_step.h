@@ -11,14 +11,16 @@
 
 namespace google::api::expr::runtime {
 
+class ExecutionFrame;
+
 std::unique_ptr<DirectExpressionStep> CreateDirectIdentStep(
     absl::string_view identifier, int64_t expr_id);
 
 std::unique_ptr<DirectExpressionStep> CreateDirectSlotIdentStep(
     absl::string_view identifier, size_t slot_index, int64_t expr_id);
 
-// Factory method for Ident - based Execution step
-std::unique_ptr<ExpressionStepLogic> CreateIdentStep(absl::string_view name);
+void EvaluateIdentifierStep(absl::string_view identifier,
+                            ExecutionFrame& frame);
 
 }  // namespace google::api::expr::runtime
 

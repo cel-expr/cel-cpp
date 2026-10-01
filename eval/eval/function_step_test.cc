@@ -674,8 +674,7 @@ TEST_P(FunctionStepTestUnknowns, PartialUnknownHandlingTest) {
   IdentExpr ident1;
   ident1.set_name("param");
   CallExpr call1 = SinkFunction::MakeCall();
-  auto step0 =
-      ExpressionStep::MakeGenericStep(CreateIdentStep("param"), GetExprId());
+  auto step0 = ExpressionStep::MakeIdentifierStep("param", GetExprId());
   ASSERT_OK_AND_ASSIGN(auto step1, MakeTestFunctionStep(call1, registry));
 
   path.push_back(std::move(step0));

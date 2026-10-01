@@ -730,7 +730,7 @@ cc_test(
         ":cel_attribute",
         ":cel_function",
         "//eval/eval:attribute_trail",
-        "//eval/eval:ident_step",
+        "//eval/eval:evaluator_core",
         "//extensions/protobuf:memory_manager",
         "//internal:status_macros",
         "//internal:testing",

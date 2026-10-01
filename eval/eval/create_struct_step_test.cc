@@ -72,13 +72,11 @@ using ::testing::Pointwise;
 absl::StatusOr<ExecutionPath> MakeStackMachinePath(absl::string_view field) {
   ExecutionPath path;
 
-  auto step0 = CreateIdentStep("message");
-
   auto step1 = CreateCreateStructStep("google.api.expr.runtime.TestMessage",
                                       {std::string(field)},
                                       /*optional_indices=*/{});
 
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(step0)));
+  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
 
   return path;

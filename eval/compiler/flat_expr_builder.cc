@@ -916,7 +916,7 @@ class FlatExprVisitor : public cel::AstVisitor {
     if (options_.max_recursion_depth != 0) {
       SetRecursiveStep(CreateDirectIdentStep(ident_name, expr.id()), 1);
     } else {
-      AddStep(CreateIdentStep(ident_name), expr.id());
+      AddStep(ExpressionStep::MakeIdentifierStep(ident_name, expr.id()));
     }
   }
 

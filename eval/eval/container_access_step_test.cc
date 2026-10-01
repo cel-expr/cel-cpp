@@ -83,9 +83,8 @@ CelValue EvaluateAttributeHelper(
             /*enable_optional_types=*/false, 3)),
         3));
   } else {
-    path.push_back(
-        ExpressionStep::MakeGenericStep(CreateIdentStep("container"), 1));
-    path.push_back(ExpressionStep::MakeGenericStep(CreateIdentStep("key"), 2));
+    path.push_back(ExpressionStep::MakeIdentifierStep("container", 1));
+    path.push_back(ExpressionStep::MakeIdentifierStep("key", 2));
     path.push_back(ExpressionStep::MakeGenericStep(
         std::move(CreateContainerAccessStep(call).value()), 3));
   }

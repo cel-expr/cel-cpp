@@ -71,11 +71,8 @@ absl::StatusOr<ExecutionPath> CreateStackMachineProgram(
     std::string key_name = absl::StrCat("key", index);
     std::string value_name = absl::StrCat("value", index);
 
-    auto step_key = CreateIdentStep(key_name);
-    auto step_value = CreateIdentStep(value_name);
-
-    path.push_back(ExpressionStep::MakeGenericStep(std::move(step_key)));
-    path.push_back(ExpressionStep::MakeGenericStep(std::move(step_value)));
+    path.push_back(ExpressionStep::MakeIdentifierStep(key_name));
+    path.push_back(ExpressionStep::MakeIdentifierStep(value_name));
 
     activation.InsertValue(key_name, item.first);
     activation.InsertValue(value_name, item.second);
