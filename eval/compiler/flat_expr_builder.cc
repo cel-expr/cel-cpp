@@ -1700,9 +1700,10 @@ class FlatExprVisitor : public cel::AstVisitor {
                          *depth + 1);
         return;
       }
-      AddStep(
-          CreateFunctionStep(*call_expr, expr->id(), std::move(lazy_overloads)),
-          expr->id());
+      AddStep(ExpressionStep::MakeLazyFunctionStep(
+          CreateLazyFunctionStep(*call_expr, expr->id(),
+                                 std::move(lazy_overloads)),
+          expr->id()));
       return;
     }
 
@@ -1736,8 +1737,9 @@ class FlatExprVisitor : public cel::AstVisitor {
           *recursion_depth + 1);
       return;
     }
-    AddStep(CreateFunctionStep(*call_expr, expr->id(), std::move(overloads)),
-            expr->id());
+    AddStep(ExpressionStep::MakeEagerFunctionStep(
+        CreateFunctionStep(*call_expr, expr->id(), std::move(overloads)),
+        expr->id()));
   }
 
   // Add a step to the program, taking ownership. If successful, returns the

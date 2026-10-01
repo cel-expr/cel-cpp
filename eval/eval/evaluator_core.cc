@@ -294,6 +294,12 @@ void ExpressionStep::Evaluate(ExecutionFrame* context) const {
           << "FixedJumpStep did not have a value set.";
       context->JumpToOrAbort(u_.fixed_jump_step.offset);
       break;
+    case ExpressionStepKind::kEagerFunction:
+      u_.eager_function_step->Evaluate(*context);
+      break;
+    case ExpressionStepKind::kLazyFunction:
+      u_.lazy_function_step->Evaluate(*context);
+      break;
     case ExpressionStepKind::kFastIn:
       EvaluateFastInStep(*context);
       break;

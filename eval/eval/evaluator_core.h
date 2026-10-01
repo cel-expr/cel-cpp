@@ -39,6 +39,7 @@
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_stack.h"
 #include "eval/eval/expression_step_logic.h"
+#include "eval/eval/function_step.h"
 #include "eval/eval/iterator_stack.h"
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
@@ -71,35 +72,39 @@ enum class ExpressionStepKind : uint16_t {
   kUintConstant = 6,
   // Any constant that can't be inlined.
   kOtherConstant = 7,
+  // Lazy subexpressions.
   kLazyInit = 8,
   kAssignSlotAndPop = 9,
   kClearSlots = 10,
+  // Core boolean logic.
   kBooleanNot = 11,
   kNotStrictlyFalse = 12,
   kBooleanOr = 13,
   kBooleanAnd = 14,
   // Comprehension steps.
-  // Init step doesn't fit inline and is slow anyway, so just use a generic
-  // step.
+  // Init step doesn't fit inline and is slow anyway, so it uses a generic step.
   kComprehensionFinish = 15,
   kComprehensionNext = 16,
   kComprehensionCond = 17,
   kComprehensionNext2 = 18,
   kComprehensionCond2 = 19,
   kReadSlot = 20,
-  // Jumps steps.
+  // Jump steps.
   kBooleanOrJump = 21,
   kBooleanAndJump = 22,
   kTernaryJump = 23,
   kFixedJump = 24,
+  // Functions calls.
+  kEagerFunction = 25,
+  kLazyFunction = 26,
   // fast built-ins. These are used if we know they haven't been extended.
   // otherwise we use normal function call steps.
-  kFastIn = 25,
-  kFastEqual = 26,
-  kFastNotEqual = 27,
+  kFastIn = 27,
+  kFastEqual = 28,
+  kFastNotEqual = 29,
   // Special built-in steps for mutable lists implementing map/filter.
-  kNewMutableList = 28,
-  kMutableListAppend = 29,
+  kNewMutableList = 30,
+  kMutableListAppend = 31,
 };
 
 struct BoolJumpStepInfo {
@@ -296,6 +301,20 @@ class ExpressionStep {
     return ExpressionStep(ExpressionStepKind::kMutableListAppend, id);
   }
 
+  static ExpressionStep MakeEagerFunctionStep(
+      std::unique_ptr<EagerFunctionStep> step_impl, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kEagerFunction, id);
+    step.u_.eager_function_step = step_impl.release();
+    return step;
+  }
+
+  static ExpressionStep MakeLazyFunctionStep(
+      std::unique_ptr<LazyFunctionStep> step_impl, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kLazyFunction, id);
+    step.u_.lazy_function_step = step_impl.release();
+    return step;
+  }
+
  private:
   struct Header {
     ExpressionStepKind kind;
@@ -355,6 +374,8 @@ class ExpressionStep {
     BoolJumpStepInfo bool_jump_step;
     TernaryJumpStepInfo ternary_jump_step;
     FixedJumpStepInfo fixed_jump_step;
+    EagerFunctionStep* eager_function_step;
+    LazyFunctionStep* lazy_function_step;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -907,6 +928,12 @@ inline ExpressionStep::~ExpressionStep() {
       break;
     case ExpressionStepKind::kOtherConstant:
       delete u_.other_val;
+      break;
+    case ExpressionStepKind::kEagerFunction:
+      delete u_.eager_function_step;
+      break;
+    case ExpressionStepKind::kLazyFunction:
+      delete u_.lazy_function_step;
       break;
     case ExpressionStepKind::kMovedFrom:
     case ExpressionStepKind::kIntConstant:
