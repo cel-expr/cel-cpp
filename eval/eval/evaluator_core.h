@@ -398,7 +398,7 @@ class WrappedDirectStep : public ExpressionStepLogic {
                              int64_t expr_id = -1)
       : impl_(std::move(impl)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
   cel::NativeTypeId GetNativeTypeId() const override {
     return cel::NativeTypeId::For<WrappedDirectStep>();

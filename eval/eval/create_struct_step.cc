@@ -55,7 +55,7 @@ class CreateStructStepForStruct final : public ExpressionStepBase {
         entries_(std::move(entries)),
         optional_indices_(std::move(optional_indices)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   absl::StatusOr<Value> DoEvaluate(ExecutionFrame* frame) const;
@@ -131,14 +131,18 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
   return std::move(*builder).Build();
 }
 
-absl::Status CreateStructStepForStruct::Evaluate(ExecutionFrame* frame) const {
+void CreateStructStepForStruct::Evaluate(ExecutionFrame* frame) const {
   if (frame->value_stack().size() < entries_.size()) {
-    return absl::InternalError("CreateStructStepForStruct: stack underflow");
+    frame->Abort(
+        absl::InternalError("CreateStructStepForStruct: stack underflow"));
+    return;
   }
-  CEL_ASSIGN_OR_RETURN(Value result, DoEvaluate(frame));
-  frame->value_stack().PopAndPush(entries_.size(), std::move(result));
-
-  return absl::OkStatus();
+  absl::StatusOr<Value> result = DoEvaluate(frame);
+  if (!result.ok()) {
+    frame->Abort(std::move(result).status());
+    return;
+  }
+  frame->value_stack().PopAndPush(entries_.size(), *std::move(result));
 }
 
 class DirectCreateStructStep : public DirectExpressionStep {

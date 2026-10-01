@@ -81,9 +81,8 @@ class GetListKeysResultStep : public ExpressionStepBase {
  public:
   GetListKeysResultStep() : ExpressionStepBase() {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
+  void Evaluate(ExecutionFrame* frame) const override {
     frame->value_stack().Pop(1);
-    return absl::OkStatus();
   }
 };
 

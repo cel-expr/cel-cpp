@@ -32,7 +32,7 @@ class IdentStep : public ExpressionStepBase {
  public:
   explicit IdentStep(absl::string_view name) : name_(name) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   std::string name_;
@@ -74,15 +74,17 @@ absl::Status LookupIdent(absl::string_view name, ExecutionFrameBase& frame,
   return absl::OkStatus();
 }
 
-absl::Status IdentStep::Evaluate(ExecutionFrame* frame) const {
+void IdentStep::Evaluate(ExecutionFrame* frame) const {
   Value value;
   AttributeTrail attribute;
 
-  CEL_RETURN_IF_ERROR(LookupIdent(name_, *frame, value, attribute));
+  if (absl::Status status = LookupIdent(name_, *frame, value, attribute);
+      !status.ok()) {
+    frame->Abort(std::move(status));
+    return;
+  }
 
   frame->value_stack().Push(std::move(value), std::move(attribute));
-
-  return absl::OkStatus();
 }
 
 absl::StatusOr<ComprehensionSlots::Slot* absl_nonnull> LookupSlot(

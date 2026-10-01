@@ -37,14 +37,17 @@ class InstrumentStep : public ExpressionStepBase {
         expr_id_(expr_id),
         instrumentation_(std::move(instrumentation)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
+  void Evaluate(ExecutionFrame* frame) const override {
     if (!frame->value_stack().HasEnough(1)) {
-      return absl::InternalError("stack underflow in instrument step.");
+      frame->Abort(absl::InternalError("stack underflow in instrument step."));
+      return;
     }
 
-    return instrumentation_(expr_id_, frame->value_stack().Peek());
-
-    return absl::OkStatus();
+    if (absl::Status status =
+            instrumentation_(expr_id_, frame->value_stack().Peek());
+        !status.ok()) {
+      frame->Abort(std::move(status));
+    }
   }
 
  private:

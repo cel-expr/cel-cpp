@@ -57,9 +57,7 @@ using ::testing::Optional;
 
 class TestStepLogic : public ExpressionStepLogic {
  public:
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    return absl::OkStatus();
-  }
+  void Evaluate(ExecutionFrame* frame) const override {}
 };
 
 std::unique_ptr<ExpressionStepLogic> MakeTestStepLogic() {

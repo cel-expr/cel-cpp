@@ -33,7 +33,7 @@ class OptionalHasValueJumpStep final : public ExpressionStepBase {
 
   void set_jump_offset(int offset) { jump_offset_ = offset; }
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   const bool is_or_value_;

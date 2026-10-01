@@ -428,14 +428,16 @@ finish:
 
 }  // namespace
 
-absl::Status ComprehensionInitStep::Evaluate(ExecutionFrame* frame) const {
+void ComprehensionInitStep::Evaluate(ExecutionFrame* frame) const {
   if (!frame->value_stack().HasEnough(1)) {
-    return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
+    frame->Abort(absl::InternalError("Value stack underflow"));
+    return;
   }
 
   const Value& top = frame->value_stack().Peek();
   if (top.IsError() || top.IsUnknown()) {
-    return frame->JumpTo(error_jump_offset_);
+    frame->JumpToOrAbort(error_jump_offset_);
+    return;
   }
 
   if (frame->enable_unknowns() && top.IsMap()) {
@@ -443,40 +445,38 @@ absl::Status ComprehensionInitStep::Evaluate(ExecutionFrame* frame) const {
     if (frame->attribute_utility().CheckForUnknownPartial(top_attr)) {
       frame->value_stack().PopAndPush(
           frame->attribute_utility().CreateUnknownSet(top_attr.attribute()));
-      return frame->JumpTo(error_jump_offset_);
+      frame->JumpToOrAbort(error_jump_offset_);
+      return;
     }
   }
 
+  absl::StatusOr<cel::ValueIteratorPtr> iterator;
   switch (top.kind()) {
-    case ValueKind::kList: {
-      CEL_ASSIGN_OR_RETURN(auto iterator, top.GetList().NewIterator());
-      if (has_iter2_) {
-        frame->iterator_stack().Push(std::move(iterator), iter_slot_,
-                                     iter2_slot_, accu_slot_);
-      } else {
-        frame->iterator_stack().Push(std::move(iterator), iter_slot_,
-                                     accu_slot_);
-      }
-    } break;
-    case ValueKind::kMap: {
-      CEL_ASSIGN_OR_RETURN(auto iterator, top.GetMap().NewIterator());
-      if (has_iter2_) {
-        frame->iterator_stack().Push(std::move(iterator), iter_slot_,
-                                     iter2_slot_, accu_slot_);
-      } else {
-        frame->iterator_stack().Push(std::move(iterator), iter_slot_,
-                                     accu_slot_);
-      }
-    } break;
+    case ValueKind::kList:
+      iterator = top.GetList().NewIterator();
+      break;
+    case ValueKind::kMap:
+      iterator = top.GetMap().NewIterator();
+      break;
     default:
       // Replace <iter_range> with an error and jump past
       // ComprehensionFinishStep.
       frame->value_stack().PopAndPush(cel::ErrorValue::From(
           CreateNoMatchingOverloadError("<iter_range>"), frame->arena()));
-      return frame->JumpTo(error_jump_offset_);
+      frame->JumpToOrAbort(error_jump_offset_);
+      return;
   }
 
-  return absl::OkStatus();
+  if (!iterator.ok()) {
+    frame->Abort(std::move(iterator).status());
+    return;
+  }
+  if (has_iter2_) {
+    frame->iterator_stack().Push(*std::move(iterator), iter_slot_, iter2_slot_,
+                                 accu_slot_);
+  } else {
+    frame->iterator_stack().Push(*std::move(iterator), iter_slot_, accu_slot_);
+  }
 }
 
 void ComprehensionNextStep::Evaluate1(ExecutionFrame* frame) const {

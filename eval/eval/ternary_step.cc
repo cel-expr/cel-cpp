@@ -128,13 +128,14 @@ class TernaryStep : public ExpressionStepBase {
   // Constructs FunctionStep that uses overloads specified.
   TernaryStep() : ExpressionStepBase() {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 };
 
-absl::Status TernaryStep::Evaluate(ExecutionFrame* frame) const {
+void TernaryStep::Evaluate(ExecutionFrame* frame) const {
   // Must have 3 or more values on the stack.
   if (!frame->value_stack().HasEnough(3)) {
-    return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
+    frame->Abort(absl::InternalError("Value stack underflow"));
+    return;
   }
 
   // Create Span object that contains input arguments to the function.
@@ -148,13 +149,13 @@ absl::Status TernaryStep::Evaluate(ExecutionFrame* frame) const {
     // Check if unknown?
     if (condition.IsUnknown()) {
       frame->value_stack().Pop(2);
-      return absl::OkStatus();
+      return;
     }
   }
 
   if (condition.IsError()) {
     frame->value_stack().Pop(2);
-    return absl::OkStatus();
+    return;
   }
 
   cel::Value result;
@@ -168,8 +169,6 @@ absl::Status TernaryStep::Evaluate(ExecutionFrame* frame) const {
   }
 
   frame->value_stack().PopAndPush(args.size(), std::move(result));
-
-  return absl::OkStatus();
 }
 
 }  // namespace

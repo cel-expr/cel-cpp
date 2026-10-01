@@ -15,7 +15,6 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_EXPRESSION_STEP_LOGIC_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_EXPRESSION_STEP_LOGIC_H_
 
-#include "absl/status/status.h"
 #include "common/native_type.h"
 
 namespace google::api::expr::runtime {
@@ -35,7 +34,9 @@ class ExpressionStepLogic {
   // interface.
   // ExpressionStep instances can in specific cases
   // modify execution order(perform jumps).
-  virtual absl::Status Evaluate(ExecutionFrame* context) const = 0;
+  //
+  // Unrecoverable errors are reported via ExecutionFrame::Abort.
+  virtual void Evaluate(ExecutionFrame* frame) const = 0;
 
   // Return the type of the underlying expression step for special handling in
   // the planning phase. This should only be overridden by special cases, and

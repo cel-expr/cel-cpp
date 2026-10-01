@@ -40,7 +40,7 @@ class ComprehensionInitStep final : public ExpressionStepLogic {
 
   void set_error_jump_offset(int offset) { error_jump_offset_ = offset; }
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   const size_t iter_slot_;

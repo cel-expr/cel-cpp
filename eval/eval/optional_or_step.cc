@@ -64,7 +64,7 @@ class OptionalOrStep : public ExpressionStepBase {
   explicit OptionalOrStep(OptionalOrKind kind)
       : ExpressionStepBase(), kind_(kind) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   const OptionalOrKind kind_;
@@ -113,9 +113,10 @@ absl::Status EvalOptionalOr(OptionalOrKind kind, const Value& lhs,
   return absl::OkStatus();
 }
 
-absl::Status OptionalOrStep::Evaluate(ExecutionFrame* frame) const {
+void OptionalOrStep::Evaluate(ExecutionFrame* frame) const {
   if (!frame->value_stack().HasEnough(2)) {
-    return absl::InternalError("Value stack underflow");
+    frame->Abort(absl::InternalError("Value stack underflow"));
+    return;
   }
 
   absl::Span<const Value> args = frame->value_stack().GetSpan(2);
@@ -124,12 +125,15 @@ absl::Status OptionalOrStep::Evaluate(ExecutionFrame* frame) const {
 
   Value result;
   AttributeTrail result_attr;
-  CEL_RETURN_IF_ERROR(EvalOptionalOr(kind_, args[0], args[1], args_attr[0],
-                                     args_attr[1], result, result_attr,
-                                     frame->arena()));
+  if (absl::Status status =
+          EvalOptionalOr(kind_, args[0], args[1], args_attr[0], args_attr[1],
+                         result, result_attr, frame->arena());
+      !status.ok()) {
+    frame->Abort(std::move(status));
+    return;
+  }
 
   frame->value_stack().PopAndPush(2, std::move(result), std::move(result_attr));
-  return absl::OkStatus();
 }
 
 class ExhaustiveDirectOptionalOrStep : public DirectExpressionStep {
@@ -225,9 +229,10 @@ absl::Status DirectOptionalOrStep::Evaluate(ExecutionFrameBase& frame,
 
 }  // namespace
 
-absl::Status OptionalHasValueJumpStep::Evaluate(ExecutionFrame* frame) const {
+void OptionalHasValueJumpStep::Evaluate(ExecutionFrame* frame) const {
   if (!frame->value_stack().HasEnough(1)) {
-    return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
+    frame->Abort(absl::InternalError("Value stack underflow"));
+    return;
   }
   const Value& value = frame->value_stack().Peek();
   cel::optional_ref<const OptionalValue> optional_value =
@@ -244,11 +249,11 @@ absl::Status OptionalHasValueJumpStep::Evaluate(ExecutionFrame* frame) const {
       frame->value_stack().PopAndPush(optional_value->Value());
     }
     if (!jump_offset_.has_value()) {
-      return absl::Status(absl::StatusCode::kInternal, "Jump offset not set");
+      frame->Abort(absl::InternalError("Jump offset not set"));
+      return;
     }
-    return frame->JumpTo(*jump_offset_);
+    frame->JumpToOrAbort(*jump_offset_);
   }
-  return absl::OkStatus();
 }
 
 std::unique_ptr<OptionalHasValueJumpStep> CreateOptionalHasValueJumpStep(

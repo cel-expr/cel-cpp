@@ -38,7 +38,7 @@ class CreateListStep : public ExpressionStepBase {
   CreateListStep(int list_size, absl::flat_hash_set<int> optional_indices)
       : list_size_(list_size), optional_indices_(std::move(optional_indices)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   absl::Status DoEvaluate(ExecutionFrame* frame, Value* result) const;
@@ -47,22 +47,24 @@ class CreateListStep : public ExpressionStepBase {
   absl::flat_hash_set<int32_t> optional_indices_;
 };
 
-absl::Status CreateListStep::Evaluate(ExecutionFrame* frame) const {
+void CreateListStep::Evaluate(ExecutionFrame* frame) const {
   if (list_size_ < 0) {
-    return absl::Status(absl::StatusCode::kInternal,
-                        "CreateListStep: list size is <0");
+    frame->Abort(absl::InternalError("CreateListStep: list size is <0"));
+    return;
   }
 
   if (!frame->value_stack().HasEnough(list_size_)) {
-    return absl::Status(absl::StatusCode::kInternal,
-                        "CreateListStep: stack underflow");
+    frame->Abort(absl::InternalError("CreateListStep: stack underflow"));
+    return;
   }
 
   Value result;
-  CEL_RETURN_IF_ERROR(DoEvaluate(frame, &result));
+  if (absl::Status status = DoEvaluate(frame, &result); !status.ok()) {
+    frame->Abort(std::move(status));
+    return;
+  }
 
   frame->value_stack().PopAndPush(list_size_, std::move(result));
-  return absl::OkStatus();
 }
 
 absl::Status CreateListStep::DoEvaluate(ExecutionFrame* frame,

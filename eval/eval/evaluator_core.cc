@@ -146,8 +146,7 @@ void EvaluateTernaryJumpStep(const TernaryJumpStepInfo& step,
                              ExecutionFrame& frame) {
   ABSL_DCHECK(step.set) << "TernaryJumpStep did not have a value set.";
   if (!frame.value_stack().HasEnough(1)) {
-    frame.Abort(
-        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    frame.Abort(absl::InternalError("TernaryJumpStep: value stack underflow"));
     return;
   }
   const cel::Value& condition = frame.value_stack().Peek();
@@ -216,13 +215,9 @@ void EvaluateMutableListAppendStep(ExecutionFrame& frame) {
 
 void ExpressionStep::Evaluate(ExecutionFrame* context) const {
   switch (header_.kind) {
-    case ExpressionStepKind::kGenericLogic: {
-      EvaluationStatus s(u_.logic->Evaluate(context));
-      if (!s.ok()) {
-        context->Abort(std::move(s).Consume());
-      }
+    case ExpressionStepKind::kGenericLogic:
+      u_.logic->Evaluate(context);
       break;
-    }
     case ExpressionStepKind::kIntConstant:
       context->value_stack().Push(cel::IntValue(u_.int_val));
       break;
@@ -512,12 +507,15 @@ FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step) {
   return nullptr;
 }
 
-absl::Status WrappedDirectStep::Evaluate(ExecutionFrame* frame) const {
+void WrappedDirectStep::Evaluate(ExecutionFrame* frame) const {
   cel::Value result;
   AttributeTrail attribute_trail;
-  CEL_RETURN_IF_ERROR(impl_->Evaluate(*frame, result, attribute_trail));
+  if (absl::Status status = impl_->Evaluate(*frame, result, attribute_trail);
+      !status.ok()) {
+    frame->Abort(std::move(status));
+    return;
+  }
   frame->value_stack().Push(std::move(result), std::move(attribute_trail));
-  return absl::OkStatus();
 }
 
 }  // namespace google::api::expr::runtime

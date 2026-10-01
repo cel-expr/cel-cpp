@@ -289,17 +289,17 @@ class ContainerAccessStep : public ExpressionStepBase {
   explicit ContainerAccessStep(bool enable_optional_types)
       : ExpressionStepBase(), enable_optional_types_(enable_optional_types) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   bool enable_optional_types_;
 };
 
-absl::Status ContainerAccessStep::Evaluate(ExecutionFrame* frame) const {
+void ContainerAccessStep::Evaluate(ExecutionFrame* frame) const {
   if (!frame->value_stack().HasEnough(kNumContainerAccessArguments)) {
-    return absl::Status(
-        absl::StatusCode::kInternal,
-        "Insufficient arguments supplied for ContainerAccess-type expression");
+    frame->Abort(absl::InternalError(
+        "Insufficient arguments supplied for ContainerAccess-type expression"));
+    return;
   }
 
   Value result;
@@ -312,8 +312,6 @@ absl::Status ContainerAccessStep::Evaluate(ExecutionFrame* frame) const {
                 enable_optional_types_, result, result_trail);
   frame->value_stack().PopAndPush(kNumContainerAccessArguments,
                                   std::move(result), std::move(result_trail));
-
-  return absl::OkStatus();
 }
 
 class DirectContainerAccessStep : public DirectExpressionStep {

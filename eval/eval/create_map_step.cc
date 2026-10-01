@@ -57,7 +57,7 @@ class CreateStructStepForMap final : public ExpressionStepBase {
       : entry_count_(entry_count),
         optional_indices_(std::move(optional_indices)) {}
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override;
+  void Evaluate(ExecutionFrame* frame) const override;
 
  private:
   absl::StatusOr<Value> DoEvaluate(ExecutionFrame* frame) const;
@@ -118,16 +118,20 @@ absl::StatusOr<Value> CreateStructStepForMap::DoEvaluate(
   return std::move(*builder).Build();
 }
 
-absl::Status CreateStructStepForMap::Evaluate(ExecutionFrame* frame) const {
+void CreateStructStepForMap::Evaluate(ExecutionFrame* frame) const {
   if (frame->value_stack().size() < 2 * entry_count_) {
-    return absl::InternalError("CreateStructStepForMap: stack underflow");
+    frame->Abort(
+        absl::InternalError("CreateStructStepForMap: stack underflow"));
+    return;
   }
 
-  CEL_ASSIGN_OR_RETURN(auto result, DoEvaluate(frame));
+  absl::StatusOr<Value> result = DoEvaluate(frame);
+  if (!result.ok()) {
+    frame->Abort(std::move(result).status());
+    return;
+  }
 
-  frame->value_stack().PopAndPush(2 * entry_count_, std::move(result));
-
-  return absl::OkStatus();
+  frame->value_stack().PopAndPush(2 * entry_count_, *std::move(result));
 }
 
 class DirectCreateMapStep : public DirectExpressionStep {
@@ -238,10 +242,9 @@ class MutableMapStep final : public ExpressionStepBase {
  public:
   MutableMapStep() = default;
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
+  void Evaluate(ExecutionFrame* frame) const override {
     frame->value_stack().Push(cel::CustomMapValue(
         NewMutableMapValue(frame->arena()), frame->arena()));
-    return absl::OkStatus();
   }
 };
 

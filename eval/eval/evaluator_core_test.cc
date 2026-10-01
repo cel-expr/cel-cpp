@@ -46,9 +46,8 @@ class FakeConstExpressionStep : public ExpressionStepLogic {
  public:
   FakeConstExpressionStep() = default;
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
+  void Evaluate(ExecutionFrame* frame) const override {
     frame->value_stack().Push(CreateIntValue(0));
-    return absl::OkStatus();
   }
 };
 
@@ -58,13 +57,12 @@ class FakeIncrementExpressionStep : public ExpressionStepLogic {
  public:
   FakeIncrementExpressionStep() = default;
 
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
+  void Evaluate(ExecutionFrame* frame) const override {
     auto value = frame->value_stack().Peek();
     frame->value_stack().Pop(1);
     EXPECT_TRUE(value->Is<IntValue>());
     int64_t val = value.GetInt().NativeValue();
     frame->value_stack().Push(CreateIntValue(val + 1));
-    return absl::OkStatus();
   }
 };
 
