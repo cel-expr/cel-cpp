@@ -20,6 +20,7 @@
 #include <memory>
 #include <utility>
 
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
@@ -36,6 +37,7 @@
 #include "eval/eval/logic_step.h"
 #include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
+#include "runtime/internal/errors.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -121,6 +123,53 @@ void EvaluateReadSlotStep(size_t slot_index, ExecutionFrame& frame) {
   frame.value_stack().Push(slot->value(), slot->attribute());
 }
 
+void EvaluateBoolJumpStep(const BoolJumpStepInfo& step, bool target,
+                          ExecutionFrame& frame) {
+  ABSL_DCHECK(step.set) << "BoolJumpStep did not have a value set.";
+  if (!frame.value_stack().HasEnough(step.arg_count)) {
+    frame.Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  const cel::Value& value = frame.value_stack().Peek();
+  if (value.IsBool() && value.GetBool().NativeValue() == target) {
+    frame.value_stack().SwapAndPop(step.arg_count, step.arg_count - 1);
+    frame.JumpToOrAbort(step.offset);
+  }
+  // No-op if the value is not a bool or the value is not the target.
+  // Cleanup will happen if we hit a later jump or we fall-through.
+}
+
+void EvaluateTernaryJumpStep(const TernaryJumpStepInfo& step,
+                             ExecutionFrame& frame) {
+  ABSL_DCHECK(step.set) << "TernaryJumpStep did not have a value set.";
+  if (!frame.value_stack().HasEnough(1)) {
+    frame.Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  const cel::Value& condition = frame.value_stack().Peek();
+  switch (condition.kind()) {
+    case cel::ValueKind::kBool:
+      if (!condition.GetBool().NativeValue()) {
+        frame.JumpToOrAbort(step.jump_to_second_offset);
+      }
+      frame.value_stack().Pop();
+      break;
+    default:
+      frame.value_stack().PopAndPush(cel::ErrorValue::From(
+          cel::runtime_internal::CreateNoMatchingOverloadError(
+              "<ternary_condition>"),
+          frame.arena()));
+      ABSL_FALLTHROUGH_INTENDED;
+    case cel::ValueKind::kError:
+    case cel::ValueKind::kUnknown:
+      // Propagate the error or unknown set.
+      frame.JumpToOrAbort(step.error_offset);
+      break;
+  }
+}
+
 }  // namespace
 
 void ExpressionStep::Evaluate(ExecutionFrame* context) const {
@@ -188,6 +237,20 @@ void ExpressionStep::Evaluate(ExecutionFrame* context) const {
       break;
     case ExpressionStepKind::kReadSlot:
       EvaluateReadSlotStep(u_.slot_index, *context);
+      break;
+    case ExpressionStepKind::kBooleanOrJump:
+      EvaluateBoolJumpStep(u_.bool_jump_step, true, *context);
+      break;
+    case ExpressionStepKind::kBooleanAndJump:
+      EvaluateBoolJumpStep(u_.bool_jump_step, false, *context);
+      break;
+    case ExpressionStepKind::kTernaryJump:
+      EvaluateTernaryJumpStep(u_.ternary_jump_step, *context);
+      break;
+    case ExpressionStepKind::kFixedJump:
+      ABSL_DCHECK(u_.fixed_jump_step.set)
+          << "FixedJumpStep did not have a value set.";
+      context->JumpToOrAbort(u_.fixed_jump_step.offset);
       break;
     case ExpressionStepKind::kMovedFrom:
       context->Abort(
@@ -358,6 +421,28 @@ ComprehensionNextStep* GetIfComprehensionNextStep(ExpressionStep& step) {
   if (step.header_.kind == ExpressionStepKind::kComprehensionNext ||
       step.header_.kind == ExpressionStepKind::kComprehensionNext2) {
     return &step.u_.next_step;
+  }
+  return nullptr;
+}
+
+BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kBooleanOrJump ||
+      step.header_.kind == ExpressionStepKind::kBooleanAndJump) {
+    return &step.u_.bool_jump_step;
+  }
+  return nullptr;
+}
+
+TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kTernaryJump) {
+    return &step.u_.ternary_jump_step;
+  }
+  return nullptr;
+}
+
+FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kFixedJump) {
+    return &step.u_.fixed_jump_step;
   }
   return nullptr;
 }

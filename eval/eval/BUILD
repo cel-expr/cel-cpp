@@ -439,25 +439,6 @@ cc_library(
 )
 
 cc_library(
-    name = "jump_step",
-    srcs = [
-        "jump_step.cc",
-    ],
-    hdrs = [
-        "jump_step.h",
-    ],
-    deps = [
-        ":evaluator_core",
-        ":expression_step_base",
-        "//common:value",
-        "//eval/internal:errors",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/types:optional",
-        "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
-    ],
-)
-
-cc_library(
     name = "equality_steps",
     srcs = [
         "equality_steps.cc",
@@ -1195,15 +1176,14 @@ cc_library(
         ":direct_expression_step",
         ":evaluator_core",
         ":expression_step_base",
-        ":jump_step",
+        ":expression_step_logic",
         "//common:casting",
+        "//common:optional_ref",
         "//common:value",
         "//internal:status_macros",
         "//runtime/internal:errors",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
         "@com_google_protobuf//:protobuf",
     ],

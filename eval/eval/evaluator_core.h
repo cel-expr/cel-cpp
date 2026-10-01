@@ -87,6 +87,28 @@ enum class ExpressionStepKind : uint16_t {
   kComprehensionNext2 = 18,
   kComprehensionCond2 = 19,
   kReadSlot = 20,
+  kBooleanOrJump = 21,
+  kBooleanAndJump = 22,
+  kTernaryJump = 23,
+  kFixedJump = 24,
+};
+
+struct BoolJumpStepInfo {
+  size_t arg_count : 32;
+  bool set : 1;
+  int offset : 31;
+};
+
+struct TernaryJumpStepInfo {
+  bool set : 1;
+  int error_offset : 31;
+  int jump_to_second_offset : 32;
+};
+
+struct FixedJumpStepInfo {
+  bool set : 1;
+  int32_t reserved : 31;
+  int offset : 32;
 };
 
 class ExpressionStep {
@@ -217,6 +239,34 @@ class ExpressionStep {
     return step;
   }
 
+  static ExpressionStep MakeBooleanOrJumpStep(size_t arg_count,
+                                              int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBooleanOrJump, id);
+    ABSL_DCHECK_LT(arg_count, std::numeric_limits<uint32_t>::max());
+    step.u_.bool_jump_step = BoolJumpStepInfo{arg_count, false, 0};
+    return step;
+  }
+
+  static ExpressionStep MakeBooleanAndJumpStep(size_t arg_count,
+                                               int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBooleanAndJump, id);
+    ABSL_DCHECK_LT(arg_count, std::numeric_limits<uint32_t>::max());
+    step.u_.bool_jump_step = BoolJumpStepInfo{arg_count, false, 0};
+    return step;
+  }
+
+  static ExpressionStep MakeTernaryJumpStep(int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kTernaryJump, id);
+    step.u_.ternary_jump_step = TernaryJumpStepInfo{false, 0, 0};
+    return step;
+  }
+
+  static ExpressionStep MakeFixedJumpStep(int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kFixedJump, id);
+    step.u_.fixed_jump_step = FixedJumpStepInfo{false, 0, 0};
+    return step;
+  }
+
  private:
   struct Header {
     ExpressionStepKind kind;
@@ -252,6 +302,9 @@ class ExpressionStep {
       ExpressionStep& step);
   friend ComprehensionNextStep* GetIfComprehensionNextStep(
       ExpressionStep& step);
+  friend BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step);
+  friend TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step);
+  friend FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step);
 
   Header header_;
   // Note: ptr members are 'owned' by the step.
@@ -270,6 +323,9 @@ class ExpressionStep {
     size_t arg_count;
     ComprehensionCondStep cond_step;
     ComprehensionNextStep next_step;
+    BoolJumpStepInfo bool_jump_step;
+    TernaryJumpStepInfo ternary_jump_step;
+    FixedJumpStepInfo fixed_jump_step;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -789,6 +845,30 @@ bool IsConstant(const ExpressionStep& step);
 ComprehensionCondStep* GetIfComprehensionCondStep(ExpressionStep& step);
 ComprehensionNextStep* GetIfComprehensionNextStep(ExpressionStep& step);
 
+BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step);
+inline BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep* step) {
+  if (step == nullptr) {
+    return nullptr;
+  }
+  return GetIfBoolJumpStep(*step);
+}
+
+TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step);
+inline TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep* step) {
+  if (step == nullptr) {
+    return nullptr;
+  }
+  return GetIfTernaryJumpStep(*step);
+}
+
+FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step);
+inline FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep* step) {
+  if (step == nullptr) {
+    return nullptr;
+  }
+  return GetIfFixedJumpStep(*step);
+}
+
 // Implementation details.
 
 inline ExpressionStep::~ExpressionStep() {
@@ -818,6 +898,10 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kComprehensionCond2:
     case ExpressionStepKind::kComprehensionNext2:
     case ExpressionStepKind::kReadSlot:
+    case ExpressionStepKind::kBooleanOrJump:
+    case ExpressionStepKind::kBooleanAndJump:
+    case ExpressionStepKind::kTernaryJump:
+    case ExpressionStepKind::kFixedJump:
       break;
     default:
       ABSL_UNREACHABLE();

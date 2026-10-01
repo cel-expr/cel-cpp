@@ -17,12 +17,28 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
+#include "absl/status/status.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/jump_step.h"
+#include "eval/eval/expression_step_base.h"
 
 namespace google::api::expr::runtime {
+
+class OptionalHasValueJumpStep final : public ExpressionStepBase {
+ public:
+  explicit OptionalHasValueJumpStep(bool is_or_value)
+      : is_or_value_(is_or_value) {}
+
+  void set_jump_offset(int offset) { jump_offset_ = offset; }
+
+  absl::Status Evaluate(ExecutionFrame* frame) const override;
+
+ private:
+  const bool is_or_value_;
+  std::optional<int> jump_offset_;
+};
 
 // Factory method for OptionalHasValueJump step, used to implement
 // short-circuiting optional.or and optional.orValue.
@@ -31,7 +47,8 @@ namespace google::api::expr::runtime {
 // true, performs a jump. If `or_value` is true and we are jumping,
 // `optional.value` is called and the result replaces the optional at the top of
 // the stack.
-std::unique_ptr<JumpStepBase> CreateOptionalHasValueJumpStep(bool or_value);
+std::unique_ptr<OptionalHasValueJumpStep> CreateOptionalHasValueJumpStep(
+    bool or_value);
 
 // Factory method for OptionalOr step, used to implement optional.or and
 // optional.orValue.

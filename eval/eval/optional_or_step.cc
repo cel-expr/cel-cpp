@@ -21,16 +21,15 @@
 
 #include "absl/base/optimization.h"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "common/casting.h"
+#include "common/optional_ref.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
-#include "eval/eval/jump_step.h"
+#include "eval/eval/expression_step_logic.h"
 #include "internal/status_macros.h"
 #include "runtime/internal/errors.h"
 #include "google/protobuf/arena.h"
@@ -59,56 +58,6 @@ ErrorValue MakeNoOverloadError(OptionalOrKind kind, google::protobuf::Arena* are
 
   ABSL_UNREACHABLE();
 }
-
-// Implements short-circuiting for optional.or.
-// Expected layout if short-circuiting enabled:
-//
-// +--------+-----------------------+-------------------------------+
-// |   idx  |         Step          |   Stack After                 |
-// +--------+-----------------------+-------------------------------+
-// |    1   |<optional target expr> | OptionalValue                 |
-// +--------+-----------------------+-------------------------------+
-// |    2   | Jump to 5 if present  | OptionalValue                 |
-// +--------+-----------------------+-------------------------------+
-// |    3   | <alternative expr>    | OptionalValue, OptionalValue  |
-// +--------+-----------------------+-------------------------------+
-// |    4   | optional.or           | OptionalValue                 |
-// +--------+-----------------------+-------------------------------+
-// |    5   | <rest>                | ...                           |
-// +--------------------------------+-------------------------------+
-//
-// If implementing the orValue variant, the jump step handles unwrapping (
-// getting the result of optional.value())
-class OptionalHasValueJumpStep final : public JumpStepBase {
- public:
-  explicit OptionalHasValueJumpStep(OptionalOrKind kind)
-      : JumpStepBase(std::nullopt), kind_(kind) {}
-
-  absl::Status Evaluate(ExecutionFrame* frame) const override {
-    if (!frame->value_stack().HasEnough(1)) {
-      return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
-    }
-    const auto& value = frame->value_stack().Peek();
-    auto optional_value = As<OptionalValue>(value);
-    // We jump if the receiver is `optional_type` which has a value or the
-    // receiver is an error/unknown. Unlike `_||_` we are not commutative. If
-    // we run into an error/unknown, we skip the `else` branch.
-    const bool should_jump =
-        (optional_value.has_value() && optional_value->HasValue()) ||
-        (!optional_value.has_value() && (cel::InstanceOf<ErrorValue>(value) ||
-                                         cel::InstanceOf<UnknownValue>(value)));
-    if (should_jump) {
-      if (kind_ == OptionalOrKind::kOrValue && optional_value.has_value()) {
-        frame->value_stack().PopAndPush(optional_value->Value());
-      }
-      return Jump(frame);
-    }
-    return absl::OkStatus();
-  }
-
- private:
-  const OptionalOrKind kind_;
-};
 
 class OptionalOrStep : public ExpressionStepBase {
  public:
@@ -276,9 +225,35 @@ absl::Status DirectOptionalOrStep::Evaluate(ExecutionFrameBase& frame,
 
 }  // namespace
 
-std::unique_ptr<JumpStepBase> CreateOptionalHasValueJumpStep(bool or_value) {
-  return std::make_unique<OptionalHasValueJumpStep>(
-      or_value ? OptionalOrKind::kOrValue : OptionalOrKind::kOrOptional);
+absl::Status OptionalHasValueJumpStep::Evaluate(ExecutionFrame* frame) const {
+  if (!frame->value_stack().HasEnough(1)) {
+    return absl::Status(absl::StatusCode::kInternal, "Value stack underflow");
+  }
+  const Value& value = frame->value_stack().Peek();
+  cel::optional_ref<const OptionalValue> optional_value =
+      As<OptionalValue>(value);
+  // We jump if the receiver is `optional_type` which has a value or the
+  // receiver is an error/unknown. Unlike `_||_` we are not commutative. If
+  // we run into an error/unknown, we skip the `else` branch.
+  const bool should_jump =
+      (optional_value.has_value() && optional_value->HasValue()) ||
+      (!optional_value.has_value() && (cel::InstanceOf<ErrorValue>(value) ||
+                                       cel::InstanceOf<UnknownValue>(value)));
+  if (should_jump) {
+    if (is_or_value_ && optional_value.has_value()) {
+      frame->value_stack().PopAndPush(optional_value->Value());
+    }
+    if (!jump_offset_.has_value()) {
+      return absl::Status(absl::StatusCode::kInternal, "Jump offset not set");
+    }
+    return frame->JumpTo(*jump_offset_);
+  }
+  return absl::OkStatus();
+}
+
+std::unique_ptr<OptionalHasValueJumpStep> CreateOptionalHasValueJumpStep(
+    bool or_value) {
+  return std::make_unique<OptionalHasValueJumpStep>(or_value);
 }
 
 std::unique_ptr<ExpressionStepLogic> CreateOptionalOrStep(bool is_or_value) {

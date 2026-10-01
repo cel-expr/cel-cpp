@@ -28,6 +28,7 @@
 namespace google::api::expr::runtime {
 
 using ::absl_testing::IsOk;
+using ::absl_testing::StatusIs;
 using ::cel::IntValue;
 using ::cel::TypeProvider;
 using ::cel::interop_internal::CreateIntValue;
@@ -37,6 +38,7 @@ using ::google::api::expr::runtime::RegisterBuiltinFunctions;
 using ::testing::_;
 using ::testing::ElementsAre;
 using ::testing::Eq;
+using ::testing::HasSubstr;
 
 // Fake expression implementation
 // Pushes int64(0) on top of value stack.
@@ -93,6 +95,88 @@ TEST(EvaluatorCoreTest, ExecutionFrameNext) {
   EXPECT_THAT(frame.Next(), Eq(&path[1]));
   EXPECT_THAT(frame.Next(), Eq(&path[2]));
   EXPECT_THAT(frame.Next(), Eq(nullptr));
+}
+
+TEST(EvaluatorCoreTest, JumpOutOfRangeAborts) {
+  ExecutionPath path;
+  google::protobuf::Arena arena;
+  cel::runtime_internal::RuntimeTypeProvider type_provider(
+      cel::internal::GetTestingDescriptorPool());
+
+  path.push_back(ExpressionStep::MakeFixedJumpStep());
+  FixedJumpStepInfo* jump_info = GetIfFixedJumpStep(path.back());
+  ASSERT_NE(jump_info, nullptr);
+  jump_info->set = true;
+  jump_info->offset = 1;
+
+  cel::RuntimeOptions options;
+  cel::Activation activation;
+  FlatExpressionEvaluatorState state(
+      path.size(),
+      /*comprehension_slots_size=*/0, type_provider,
+      cel::internal::GetTestingDescriptorPool(),
+      cel::internal::GetTestingMessageFactory(), &arena);
+  ExecutionFrame frame(path, activation, options, state);
+
+  EXPECT_THAT(frame.Evaluate(),
+              StatusIs(absl::StatusCode::kInternal,
+                       HasSubstr("Jump address out of range")));
+}
+
+TEST(EvaluatorCoreTest, TestStepDataAccessors) {
+  ExpressionStep fixed_jump = ExpressionStep::MakeFixedJumpStep();
+  EXPECT_NE(GetIfFixedJumpStep(fixed_jump), nullptr);
+  EXPECT_NE(GetIfFixedJumpStep(&fixed_jump), nullptr);
+  EXPECT_EQ(GetIfFixedJumpStep(static_cast<ExpressionStep*>(nullptr)), nullptr);
+
+  ExpressionStep bool_or_jump = ExpressionStep::MakeBooleanOrJumpStep(2);
+  EXPECT_NE(GetIfBoolJumpStep(bool_or_jump), nullptr);
+  EXPECT_NE(GetIfBoolJumpStep(&bool_or_jump), nullptr);
+  EXPECT_EQ(GetIfBoolJumpStep(static_cast<ExpressionStep*>(nullptr)), nullptr);
+
+  ExpressionStep bool_and_jump = ExpressionStep::MakeBooleanAndJumpStep(2);
+  EXPECT_NE(GetIfBoolJumpStep(bool_and_jump), nullptr);
+  EXPECT_NE(GetIfBoolJumpStep(&bool_and_jump), nullptr);
+
+  ExpressionStep ternary_jump = ExpressionStep::MakeTernaryJumpStep();
+  EXPECT_NE(GetIfTernaryJumpStep(ternary_jump), nullptr);
+  EXPECT_NE(GetIfTernaryJumpStep(&ternary_jump), nullptr);
+  EXPECT_EQ(GetIfTernaryJumpStep(static_cast<ExpressionStep*>(nullptr)),
+            nullptr);
+
+  ExpressionStep comp_cond = ExpressionStep::MakeComprehensionCondStep();
+  EXPECT_NE(GetIfComprehensionCondStep(comp_cond), nullptr);
+
+  ExpressionStep comp_cond2 = ExpressionStep::MakeComprehensionCond2Step();
+  EXPECT_NE(GetIfComprehensionCondStep(comp_cond2), nullptr);
+
+  ExpressionStep comp_next = ExpressionStep::MakeComprehensionNextStep();
+  EXPECT_NE(GetIfComprehensionNextStep(comp_next), nullptr);
+
+  ExpressionStep comp_next2 = ExpressionStep::MakeComprehensionNext2Step();
+  EXPECT_NE(GetIfComprehensionNextStep(comp_next2), nullptr);
+
+  ExpressionStep const_step = ExpressionStep::MakeConstant(cel::IntValue(42));
+  EXPECT_TRUE(IsConstant(const_step));
+  cel::Value value;
+  EXPECT_TRUE(GetIfConstant(const_step, value));
+  EXPECT_TRUE(value.IsInt());
+  EXPECT_EQ(value.GetInt().NativeValue(), 42);
+
+  ExpressionStep generic_step = ExpressionStep::MakeGenericStep(
+      std::make_unique<FakeConstExpressionStep>());
+  EXPECT_TRUE(generic_step.IsGenericStep());
+  EXPECT_NE(generic_step.GetGenericStep(), nullptr);
+
+  // Negative checks for mismatched step kinds.
+  EXPECT_EQ(GetIfFixedJumpStep(bool_or_jump), nullptr);
+  EXPECT_EQ(GetIfBoolJumpStep(fixed_jump), nullptr);
+  EXPECT_EQ(GetIfTernaryJumpStep(fixed_jump), nullptr);
+  EXPECT_EQ(GetIfComprehensionCondStep(fixed_jump), nullptr);
+  EXPECT_EQ(GetIfComprehensionNextStep(fixed_jump), nullptr);
+  EXPECT_FALSE(IsConstant(fixed_jump));
+  EXPECT_FALSE(GetIfConstant(fixed_jump, value));
+  EXPECT_FALSE(fixed_jump.IsGenericStep());
 }
 
 TEST(EvaluatorCoreTest, SimpleEvaluatorTest) {
