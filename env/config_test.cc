@@ -248,14 +248,12 @@ TEST(FunctionConfigTest, FunctionConfig) {
   EXPECT_THAT(overload_config.examples,
               ElementsAre("oracle.isTheOne('Neo', RED)"));
   EXPECT_TRUE(overload_config.is_member_function);
-  EXPECT_THAT(
-      overload_config.parameters,
-      ElementsAre(AllOf(Field(&Config::TypeInfo::name, "string"),
-                        Field(&Config::TypeInfo::is_type_param, false)),
-                  AllOf(Field(&Config::TypeInfo::name, "Choice"),
-                        Field(&Config::TypeInfo::is_type_param, false))));
-  EXPECT_THAT(overload_config.return_type,
-              Field(&Config::TypeInfo::name, "bool"));
+  EXPECT_THAT(overload_config.parameters,
+              ElementsAre(AllOf(Field(&TypeRef::name, "string"),
+                                Field(&TypeRef::is_type_param, false)),
+                          AllOf(Field(&TypeRef::name, "Choice"),
+                                Field(&TypeRef::is_type_param, false))));
+  EXPECT_THAT(overload_config.return_type, Field(&TypeRef::name, "bool"));
 }
 
 TEST(FunctionConfigTest, FunctionConfigInvalidMember) {

@@ -18,24 +18,22 @@
 #include "absl/status/statusor.h"
 #include "common/ast.h"
 #include "common/type.h"
-#include "env/config.h"
+#include "common/typedef/type_ref.h"  // IWYU pragma: export
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 
 namespace cel {
 
-// Converts a Config::TypeInfo to a cel::Type. Returns an error if the type_info
-// cannot be converted to a known cel::Type, a list configured with more than
-// one parameter.
-absl::StatusOr<Type> TypeInfoToType(
-    const Config::TypeInfo& type_info,
-    const google::protobuf::DescriptorPool* descriptor_pool, google::protobuf::Arena* arena);
+// Backwards-compatible aliases for existing third_party/cel/python callers.
+inline absl::StatusOr<Type> TypeInfoToType(
+    const TypeRef& type_ref, const google::protobuf::DescriptorPool* descriptor_pool,
+    google::protobuf::Arena* arena) {
+  return TypeRefToType(type_ref, descriptor_pool, arena);
+}
 
-// Converts a Config::TypeInfo to a cel::TypeSpec.
-absl::StatusOr<TypeSpec> TypeInfoToTypeSpec(const Config::TypeInfo& type_info);
-
-// Converts a cel::TypeSpec to a Config::TypeInfo.
-absl::StatusOr<Config::TypeInfo> TypeSpecToTypeInfo(const TypeSpec& type_spec);
+inline absl::StatusOr<TypeRef> TypeSpecToTypeInfo(const TypeSpec& type_spec) {
+  return TypeSpecToTypeRef(type_spec);
+}
 
 }  // namespace cel
 

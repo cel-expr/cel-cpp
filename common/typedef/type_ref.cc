@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "env/type_info.h"
+#include "common/typedef/type_ref.h"
 
 #include <memory>
 #include <optional>
@@ -27,7 +27,6 @@
 #include "common/ast.h"
 #include "common/type.h"
 #include "common/type_kind.h"
-#include "env/config.h"
 #include "internal/status_macros.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
@@ -85,31 +84,31 @@ std::optional<TypeKind> TypeNameToTypeKind(absl::string_view type_name) {
 }
 }  // namespace
 
-absl::StatusOr<Type> TypeInfoToType(
-    const Config::TypeInfo& type_info,
-    const google::protobuf::DescriptorPool* descriptor_pool, google::protobuf::Arena* arena) {
-  if (type_info.is_type_param) {
-    return TypeParamType(type_info.name);
+absl::StatusOr<Type> TypeRefToType(
+    const TypeRef& type_ref, const google::protobuf::DescriptorPool* descriptor_pool,
+    google::protobuf::Arena* arena) {
+  if (type_ref.is_type_param) {
+    return TypeParamType(type_ref.name);
   }
 
-  std::optional<TypeKind> type_kind = TypeNameToTypeKind(type_info.name);
+  std::optional<TypeKind> type_kind = TypeNameToTypeKind(type_ref.name);
   if (!type_kind.has_value()) {
-    if (type_info.params.empty() && descriptor_pool != nullptr) {
+    if (type_ref.params.empty() && descriptor_pool != nullptr) {
       const google::protobuf::Descriptor* type =
-          descriptor_pool->FindMessageTypeByName(type_info.name);
+          descriptor_pool->FindMessageTypeByName(type_ref.name);
       if (type != nullptr) {
         return Type::Message(type);
       }
     }
     // TODO(uncreated-issue/88): use a TypeIntrospector to validate opaque types
     std::vector<Type> parameter_types;
-    for (const Config::TypeInfo& param : type_info.params) {
+    for (const TypeRef& param : type_ref.params) {
       CEL_ASSIGN_OR_RETURN(Type parameter_type,
-                           TypeInfoToType(param, descriptor_pool, arena));
+                           TypeRefToType(param, descriptor_pool, arena));
       parameter_types.push_back(parameter_type);
     }
 
-    return OpaqueType(arena, type_info.name, parameter_types);
+    return OpaqueType(arena, type_ref.name, parameter_types);
   }
 
   switch (*type_kind) {
@@ -133,10 +132,10 @@ absl::StatusOr<Type> TypeInfoToType(
       return TimestampType();
     case TypeKind::kList: {
       Type element_type;
-      if (!type_info.params.empty()) {
+      if (!type_ref.params.empty()) {
         CEL_ASSIGN_OR_RETURN(
             element_type,
-            TypeInfoToType(type_info.params[0], descriptor_pool, arena));
+            TypeRefToType(type_ref.params[0], descriptor_pool, arena));
       } else {
         element_type = DynType();
       }
@@ -145,14 +144,13 @@ absl::StatusOr<Type> TypeInfoToType(
     case TypeKind::kMap: {
       Type key_type = DynType();
       Type value_type = DynType();
-      if (!type_info.params.empty()) {
-        CEL_ASSIGN_OR_RETURN(key_type, TypeInfoToType(type_info.params[0],
-                                                      descriptor_pool, arena));
+      if (!type_ref.params.empty()) {
+        CEL_ASSIGN_OR_RETURN(key_type, TypeRefToType(type_ref.params[0],
+                                                     descriptor_pool, arena));
       }
-      if (type_info.params.size() > 1) {
-        CEL_ASSIGN_OR_RETURN(
-            value_type,
-            TypeInfoToType(type_info.params[1], descriptor_pool, arena));
+      if (type_ref.params.size() > 1) {
+        CEL_ASSIGN_OR_RETURN(value_type, TypeRefToType(type_ref.params[1],
+                                                       descriptor_pool, arena));
       }
       return MapType(arena, key_type, value_type);
     }
@@ -173,34 +171,35 @@ absl::StatusOr<Type> TypeInfoToType(
     case TypeKind::kBytesWrapper:
       return BytesWrapperType();
     case TypeKind::kType: {
-      if (type_info.params.empty()) {
+      if (type_ref.params.empty()) {
         return TypeType(arena, DynType());
       }
-      CEL_ASSIGN_OR_RETURN(Type type, TypeInfoToType(type_info.params[0],
-                                                     descriptor_pool, arena));
+      CEL_ASSIGN_OR_RETURN(
+          Type type, TypeRefToType(type_ref.params[0], descriptor_pool, arena));
       return TypeType(arena, type);
     }
     default:
       return DynType();
   }
 }
-absl::StatusOr<TypeSpec> TypeInfoToTypeSpec(const Config::TypeInfo& type_info) {
-  if (type_info.is_type_param) {
-    return TypeSpec(ParamTypeSpec(type_info.name));
+
+absl::StatusOr<TypeSpec> TypeRefToTypeSpec(const TypeRef& type_ref) {
+  if (type_ref.is_type_param) {
+    return TypeSpec(ParamTypeSpec(type_ref.name));
   }
 
-  std::optional<TypeKind> type_kind = TypeNameToTypeKind(type_info.name);
+  std::optional<TypeKind> type_kind = TypeNameToTypeKind(type_ref.name);
   if (!type_kind.has_value()) {
-    if (type_info.params.empty()) {
-      return TypeSpec(MessageTypeSpec(type_info.name));
+    if (type_ref.params.empty()) {
+      return TypeSpec(MessageTypeSpec(type_ref.name));
     } else {
       std::vector<TypeSpec> param_specs;
-      param_specs.reserve(type_info.params.size());
-      for (const Config::TypeInfo& param : type_info.params) {
-        CEL_ASSIGN_OR_RETURN(TypeSpec param_spec, TypeInfoToTypeSpec(param));
+      param_specs.reserve(type_ref.params.size());
+      for (const TypeRef& param : type_ref.params) {
+        CEL_ASSIGN_OR_RETURN(TypeSpec param_spec, TypeRefToTypeSpec(param));
         param_specs.push_back(std::move(param_spec));
       }
-      return TypeSpec(AbstractType(type_info.name, std::move(param_specs)));
+      return TypeSpec(AbstractType(type_ref.name, std::move(param_specs)));
     }
   }
 
@@ -224,9 +223,9 @@ absl::StatusOr<TypeSpec> TypeInfoToTypeSpec(const Config::TypeInfo& type_info) {
     case TypeKind::kDuration:
       return TypeSpec(WellKnownTypeSpec::kDuration);
     case TypeKind::kList: {
-      if (!type_info.params.empty()) {
+      if (!type_ref.params.empty()) {
         CEL_ASSIGN_OR_RETURN(TypeSpec elem_type,
-                             TypeInfoToTypeSpec(type_info.params[0]));
+                             TypeRefToTypeSpec(type_ref.params[0]));
         return TypeSpec(
             ListTypeSpec(std::make_unique<TypeSpec>(std::move(elem_type))));
       } else {
@@ -234,14 +233,14 @@ absl::StatusOr<TypeSpec> TypeInfoToTypeSpec(const Config::TypeInfo& type_info) {
       }
     }
     case TypeKind::kMap: {
-      if (type_info.params.empty()) {
+      if (type_ref.params.empty()) {
         return TypeSpec(MapTypeSpec());
       }
       CEL_ASSIGN_OR_RETURN(TypeSpec key_type,
-                           TypeInfoToTypeSpec(type_info.params[0]));
-      if (type_info.params.size() > 1) {
+                           TypeRefToTypeSpec(type_ref.params[0]));
+      if (type_ref.params.size() > 1) {
         CEL_ASSIGN_OR_RETURN(TypeSpec value_type,
-                             TypeInfoToTypeSpec(type_info.params[1]));
+                             TypeRefToTypeSpec(type_ref.params[1]));
         return TypeSpec(
             MapTypeSpec(std::make_unique<TypeSpec>(std::move(key_type)),
                         std::make_unique<TypeSpec>(std::move(value_type))));
@@ -266,11 +265,11 @@ absl::StatusOr<TypeSpec> TypeInfoToTypeSpec(const Config::TypeInfo& type_info) {
     case TypeKind::kBytesWrapper:
       return TypeSpec(PrimitiveTypeWrapper(PrimitiveType::kBytes));
     case TypeKind::kType: {
-      if (type_info.params.empty()) {
+      if (type_ref.params.empty()) {
         return TypeSpec(std::make_unique<TypeSpec>(DynTypeSpec()));
       }
       CEL_ASSIGN_OR_RETURN(TypeSpec type_param,
-                           TypeInfoToTypeSpec(type_info.params[0]));
+                           TypeRefToTypeSpec(type_ref.params[0]));
       return TypeSpec(std::make_unique<TypeSpec>(std::move(type_param)));
     }
     default:
@@ -278,32 +277,32 @@ absl::StatusOr<TypeSpec> TypeInfoToTypeSpec(const Config::TypeInfo& type_info) {
   }
 }
 
-absl::StatusOr<Config::TypeInfo> TypeSpecToTypeInfo(const TypeSpec& type_spec) {
-  Config::TypeInfo type_info;
+absl::StatusOr<TypeRef> TypeSpecToTypeRef(const TypeSpec& type_spec) {
+  TypeRef type_ref;
 
   if (type_spec.has_dyn()) {
-    type_info.name = "dyn";
+    type_ref.name = "dyn";
   } else if (type_spec.has_null()) {
-    type_info.name = "null";
+    type_ref.name = "null";
   } else if (type_spec.has_primitive()) {
     switch (type_spec.primitive()) {
       case PrimitiveType::kBool:
-        type_info.name = "bool";
+        type_ref.name = "bool";
         break;
       case PrimitiveType::kInt64:
-        type_info.name = "int";
+        type_ref.name = "int";
         break;
       case PrimitiveType::kUint64:
-        type_info.name = "uint";
+        type_ref.name = "uint";
         break;
       case PrimitiveType::kDouble:
-        type_info.name = "double";
+        type_ref.name = "double";
         break;
       case PrimitiveType::kString:
-        type_info.name = "string";
+        type_ref.name = "string";
         break;
       case PrimitiveType::kBytes:
-        type_info.name = "bytes";
+        type_ref.name = "bytes";
         break;
       default:
         return absl::InvalidArgumentError("Unspecified primitive type");
@@ -311,22 +310,22 @@ absl::StatusOr<Config::TypeInfo> TypeSpecToTypeInfo(const TypeSpec& type_spec) {
   } else if (type_spec.has_wrapper()) {
     switch (type_spec.wrapper()) {
       case PrimitiveType::kBool:
-        type_info.name = "bool_wrapper";
+        type_ref.name = "bool_wrapper";
         break;
       case PrimitiveType::kInt64:
-        type_info.name = "int_wrapper";
+        type_ref.name = "int_wrapper";
         break;
       case PrimitiveType::kUint64:
-        type_info.name = "uint_wrapper";
+        type_ref.name = "uint_wrapper";
         break;
       case PrimitiveType::kDouble:
-        type_info.name = "double_wrapper";
+        type_ref.name = "double_wrapper";
         break;
       case PrimitiveType::kString:
-        type_info.name = "string_wrapper";
+        type_ref.name = "string_wrapper";
         break;
       case PrimitiveType::kBytes:
-        type_info.name = "bytes_wrapper";
+        type_ref.name = "bytes_wrapper";
         break;
       default:
         return absl::InvalidArgumentError("Unspecified wrapper type");
@@ -334,27 +333,27 @@ absl::StatusOr<Config::TypeInfo> TypeSpecToTypeInfo(const TypeSpec& type_spec) {
   } else if (type_spec.has_well_known()) {
     switch (type_spec.well_known()) {
       case WellKnownTypeSpec::kAny:
-        type_info.name = "any";
+        type_ref.name = "any";
         break;
       case WellKnownTypeSpec::kTimestamp:
-        type_info.name = "timestamp";
+        type_ref.name = "timestamp";
         break;
       case WellKnownTypeSpec::kDuration:
-        type_info.name = "duration";
+        type_ref.name = "duration";
         break;
       default:
         return absl::InvalidArgumentError("Unspecified well known type");
     }
   } else if (type_spec.has_list_type()) {
-    type_info.name = "list";
+    type_ref.name = "list";
     const ListTypeSpec& list_type = type_spec.list_type();
     if (list_type.has_elem_type() && list_type.elem_type().is_specified()) {
-      CEL_ASSIGN_OR_RETURN(Config::TypeInfo param,
-                           TypeSpecToTypeInfo(list_type.elem_type()));
-      type_info.params.push_back(std::move(param));
+      CEL_ASSIGN_OR_RETURN(TypeRef param,
+                           TypeSpecToTypeRef(list_type.elem_type()));
+      type_ref.params.push_back(std::move(param));
     }
   } else if (type_spec.has_map_type()) {
-    type_info.name = "map";
+    type_ref.name = "map";
     const MapTypeSpec& map_type = type_spec.map_type();
     bool has_key =
         map_type.has_key_type() && map_type.key_type().is_specified();
@@ -362,49 +361,47 @@ absl::StatusOr<Config::TypeInfo> TypeSpecToTypeInfo(const TypeSpec& type_spec) {
         map_type.has_value_type() && map_type.value_type().is_specified();
     if (has_key || has_value) {
       if (has_key) {
-        CEL_ASSIGN_OR_RETURN(Config::TypeInfo param,
-                             TypeSpecToTypeInfo(map_type.key_type()));
-        type_info.params.push_back(std::move(param));
+        CEL_ASSIGN_OR_RETURN(TypeRef param,
+                             TypeSpecToTypeRef(map_type.key_type()));
+        type_ref.params.push_back(std::move(param));
       } else {
-        type_info.params.push_back(Config::TypeInfo{.name = "dyn"});
+        type_ref.params.push_back(TypeRef{.name = "dyn"});
       }
       if (has_value) {
-        CEL_ASSIGN_OR_RETURN(Config::TypeInfo param_value,
-                             TypeSpecToTypeInfo(map_type.value_type()));
-        type_info.params.push_back(std::move(param_value));
+        CEL_ASSIGN_OR_RETURN(TypeRef param_value,
+                             TypeSpecToTypeRef(map_type.value_type()));
+        type_ref.params.push_back(std::move(param_value));
       } else {
-        type_info.params.push_back(Config::TypeInfo{.name = "dyn"});
+        type_ref.params.push_back(TypeRef{.name = "dyn"});
       }
     }
   } else if (type_spec.has_message_type()) {
-    type_info.name = type_spec.message_type().type();
+    type_ref.name = type_spec.message_type().type();
   } else if (type_spec.has_type_param()) {
-    type_info.name = type_spec.type_param().type();
-    type_info.is_type_param = true;
+    type_ref.name = type_spec.type_param().type();
+    type_ref.is_type_param = true;
   } else if (type_spec.has_type()) {
-    type_info.name = "type";
-    CEL_ASSIGN_OR_RETURN(Config::TypeInfo param,
-                         TypeSpecToTypeInfo(type_spec.type()));
-    type_info.params.push_back(std::move(param));
+    type_ref.name = "type";
+    CEL_ASSIGN_OR_RETURN(TypeRef param, TypeSpecToTypeRef(type_spec.type()));
+    type_ref.params.push_back(std::move(param));
   } else if (type_spec.has_abstract_type()) {
-    type_info.name = type_spec.abstract_type().name();
+    type_ref.name = type_spec.abstract_type().name();
     for (const TypeSpec& param_spec :
          type_spec.abstract_type().parameter_types()) {
-      CEL_ASSIGN_OR_RETURN(Config::TypeInfo param,
-                           TypeSpecToTypeInfo(param_spec));
-      type_info.params.push_back(std::move(param));
+      CEL_ASSIGN_OR_RETURN(TypeRef param, TypeSpecToTypeRef(param_spec));
+      type_ref.params.push_back(std::move(param));
     }
   } else if (type_spec.has_error()) {
     return absl::InvalidArgumentError(
-        "ErrorType cannot be converted to TypeInfo");
+        "ErrorType cannot be converted to TypeRef");
   } else if (type_spec.has_function()) {
     return absl::InvalidArgumentError(
-        "FunctionType cannot be converted to TypeInfo");
+        "FunctionType cannot be converted to TypeRef");
   } else {
     return absl::InvalidArgumentError("Unknown TypeSpec kind");
   }
 
-  return type_info;
+  return type_ref;
 }
 
 }  // namespace cel

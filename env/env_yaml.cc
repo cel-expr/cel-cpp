@@ -39,8 +39,8 @@
 #include "common/ast.h"
 #include "common/constant.h"
 #include "common/signature.h"
+#include "common/typedef/type_ref.h"
 #include "env/config.h"
-#include "env/type_info.h"
 #include "internal/status_macros.h"
 #include "internal/strings.h"
 #include "yaml-cpp/emitter.h"
@@ -420,9 +420,9 @@ absl::Status ParseStandardLibraryConfig(Config& config, absl::string_view yaml,
   return config.SetStandardLibraryConfig(standard_library_config);
 }
 
-absl::StatusOr<Config::TypeInfo> ParseTypeInfo(const YAML::Node& node,
-                                               absl::string_view yaml) {
-  Config::TypeInfo type_config;
+absl::StatusOr<TypeRef> ParseTypeRef(const YAML::Node& node,
+                                     absl::string_view yaml) {
+  TypeRef type_ref;
   const YAML::Node type = node["type"];
   const YAML::Node type_name = node["type_name"];
   if (type.IsDefined() && type_name.IsDefined()) {
@@ -435,17 +435,17 @@ absl::StatusOr<Config::TypeInfo> ParseTypeInfo(const YAML::Node& node,
       return YamlError(yaml, type, "Node 'type' is not a string");
     }
     CEL_ASSIGN_OR_RETURN(auto type_spec, ParseTypeSpec(GetString(yaml, type)));
-    CEL_ASSIGN_OR_RETURN(auto type_config, TypeSpecToTypeInfo(type_spec));
-    return type_config;
+    CEL_ASSIGN_OR_RETURN(TypeRef type_ref, TypeSpecToTypeRef(type_spec));
+    return type_ref;
   }
 
   if (!type_name.IsDefined()) {
-    return type_config;
+    return type_ref;
   }
   if (!type_name || !type_name.IsScalar()) {
     return YamlError(yaml, type_name, "Node 'type_name' is not a string");
   }
-  type_config.name = GetString(yaml, type_name);
+  type_ref.name = GetString(yaml, type_name);
 
   const YAML::Node is_type_param = node["is_type_param"];
   if (is_type_param.IsDefined()) {
@@ -453,27 +453,26 @@ absl::StatusOr<Config::TypeInfo> ParseTypeInfo(const YAML::Node& node,
       return YamlError(yaml, is_type_param,
                        "Node 'is_type_param' is not a boolean");
     }
-    CEL_ASSIGN_OR_RETURN(type_config.is_type_param,
+    CEL_ASSIGN_OR_RETURN(type_ref.is_type_param,
                          GetBool(yaml, "is_type_param", is_type_param));
   }
 
   const YAML::Node params = node["params"];
   if (!params.IsDefined()) {
-    return type_config;
+    return type_ref;
   }
   if (!params.IsSequence()) {
     return YamlError(yaml, params, "Node 'params' is not a sequence");
   }
   for (const YAML::Node& param : params) {
-    CEL_ASSIGN_OR_RETURN(Config::TypeInfo param_config,
-                         ParseTypeInfo(param, yaml));
-    type_config.params.push_back(param_config);
+    CEL_ASSIGN_OR_RETURN(TypeRef param_ref, ParseTypeRef(param, yaml));
+    type_ref.params.push_back(param_ref);
   }
 
-  return type_config;
+  return type_ref;
 }
 
-bool CompareTypeInfo(const Config::TypeInfo& a, const Config::TypeInfo& b) {
+bool CompareTypeRef(const TypeRef& a, const TypeRef& b) {
   if (a.name != b.name) {
     return a.name < b.name;
   }
@@ -481,10 +480,10 @@ bool CompareTypeInfo(const Config::TypeInfo& a, const Config::TypeInfo& b) {
     return a.params.size() < b.params.size();
   }
   for (size_t i = 0; i < a.params.size(); ++i) {
-    if (CompareTypeInfo(a.params[i], b.params[i])) {
+    if (CompareTypeRef(a.params[i], b.params[i])) {
       return true;
     }
-    if (CompareTypeInfo(b.params[i], a.params[i])) {
+    if (CompareTypeRef(b.params[i], a.params[i])) {
       return false;
     }
   }
@@ -621,20 +620,20 @@ absl::Status ParseVariableConfigs(Config& config, absl::string_view yaml,
       variable_config.description = GetString(yaml, description);
     }
     const YAML::Node type = variable["type"];
-    Config::TypeInfo type_info;
+    TypeRef type_ref;
     if (type.IsDefined() && !type.IsScalar()) {
       // Old format, type spec is in 'type' instead of directly embedded.
-      CEL_ASSIGN_OR_RETURN(type_info, ParseTypeInfo(variable["type"], yaml));
+      CEL_ASSIGN_OR_RETURN(type_ref, ParseTypeRef(variable["type"], yaml));
     } else {
-      CEL_ASSIGN_OR_RETURN(type_info, ParseTypeInfo(variable, yaml));
+      CEL_ASSIGN_OR_RETURN(type_ref, ParseTypeRef(variable, yaml));
     }
-    ConstantKindCase constant_kind_case = GetConstantKindCase(type_info.name);
+    ConstantKindCase constant_kind_case = GetConstantKindCase(type_ref.name);
     std::string value_str;
     YAML::Node value = variable["value"];
     if (value.IsDefined()) {
       if (constant_kind_case == ConstantKindCase::kUnspecified) {
         return YamlError(yaml, value,
-                         absl::StrCat("Constant type '", type_info.name,
+                         absl::StrCat("Constant type '", type_ref.name,
                                       "' is not supported"));
       }
       if (!value.IsScalar()) {
@@ -647,7 +646,7 @@ absl::Status ParseVariableConfigs(Config& config, absl::string_view yaml,
       }
     }
 
-    variable_config.type_info = type_info;
+    variable_config.type_info = type_ref;
 
     if (constant_kind_case != ConstantKindCase::kUnspecified &&
         !value_str.empty()) {
@@ -733,18 +732,17 @@ absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
     const FunctionTypeSpec& function_type_spec =
         parsed_signature.signature_type.function();
     for (const auto& arg : function_type_spec.arg_types()) {
-      CEL_ASSIGN_OR_RETURN(auto type_info, TypeSpecToTypeInfo(arg));
-      overload_config.parameters.push_back(std::move(type_info));
+      CEL_ASSIGN_OR_RETURN(TypeRef type_ref, TypeSpecToTypeRef(arg));
+      overload_config.parameters.push_back(std::move(type_ref));
     }
   } else {
     if (target.IsDefined()) {
       if (!target.IsMap()) {
         return YamlError(yaml, target, "Function overload target is not a map");
       }
-      CEL_ASSIGN_OR_RETURN(Config::TypeInfo type_info,
-                           ParseTypeInfo(target, yaml));
+      CEL_ASSIGN_OR_RETURN(TypeRef type_ref, ParseTypeRef(target, yaml));
       overload_config.is_member_function = true;
-      overload_config.parameters.push_back(type_info);
+      overload_config.parameters.push_back(type_ref);
     }
 
     if (args.IsDefined()) {
@@ -756,9 +754,8 @@ absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
         if (!arg.IsMap()) {
           return YamlError(yaml, arg, "Function overload arg is not a map");
         }
-        CEL_ASSIGN_OR_RETURN(Config::TypeInfo type_info,
-                             ParseTypeInfo(arg, yaml));
-        overload_config.parameters.push_back(type_info);
+        CEL_ASSIGN_OR_RETURN(TypeRef type_ref, ParseTypeRef(arg, yaml));
+        overload_config.parameters.push_back(type_ref);
       }
     }
   }
@@ -768,10 +765,10 @@ absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
       CEL_ASSIGN_OR_RETURN(auto type_spec,
                            ParseTypeSpec(GetString(yaml, return_type)));
       CEL_ASSIGN_OR_RETURN(overload_config.return_type,
-                           TypeSpecToTypeInfo(type_spec));
+                           TypeSpecToTypeRef(type_spec));
     } else if (return_type.IsMap()) {
       CEL_ASSIGN_OR_RETURN(overload_config.return_type,
-                           ParseTypeInfo(return_type, yaml));
+                           ParseTypeRef(return_type, yaml));
     } else {
       return YamlError(
           yaml, return_type,
@@ -983,13 +980,13 @@ void EmitStandardLibraryConfig(const Config& env_config, YAML::Emitter& out) {
   out << YAML::EndMap;
 }
 
-void EmitTypeInfo(const Config::TypeInfo& type_info, YAML::Emitter& out,
-                  const EnvConfigToYamlOptions& options) {
+void EmitTypeRef(const TypeRef& type_ref, YAML::Emitter& out,
+                 const EnvConfigToYamlOptions& options) {
   // Note: the map is already started when this is called, so we don't emit
   // BeginMap here or EndMap at the end.
   bool signature_generated = false;
   if (options.use_type_signatures) {
-    absl::StatusOr<TypeSpec> type_spec = TypeInfoToTypeSpec(type_info);
+    absl::StatusOr<TypeSpec> type_spec = TypeRefToTypeSpec(type_ref);
     if (type_spec.ok()) {
       absl::StatusOr<std::string> signature = MakeTypeSpecSignature(*type_spec);
       if (signature.ok()) {
@@ -1001,15 +998,15 @@ void EmitTypeInfo(const Config::TypeInfo& type_info, YAML::Emitter& out,
   }
   if (!signature_generated) {
     out << YAML::Key << "type_name";
-    out << YAML::Value << YAML::DoubleQuoted << type_info.name;
-    if (type_info.is_type_param) {
+    out << YAML::Value << YAML::DoubleQuoted << type_ref.name;
+    if (type_ref.is_type_param) {
       out << YAML::Key << "is_type_param" << YAML::Value << true;
     }
-    if (!type_info.params.empty()) {
+    if (!type_ref.params.empty()) {
       out << YAML::Key << "params" << YAML::Value << YAML::BeginSeq;
-      for (const Config::TypeInfo& param : type_info.params) {
+      for (const TypeRef& param : type_ref.params) {
         out << YAML::BeginMap;
-        EmitTypeInfo(param, out, options);
+        EmitTypeRef(param, out, options);
         out << YAML::EndMap;
       }
       out << YAML::EndSeq;
@@ -1042,7 +1039,7 @@ void EmitVariableConfigs(const Config& env_config, YAML::Emitter& out,
       out << YAML::Key << "description";
       out << YAML::Value << YAML::DoubleQuoted << variable_config.description;
     }
-    EmitTypeInfo(variable_config.type_info, out, options);
+    EmitTypeRef(variable_config.type_info, out, options);
     if (variable_config.value.has_value()) {
       const Constant& constant = variable_config.value;
       switch (constant.kind_case()) {
@@ -1108,7 +1105,7 @@ void EmitFunctionOverloadConfig(
     std::vector<TypeSpec> params;
     params.reserve(overload_config.parameters.size());
     for (const auto& parameter : overload_config.parameters) {
-      absl::StatusOr<TypeSpec> type_spec = TypeInfoToTypeSpec(parameter);
+      absl::StatusOr<TypeSpec> type_spec = TypeRefToTypeSpec(parameter);
       if (!type_spec.ok()) {
         param_type_spec_generated = false;
         break;
@@ -1140,9 +1137,9 @@ void EmitFunctionOverloadConfig(
       out << YAML::BeginMap;
       if (overload_config.parameters.empty()) {
         // This should never happen, but if it does, emit a dynamic type.
-        EmitTypeInfo({.name = "dyn"}, out, options);
+        EmitTypeRef({.name = "dyn"}, out, options);
       } else {
-        EmitTypeInfo(overload_config.parameters[0], out, options);
+        EmitTypeRef(overload_config.parameters[0], out, options);
       }
       out << YAML::EndMap;
       if (overload_config.parameters.size() > 1) {
@@ -1150,7 +1147,7 @@ void EmitFunctionOverloadConfig(
         out << YAML::Value << YAML::BeginSeq;
         for (size_t i = 1; i < overload_config.parameters.size(); ++i) {
           out << YAML::BeginMap;
-          EmitTypeInfo(overload_config.parameters[i], out, options);
+          EmitTypeRef(overload_config.parameters[i], out, options);
           out << YAML::EndMap;
         }
         out << YAML::EndSeq;
@@ -1159,9 +1156,9 @@ void EmitFunctionOverloadConfig(
       if (!overload_config.parameters.empty()) {
         out << YAML::Key << "args";
         out << YAML::Value << YAML::BeginSeq;
-        for (const Config::TypeInfo& parameter : overload_config.parameters) {
+        for (const TypeRef& parameter : overload_config.parameters) {
           out << YAML::BeginMap;
-          EmitTypeInfo(parameter, out, options);
+          EmitTypeRef(parameter, out, options);
           out << YAML::EndMap;
         }
         out << YAML::EndSeq;
@@ -1171,7 +1168,7 @@ void EmitFunctionOverloadConfig(
   bool return_type_signature_generated = false;
   if (options.use_type_signatures) {
     absl::StatusOr<TypeSpec> type_spec =
-        TypeInfoToTypeSpec(overload_config.return_type);
+        TypeRefToTypeSpec(overload_config.return_type);
     if (type_spec.ok()) {
       absl::StatusOr<std::string> signature = MakeTypeSpecSignature(*type_spec);
       if (signature.ok()) {
@@ -1184,7 +1181,7 @@ void EmitFunctionOverloadConfig(
   if (!return_type_signature_generated) {
     out << YAML::Key << "return";
     out << YAML::Value << YAML::BeginMap;
-    EmitTypeInfo(overload_config.return_type, out, options);
+    EmitTypeRef(overload_config.return_type, out, options);
     out << YAML::EndMap;
   }
   out << YAML::EndMap;
@@ -1228,10 +1225,10 @@ void EmitFunctionConfigs(const Config& env_config, YAML::Emitter& out,
                        if (i >= b.parameters.size()) {
                          return false;
                        }
-                       if (CompareTypeInfo(a.parameters[i], b.parameters[i])) {
+                       if (CompareTypeRef(a.parameters[i], b.parameters[i])) {
                          return true;
                        }
-                       if (CompareTypeInfo(b.parameters[i], a.parameters[i])) {
+                       if (CompareTypeRef(b.parameters[i], a.parameters[i])) {
                          return false;
                        }
                      }
