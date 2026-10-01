@@ -90,7 +90,8 @@ absl::StatusOr<Value> CreateStructStepForMap::DoEvaluate(
 
   for (size_t i = 0; i < entry_count_; i += 1) {
     const auto& map_key = args[2 * i];
-    CEL_RETURN_IF_ERROR(cel::CheckMapKey(map_key)).With(ErrorValueReturn());
+    CEL_RETURN_IF_ERROR(cel::CheckMapKey(map_key))
+        .With(ErrorValueReturn(frame->arena()));
     const auto& map_value = args[(2 * i) + 1];
     if (optional_indices_.contains(static_cast<int32_t>(i))) {
       if (auto optional_map_value = map_value.AsOptional();
@@ -108,7 +109,7 @@ absl::StatusOr<Value> CreateStructStepForMap::DoEvaluate(
             builder->Put(map_key, std::move(optional_map_value_value)));
       } else {
         return cel::TypeConversionError(map_value.DebugString(),
-                                        "optional_type");
+                                        "optional_type", frame->arena());
       }
     } else {
       CEL_RETURN_IF_ERROR(builder->Put(map_key, map_value));
@@ -178,7 +179,8 @@ absl::Status DirectCreateMapStep::Evaluate(
       }
     }
 
-    CEL_RETURN_IF_ERROR(cel::CheckMapKey(key)).With(ErrorValueAssign(result));
+    CEL_RETURN_IF_ERROR(cel::CheckMapKey(key))
+        .With(ErrorValueAssign(result, frame.arena()));
 
     CEL_RETURN_IF_ERROR(
         deps_[map_value_index]->Evaluate(frame, value, tmp_attr));
@@ -218,7 +220,8 @@ absl::Status DirectCreateMapStep::Evaluate(
             builder->Put(std::move(key), std::move(optional_map_value_value)));
         continue;
       }
-      result = cel::TypeConversionError(value.DebugString(), "optional_type");
+      result = cel::TypeConversionError(value.DebugString(), "optional_type",
+                                        frame.arena());
       return absl::OkStatus();
     }
 

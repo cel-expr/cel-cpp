@@ -21,6 +21,7 @@
 #include "absl/time/time.h"
 #include "common/value.h"
 #include "internal/testing.h"
+#include "google/protobuf/arena.h"
 
 namespace cel::test {
 namespace {
@@ -156,12 +157,14 @@ TEST(BytesValueIs, NonMatchMessage) {
 }
 
 TEST(ErrorValueIs, Match) {
-  EXPECT_THAT(ErrorValue(absl::InternalError("test")),
+  google::protobuf::Arena arena;
+  EXPECT_THAT(ErrorValue::From(absl::InternalError("test"), &arena),
               ErrorValueIs(StatusIs(absl::StatusCode::kInternal, "test")));
 }
 
 TEST(ErrorValueIs, NoMatch) {
-  EXPECT_THAT(ErrorValue(absl::UnknownError("test")),
+  google::protobuf::Arena arena;
+  EXPECT_THAT(ErrorValue::From(absl::UnknownError("test"), &arena),
               Not(ErrorValueIs(StatusIs(absl::StatusCode::kInternal, "test"))));
   EXPECT_THAT(IntValue(2), Not(ErrorValueIs(_)));
 }

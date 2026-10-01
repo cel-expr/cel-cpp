@@ -20,6 +20,7 @@
 #include "common/value.h"
 #include "internal/re2_options.h"
 #include "internal/status_macros.h"
+#include "runtime/function.h"
 #include "runtime/function_registry.h"
 #include "runtime/runtime_options.h"
 #include "re2/re2.h"
@@ -32,10 +33,11 @@ absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
   if (options.enable_regex) {
     auto regex_matches = [max_size = options.regex_max_program_size](
                              const StringValue& target,
-                             const StringValue& regex) -> Value {
+                             const StringValue& regex,
+                             const Function::InvokeContext& context) -> Value {
       RE2 re2(regex.ToString(), cel::internal::MakeRE2Options());
       CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, max_size))
-          .With(ErrorValueReturn());
+          .With(ErrorValueReturn(context.arena()));
       return BoolValue(RE2::PartialMatch(target.ToString(), re2));
     };
 

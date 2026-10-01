@@ -23,6 +23,7 @@
 #include "common/kind.h"
 #include "common/value.h"
 #include "internal/testing.h"
+#include "google/protobuf/arena.h"
 
 namespace cel::runtime_internal {
 namespace {
@@ -306,7 +307,9 @@ TEST_F(AdaptedToValueVisitorTest, StatusOrError) {
 }
 
 TEST_F(AdaptedToValueVisitorTest, Any) {
-  auto handle = cel::ErrorValue(absl::InternalError("test_error"));
+  google::protobuf::Arena arena;
+  auto handle =
+      cel::ErrorValue::From(absl::InternalError("test_error"), &arena);
 
   ASSERT_OK_AND_ASSIGN(auto result, AdaptedToValueVisitor{}(handle));
 

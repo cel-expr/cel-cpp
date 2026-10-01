@@ -385,7 +385,8 @@ void EvaluateBoolLogicStep(BoolLogicKind kind, size_t num_args,
 
   cel::Value result = args[error_pos.value()];
   if (!result.IsError()) {
-    result = cel::ErrorValue(CreateNoMatchingOverloadError(op_name));
+    result = cel::ErrorValue::From(CreateNoMatchingOverloadError(op_name),
+                                   frame.arena());
   }
   frame.value_stack().PopAndPush(num_args, std::move(result));
 }

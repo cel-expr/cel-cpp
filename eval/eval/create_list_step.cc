@@ -106,7 +106,8 @@ absl::Status CreateListStep::DoEvaluate(ExecutionFrame* frame,
         }
         CEL_RETURN_IF_ERROR(builder->Add(std::move(optional_arg_value)));
       } else {
-        *result = cel::TypeConversionError(arg.GetTypeName(), "optional_type");
+        *result = cel::TypeConversionError(arg.GetTypeName(), "optional_type",
+                                           frame->arena());
         return absl::OkStatus();
       }
     } else {
@@ -160,7 +161,7 @@ class CreateListDirectStep : public DirectExpressionStep {
           if (frame.attribute_utility().CheckForMissingAttribute(tmp_attr)) {
             CEL_ASSIGN_OR_RETURN(
                 result, frame.attribute_utility().CreateMissingAttributeError(
-                            tmp_attr.attribute()));
+                            tmp_attr.attribute(), frame.arena()));
             return absl::OkStatus();
           }
         }
@@ -198,8 +199,8 @@ class CreateListDirectStep : public DirectExpressionStep {
           CEL_RETURN_IF_ERROR(builder->Add(std::move(optional_arg_value)));
           continue;
         }
-        result =
-            cel::TypeConversionError(result.GetTypeName(), "optional_type");
+        result = cel::TypeConversionError(result.GetTypeName(), "optional_type",
+                                          frame.arena());
         return absl::OkStatus();
       }
 

@@ -356,7 +356,8 @@ UnknownValue MakeUnknownValue(std::string attr) {
 }
 
 std::unique_ptr<DirectExpressionStep> MakeArgStep(OpArg arg,
-                                                  absl::string_view name) {
+                                                  absl::string_view name,
+                                                  google::protobuf::Arena* arena) {
   switch (arg) {
     case OpArg::kTrue:
       return CreateConstValueDirectStep(BoolValue(true));
@@ -366,7 +367,7 @@ std::unique_ptr<DirectExpressionStep> MakeArgStep(OpArg arg,
       return CreateConstValueDirectStep(MakeUnknownValue(std::string(name)));
     case OpArg::kError:
       return CreateConstValueDirectStep(
-          cel::ErrorValue(absl::InternalError(name)));
+          cel::ErrorValue::From(absl::InternalError(name), arena));
     case OpArg::kInt:
       return CreateConstValueDirectStep(IntValue(42));
   }
@@ -388,9 +389,9 @@ TEST_P(DirectBinaryLogicStepTest, TestCases) {
   const BinaryTestCase& test_case = GetTestCase();
 
   std::unique_ptr<DirectExpressionStep> lhs =
-      MakeArgStep(test_case.arg0, "lhs");
+      MakeArgStep(test_case.arg0, "lhs", &arena_);
   std::unique_ptr<DirectExpressionStep> rhs =
-      MakeArgStep(test_case.arg1, "rhs");
+      MakeArgStep(test_case.arg1, "rhs", &arena_);
 
   std::unique_ptr<DirectExpressionStep> op =
       (test_case.op == BinaryOp::kAnd)
@@ -579,7 +580,8 @@ class DirectUnaryLogicStepTest : public testing::TestWithParam<UnaryTestCase> {
 TEST_P(DirectUnaryLogicStepTest, TestCases) {
   const UnaryTestCase& test_case = GetTestCase();
 
-  std::unique_ptr<DirectExpressionStep> arg = MakeArgStep(test_case.arg, "arg");
+  std::unique_ptr<DirectExpressionStep> arg =
+      MakeArgStep(test_case.arg, "arg", &arena_);
 
   std::unique_ptr<DirectExpressionStep> op =
       (test_case.op == UnaryOp::kNot)

@@ -642,15 +642,20 @@ absl::StatusOr<size_t> SubstringImpl(const absl::Cord& cord, uint64_t start) {
 
 }  // namespace
 
-Value StringValue::Substring(int64_t start) const {
+Value StringValue::Substring(int64_t start,
+                             google::protobuf::Arena* absl_nonnull arena) const {
   if (start < 0) {
-    return ErrorValue(absl::InvalidArgumentError(
-        "<string>.substring(<start>): <start> is less than 0"));
+    return ErrorValue::From(
+        absl::InvalidArgumentError(
+            "<string>.substring(<start>): <start> is less than 0"),
+        arena);
   }
   if (static_cast<uint64_t>(start) > value_.size()) {
-    return ErrorValue(absl::InvalidArgumentError(
-        "<string>.substring(<start>, <end>): <start> or <end> is greater than "
-        "<string>.size()"));
+    return ErrorValue::From(
+        absl::InvalidArgumentError("<string>.substring(<start>, <end>): "
+                                   "<start> or <end> is greater than "
+                                   "<string>.size()"),
+        arena);
   }
   if (start == 0) {
     return *this;
@@ -660,7 +665,7 @@ Value StringValue::Substring(int64_t start) const {
       absl::StatusOr<size_t> status_or_index =
           (SubstringImpl)(value_.GetSmall(), start);
       if (!status_or_index.ok()) {
-        return ErrorValue(std::move(status_or_index).status());
+        return ErrorValue::From(std::move(status_or_index).status(), arena);
       }
       StringValue result;
       result.value_.rep_.header.kind = common_internal::ByteStringKind::kSmall;
@@ -675,7 +680,7 @@ Value StringValue::Substring(int64_t start) const {
       absl::StatusOr<size_t> status_or_index =
           (SubstringImpl)(value_.GetMedium(), start);
       if (!status_or_index.ok()) {
-        return ErrorValue(std::move(status_or_index).status());
+        return ErrorValue::From(std::move(status_or_index).status(), arena);
       }
       StringValue result;
       result.value_.rep_.header.kind = common_internal::ByteStringKind::kMedium;
@@ -690,7 +695,7 @@ Value StringValue::Substring(int64_t start) const {
       absl::StatusOr<size_t> status_or_index =
           (SubstringImpl)(value_.GetLarge(), start);
       if (!status_or_index.ok()) {
-        return ErrorValue(std::move(status_or_index).status());
+        return ErrorValue::From(std::move(status_or_index).status(), arena);
       }
       return StringValue(common_internal::ByteString::Wrap(
           value_.rep_.large.data, value_.rep_.large.offset + *status_or_index,
@@ -760,27 +765,34 @@ absl::StatusOr<std::pair<size_t, size_t>> SubstringImpl(const absl::Cord& cord,
 
 }  // namespace
 
-Value StringValue::Substring(int64_t start, int64_t end) const {
+Value StringValue::Substring(int64_t start, int64_t end,
+                             google::protobuf::Arena* absl_nonnull arena) const {
   if (start < 0) {
-    return ErrorValue(absl::InvalidArgumentError(
-        "<string>.substring(<start>, <end>): <start> is less than 0"));
+    return ErrorValue::From(
+        absl::InvalidArgumentError(
+            "<string>.substring(<start>, <end>): <start> is less than 0"),
+        arena);
   }
   if (end < start) {
-    return ErrorValue(absl::InvalidArgumentError(
-        "<string>.substring(<start>, <end>): <end> is less than <start>"));
+    return ErrorValue::From(
+        absl::InvalidArgumentError(
+            "<string>.substring(<start>, <end>): <end> is less than <start>"),
+        arena);
   }
   if (static_cast<uint64_t>(start) > value_.size() ||
       static_cast<uint64_t>(end) > value_.size()) {
-    return ErrorValue(absl::InvalidArgumentError(
-        "<string>.substring(<start>, <end>): <start> or <end> is greater than "
-        "<string>.size()"));
+    return ErrorValue::From(
+        absl::InvalidArgumentError("<string>.substring(<start>, <end>): "
+                                   "<start> or <end> is greater than "
+                                   "<string>.size()"),
+        arena);
   }
   switch (value_.GetKind()) {
     case common_internal::ByteStringKind::kSmall: {
       absl::StatusOr<std::pair<size_t, size_t>> status_or_indices =
           (SubstringImpl)(value_.GetSmall(), start, end);
       if (!status_or_indices.ok()) {
-        return ErrorValue(std::move(status_or_indices).status());
+        return ErrorValue::From(std::move(status_or_indices).status(), arena);
       }
       StringValue result;
       result.value_.rep_.header.kind = common_internal::ByteStringKind::kSmall;
@@ -796,7 +808,7 @@ Value StringValue::Substring(int64_t start, int64_t end) const {
       absl::StatusOr<std::pair<size_t, size_t>> status_or_indices =
           (SubstringImpl)(value_.GetMedium(), start, end);
       if (!status_or_indices.ok()) {
-        return ErrorValue(std::move(status_or_indices).status());
+        return ErrorValue::From(std::move(status_or_indices).status(), arena);
       }
       StringValue result;
       result.value_.rep_.header.kind = common_internal::ByteStringKind::kMedium;
@@ -811,7 +823,7 @@ Value StringValue::Substring(int64_t start, int64_t end) const {
       absl::StatusOr<std::pair<size_t, size_t>> status_or_indices =
           (SubstringImpl)(value_.GetLarge(), start, end);
       if (!status_or_indices.ok()) {
-        return ErrorValue(std::move(status_or_indices).status());
+        return ErrorValue::From(std::move(status_or_indices).status(), arena);
       }
       return StringValue(common_internal::ByteString::Wrap(
           value_.rep_.large.data,
@@ -1243,8 +1255,8 @@ absl::Status StringValue::Join(
       string_element->AppendToString(&joined);
     } else {
       ABSL_DCHECK(!element->Is<ErrorValue>());
-      *result =
-          ErrorValue(runtime_internal::CreateNoMatchingOverloadError("join"));
+      *result = ErrorValue::From(
+          runtime_internal::CreateNoMatchingOverloadError("join"), arena);
       return absl::OkStatus();
     }
     while (true) {
@@ -1258,8 +1270,8 @@ absl::Status StringValue::Join(
         string_element->AppendToString(&joined);
       } else {
         ABSL_DCHECK(!element->Is<ErrorValue>());
-        *result =
-            ErrorValue(runtime_internal::CreateNoMatchingOverloadError("join"));
+        *result = ErrorValue::From(
+            runtime_internal::CreateNoMatchingOverloadError("join"), arena);
         return absl::OkStatus();
       }
     }
@@ -1456,13 +1468,15 @@ absl::Status StringValue::Replace(const StringValue& needle,
   return absl::OkStatus();
 }
 
-Value StringValue::CharAt(int64_t pos) const {
+Value StringValue::CharAt(int64_t pos,
+                          google::protobuf::Arena* absl_nonnull arena) const {
   if (pos < 0) {
-    return ErrorValue(absl::InvalidArgumentError(
-        "<string>.charAt(<pos>): <pos> is less than 0"));
+    return ErrorValue::From(absl::InvalidArgumentError(
+                                "<string>.charAt(<pos>): <pos> is less than 0"),
+                            arena);
   }
   return value_.Visit(absl::Overload(
-      [this, pos](absl::string_view rep) mutable -> Value {
+      [this, pos, arena](absl::string_view rep) mutable -> Value {
         while (!rep.empty()) {
           char32_t code_point;
           size_t code_units;
@@ -1485,10 +1499,12 @@ Value StringValue::CharAt(int64_t pos) const {
         if (pos == 0) {
           return StringValue();
         }
-        return ErrorValue(absl::InvalidArgumentError(
-            "<string>.charAt(<pos>): <pos> is greater than <string>.size()"));
+        return ErrorValue::From(
+            absl::InvalidArgumentError("<string>.charAt(<pos>): <pos> is "
+                                       "greater than <string>.size()"),
+            arena);
       },
-      [pos](const absl::Cord& rep) mutable -> Value {
+      [pos, arena](const absl::Cord& rep) mutable -> Value {
         absl::Cord::CharIterator begin = rep.char_begin();
         absl::Cord::CharIterator end = rep.char_end();
         while (begin != end) {
@@ -1513,8 +1529,10 @@ Value StringValue::CharAt(int64_t pos) const {
         if (pos == 0) {
           return StringValue();
         }
-        return ErrorValue(absl::InvalidArgumentError(
-            "<string>.charAt(<pos>): <pos> is greater than <string>.size()"));
+        return ErrorValue::From(
+            absl::InvalidArgumentError("<string>.charAt(<pos>): <pos> is "
+                                       "greater than <string>.size()"),
+            arena);
       }));
 }
 

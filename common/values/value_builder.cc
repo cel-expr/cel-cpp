@@ -309,7 +309,7 @@ class CompatListValueImpl final : public CompatListValue {
     }
     if (ABSL_PREDICT_FALSE(index < 0 || index >= size())) {
       return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
-          arena, IndexOutOfBoundsError(index).ToStatus()));
+          arena, common_internal::MakeIndexOutOfBoundsError(index)));
     }
     return common_internal::UnsafeLegacyValue(
         elements_[index],
@@ -326,7 +326,7 @@ class CompatListValueImpl final : public CompatListValue {
                    google::protobuf::Arena* absl_nonnull arena,
                    Value* absl_nonnull result) const override {
     if (index >= elements_.size()) {
-      *result = IndexOutOfBoundsError(index);
+      *result = IndexOutOfBoundsError(index, arena);
     } else {
       *result = elements_[index];
     }
@@ -446,7 +446,7 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
     }
     if (ABSL_PREDICT_FALSE(index < 0 || index >= size())) {
       return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
-          arena, IndexOutOfBoundsError(index).ToStatus()));
+          arena, common_internal::MakeIndexOutOfBoundsError(index)));
     }
     return common_internal::UnsafeLegacyValue(
         elements_[index], /*stable=*/false,
@@ -478,7 +478,7 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
                    google::protobuf::Arena* absl_nonnull arena,
                    Value* absl_nonnull result) const override {
     if (index >= elements_.size()) {
-      *result = IndexOutOfBoundsError(index);
+      *result = IndexOutOfBoundsError(index, arena);
     } else {
       *result = elements_[index];
     }
@@ -797,8 +797,8 @@ absl::StatusOr<std::string> ValueToJsonString(const Value& value) {
     case ValueKind::kString:
       return value.GetString().NativeString();
     default:
-      return TypeConversionError(value.GetRuntimeType(), StringType())
-          .ToStatus();
+      return common_internal::MakeTypeConversionError(value.GetRuntimeType(),
+                                                      StringType());
   }
 }
 

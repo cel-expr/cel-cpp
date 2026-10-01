@@ -21,7 +21,6 @@
 
 #include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
-#include "common/values/error_value.h"
 #include "common/values/unknown_value.h"
 #include "common/values/values.h"
 
@@ -31,9 +30,6 @@ void ValueVariant::SlowCopyConstruct(const ValueVariant& other) noexcept {
   ABSL_DCHECK((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNonTrivial);
 
   switch (index_) {
-    case ValueIndex::kError:
-      ::new (static_cast<void*>(&raw_[0])) ErrorValue(*other.At<ErrorValue>());
-      break;
     case ValueIndex::kUnknown:
       ::new (static_cast<void*>(&raw_[0]))
           UnknownValue(*other.At<UnknownValue>());
@@ -47,10 +43,6 @@ void ValueVariant::SlowMoveConstruct(ValueVariant& other) noexcept {
   ABSL_DCHECK((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNonTrivial);
 
   switch (index_) {
-    case ValueIndex::kError:
-      ::new (static_cast<void*>(&raw_[0]))
-          ErrorValue(std::move(*other.At<ErrorValue>()));
-      break;
     case ValueIndex::kUnknown:
       ::new (static_cast<void*>(&raw_[0]))
           UnknownValue(std::move(*other.At<UnknownValue>()));
@@ -64,9 +56,6 @@ void ValueVariant::SlowDestruct() noexcept {
   ABSL_DCHECK((flags_ & ValueFlags::kNonTrivial) == ValueFlags::kNonTrivial);
 
   switch (index_) {
-    case ValueIndex::kError:
-      At<ErrorValue>()->~ErrorValue();
-      break;
     case ValueIndex::kUnknown:
       At<UnknownValue>()->~UnknownValue();
       break;
@@ -81,10 +70,6 @@ void ValueVariant::SlowCopyAssign(const ValueVariant& other, bool trivial,
 
   if (trivial) {
     switch (other.index_) {
-      case ValueIndex::kError:
-        ::new (static_cast<void*>(&raw_[0]))
-            ErrorValue(*other.At<ErrorValue>());
-        break;
       case ValueIndex::kUnknown:
         ::new (static_cast<void*>(&raw_[0]))
             UnknownValue(*other.At<UnknownValue>());
@@ -97,9 +82,6 @@ void ValueVariant::SlowCopyAssign(const ValueVariant& other, bool trivial,
     flags_ = other.flags_;
   } else if (other_trivial) {
     switch (index_) {
-      case ValueIndex::kError:
-        At<ErrorValue>()->~ErrorValue();
-        break;
       case ValueIndex::kUnknown:
         At<UnknownValue>()->~UnknownValue();
         break;
@@ -109,31 +91,8 @@ void ValueVariant::SlowCopyAssign(const ValueVariant& other, bool trivial,
     FastCopyAssign(other);
   } else {
     switch (index_) {
-      case ValueIndex::kError:
-        switch (other.index_) {
-          case ValueIndex::kError:
-            *At<ErrorValue>() = *other.At<ErrorValue>();
-            break;
-          case ValueIndex::kUnknown:
-            At<ErrorValue>()->~ErrorValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                UnknownValue(*other.At<UnknownValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          default:
-            ABSL_UNREACHABLE();
-        }
-        break;
       case ValueIndex::kUnknown:
         switch (other.index_) {
-          case ValueIndex::kError:
-            At<UnknownValue>()->~UnknownValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                ErrorValue(*other.At<ErrorValue>());
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
           case ValueIndex::kUnknown:
             At<UnknownValue>()->~UnknownValue();
             ::new (static_cast<void*>(&raw_[0]))
@@ -158,10 +117,6 @@ void ValueVariant::SlowMoveAssign(ValueVariant& other, bool trivial,
 
   if (trivial) {
     switch (other.index_) {
-      case ValueIndex::kError:
-        ::new (static_cast<void*>(&raw_[0]))
-            ErrorValue(std::move(*other.At<ErrorValue>()));
-        break;
       case ValueIndex::kUnknown:
         ::new (static_cast<void*>(&raw_[0]))
             UnknownValue(std::move(*other.At<UnknownValue>()));
@@ -174,9 +129,6 @@ void ValueVariant::SlowMoveAssign(ValueVariant& other, bool trivial,
     flags_ = other.flags_;
   } else if (other_trivial) {
     switch (index_) {
-      case ValueIndex::kError:
-        At<ErrorValue>()->~ErrorValue();
-        break;
       case ValueIndex::kUnknown:
         At<UnknownValue>()->~UnknownValue();
         break;
@@ -186,31 +138,8 @@ void ValueVariant::SlowMoveAssign(ValueVariant& other, bool trivial,
     FastMoveAssign(other);
   } else {
     switch (index_) {
-      case ValueIndex::kError:
-        switch (other.index_) {
-          case ValueIndex::kError:
-            *At<ErrorValue>() = std::move(*other.At<ErrorValue>());
-            break;
-          case ValueIndex::kUnknown:
-            At<ErrorValue>()->~ErrorValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                UnknownValue(std::move(*other.At<UnknownValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
-          default:
-            ABSL_UNREACHABLE();
-        }
-        break;
       case ValueIndex::kUnknown:
         switch (other.index_) {
-          case ValueIndex::kError:
-            At<UnknownValue>()->~UnknownValue();
-            ::new (static_cast<void*>(&raw_[0]))
-                ErrorValue(std::move(*other.At<ErrorValue>()));
-            index_ = other.index_;
-            kind_ = other.kind_;
-            break;
           case ValueIndex::kUnknown:
             *At<UnknownValue>() = std::move(*other.At<UnknownValue>());
             break;
@@ -236,11 +165,6 @@ void ValueVariant::SlowSwap(ValueVariant& lhs, ValueVariant& rhs,
     // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
     std::memcpy(tmp, std::addressof(lhs), sizeof(ValueVariant));
     switch (rhs.index_) {
-      case ValueIndex::kError:
-        ::new (static_cast<void*>(&lhs.raw_[0]))
-            ErrorValue(*rhs.At<ErrorValue>());
-        rhs.At<ErrorValue>()->~ErrorValue();
-        break;
       case ValueIndex::kUnknown:
         ::new (static_cast<void*>(&lhs.raw_[0]))
             UnknownValue(*rhs.At<UnknownValue>());
@@ -261,11 +185,6 @@ void ValueVariant::SlowSwap(ValueVariant& lhs, ValueVariant& rhs,
     // NOLINTNEXTLINE(bugprone-undefined-memory-manipulation)
     std::memcpy(tmp, std::addressof(rhs), sizeof(ValueVariant));
     switch (lhs.index_) {
-      case ValueIndex::kError:
-        ::new (static_cast<void*>(&rhs.raw_[0]))
-            ErrorValue(*lhs.At<ErrorValue>());
-        lhs.At<ErrorValue>()->~ErrorValue();
-        break;
       case ValueIndex::kUnknown:
         ::new (static_cast<void*>(&rhs.raw_[0]))
             UnknownValue(*lhs.At<UnknownValue>());

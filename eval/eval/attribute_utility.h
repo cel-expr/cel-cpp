@@ -14,6 +14,7 @@
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
 #include "runtime/internal/attribute_matcher.h"
+#include "google/protobuf/arena.h"
 
 namespace google::api::expr::runtime {
 
@@ -149,7 +150,7 @@ class AttributeUtility {
 
   // Factory function for missing attribute errors.
   absl::StatusOr<cel::ErrorValue> CreateMissingAttributeError(
-      const cel::Attribute& attr) const;
+      const cel::Attribute& attr, google::protobuf::Arena* arena) const;
 
   // Create an initial UnknownSet from a single missing function call.
   cel::UnknownValue CreateUnknownSet(

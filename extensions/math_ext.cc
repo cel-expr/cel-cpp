@@ -159,7 +159,7 @@ absl::StatusOr<Value> MaxList(
       iterator->Next(descriptor_pool, message_factory, arena, &value));
   absl::StatusOr<CelNumber> current = ValueToNumber(value, kMathMax);
   if (!current.ok()) {
-    return ErrorValue{current.status()};
+    return ErrorValue::From(current.status(), arena);
   }
   CelNumber min = *current;
   while (iterator->HasNext()) {
@@ -167,7 +167,7 @@ absl::StatusOr<Value> MaxList(
         iterator->Next(descriptor_pool, message_factory, arena, &value));
     absl::StatusOr<CelNumber> other = ValueToNumber(value, kMathMax);
     if (!other.ok()) {
-      return ErrorValue{other.status()};
+      return ErrorValue::From(other.status(), arena);
     }
     min = MaxNumber(min, *other);
   }

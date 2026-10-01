@@ -310,7 +310,7 @@ class UnreachableFunction final : public cel::Function {
   absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
                                const InvokeContext& context) const override {
     ++(*count_);
-    return ErrorValue(absl::CancelledError());
+    return ErrorValue::From(absl::CancelledError(), context.arena());
   }
 
  private:

@@ -67,7 +67,7 @@ class LegacyParsedRepeatedFieldListValue final
     if (ABSL_PREDICT_FALSE(index < 0 || index >= size())) {
       return google::api::expr::runtime::CelValue::CreateError(
           google::protobuf::Arena::Create<absl::Status>(
-              arena, IndexOutOfBoundsError(index).ToStatus()));
+              arena, common_internal::MakeIndexOutOfBoundsError(index)));
     }
     Value result;
     auto status = value_.Get(
@@ -189,7 +189,7 @@ class LegacyParsedJsonListValue final
     if (ABSL_PREDICT_FALSE(index < 0 || index >= size())) {
       return google::api::expr::runtime::CelValue::CreateError(
           google::protobuf::Arena::Create<absl::Status>(
-              arena, IndexOutOfBoundsError(index).ToStatus()));
+              arena, common_internal::MakeIndexOutOfBoundsError(index)));
     }
     Value result;
     auto status = value_.Get(

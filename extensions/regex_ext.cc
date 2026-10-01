@@ -65,7 +65,7 @@ Value Extract(int regex_max_program_size, const StringValue& target,
   absl::string_view regex_view = regex.ToStringView(&regex_scratch);
   RE2 re2(regex_view, cel::internal::MakeRE2Options());
   CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, regex_max_program_size))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   const int group_count = re2.NumberOfCapturingGroups();
   if (group_count > 1) {
     return ErrorValue::From(
@@ -99,7 +99,7 @@ Value ExtractAll(int regex_max_program_size, const StringValue& target,
   absl::string_view regex_view = regex.ToStringView(&regex_scratch);
   RE2 re2(regex_view, cel::internal::MakeRE2Options());
   CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, regex_max_program_size))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   const int group_count = re2.NumberOfCapturingGroups();
   if (group_count > 1) {
     return ErrorValue::From(
@@ -162,7 +162,7 @@ Value ReplaceAll(int regex_max_program_size, const StringValue& target,
       replacement.ToStringView(&replacement_scratch);
   RE2 re2(regex_view, cel::internal::MakeRE2Options());
   CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, regex_max_program_size))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   std::string error_string;
   if (!re2.CheckRewriteString(replacement_view, &error_string)) {
     return ErrorValue::From(
@@ -200,7 +200,7 @@ Value ReplaceN(int regex_max_program_size, const StringValue& target,
       replacement.ToStringView(&replacement_scratch);
   RE2 re2(regex_view, cel::internal::MakeRE2Options());
   CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, regex_max_program_size))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   std::string error_string;
   if (!re2.CheckRewriteString(replacement_view, &error_string)) {
     return ErrorValue::From(

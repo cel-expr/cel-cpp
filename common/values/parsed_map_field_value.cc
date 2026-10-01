@@ -326,7 +326,7 @@ absl::Status ParsedMapFieldValue::Get(
   CEL_ASSIGN_OR_RETURN(
       bool ok, Find(key, descriptor_pool, message_factory, arena, result));
   if (ABSL_PREDICT_FALSE(!ok) && !(result->IsError() || result->IsUnknown())) {
-    *result = ErrorValue(NoSuchKeyError(key.DebugString()));
+    *result = NoSuchKeyError(key.DebugString(), arena);
   }
   return absl::OkStatus();
 }

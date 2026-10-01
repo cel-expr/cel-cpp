@@ -26,7 +26,6 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
-#include "absl/base/macros.h"
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -258,9 +257,10 @@ class StringValue final : private common_internal::ValueMixin<StringValue> {
   absl::optional<int64_t> LastIndexOf(const StringValue& string,
                                       int64_t pos) const;
 
-  Value Substring(int64_t start) const;
+  Value Substring(int64_t start, google::protobuf::Arena* absl_nonnull arena) const;
 
-  Value Substring(int64_t start, int64_t end) const;
+  Value Substring(int64_t start, int64_t end,
+                  google::protobuf::Arena* absl_nonnull arena) const;
 
   // Returns a new `StringValue` with all lowercase ASCII characters
   // converted to lowercase.
@@ -325,7 +325,7 @@ class StringValue final : private common_internal::ValueMixin<StringValue> {
   // Returns the character at `pos` as a new `StringValue`. `pos` is a
   // 0-based index based on Unicode code points. Returns `ErrorValue` if `pos`
   // is out of range.
-  Value CharAt(int64_t pos) const;
+  Value CharAt(int64_t pos, google::protobuf::Arena* absl_nonnull arena) const;
 
   absl::optional<absl::string_view> TryFlat() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {

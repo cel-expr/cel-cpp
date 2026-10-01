@@ -62,7 +62,7 @@ absl::optional<Value> CheckForMarkedAttributes(const AttributeTrail& trail,
   if (frame.missing_attribute_errors_enabled() &&
       frame.attribute_utility().CheckForMissingAttribute(trail)) {
     auto result = frame.attribute_utility().CreateMissingAttributeError(
-        trail.attribute());
+        trail.attribute(), frame.arena());
 
     if (result.ok()) {
       return std::move(result).value();

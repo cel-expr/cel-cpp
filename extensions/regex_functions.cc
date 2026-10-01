@@ -65,7 +65,7 @@ Value ExtractString(int regex_max_program_size, const StringValue& target,
 
   RE2 re2(regex_view, cel::internal::MakeRE2Options());
   CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, regex_max_program_size))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   std::string output;
   bool result = RE2::Extract(target_view, re2, rewrite_view, &output);
   if (!result) {
@@ -89,7 +89,7 @@ Value CaptureString(int regex_max_program_size, const StringValue& target,
   absl::string_view target_view = target.ToStringView(&target_scratch);
   RE2 re2(regex_view, cel::internal::MakeRE2Options());
   CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, regex_max_program_size))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   std::string output;
   bool result = RE2::FullMatch(target_view, re2, &output);
   if (!result) {
@@ -117,7 +117,7 @@ absl::StatusOr<Value> CaptureStringN(
   absl::string_view regex_view = regex.ToStringView(&regex_scratch);
   RE2 re2(regex_view, cel::internal::MakeRE2Options());
   CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, regex_max_program_size))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   const int capturing_groups_count = re2.NumberOfCapturingGroups();
   const auto& named_capturing_groups_map = re2.CapturingGroupNames();
   if (capturing_groups_count <= 0) {

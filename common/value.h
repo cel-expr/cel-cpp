@@ -2612,8 +2612,7 @@ static_assert(std::is_nothrow_swappable_v<Value>);
 
 inline common_internal::ImplicitlyConvertibleStatus
 ErrorValueAssign::operator()(absl::Status status) const {
-  *value_ = arena_ != nullptr ? ErrorValue::From(std::move(status), arena_)
-                              : ErrorValue(std::move(status));
+  *value_ = ErrorValue::From(std::move(status), arena_);
   return common_internal::ImplicitlyConvertibleStatus();
 }
 

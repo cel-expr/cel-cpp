@@ -22,7 +22,6 @@
 #include "absl/strings/cord.h"
 #include "absl/strings/cord_test_helpers.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "common/native_type.h"
 #include "common/value.h"
 #include "common/value_testing.h"
@@ -436,25 +435,25 @@ TEST_F(StringValueTest, CharAt) {
   StringValue unicode_string_cord =
       StringValue::From(absl::Cord("aμc"), arena());
 
-  EXPECT_THAT(big_string.CharAt(0), StringValueIs("T"));
-  EXPECT_THAT(big_string_cord.CharAt(0), StringValueIs("T"));
-  EXPECT_THAT(small_string.CharAt(1), StringValueIs("b"));
-  EXPECT_THAT(small_string_cord.CharAt(1), StringValueIs("b"));
-  EXPECT_THAT(unicode_string.CharAt(1), StringValueIs("μ"));
-  EXPECT_THAT(unicode_string_cord.CharAt(1), StringValueIs("μ"));
+  EXPECT_THAT(big_string.CharAt(0, arena()), StringValueIs("T"));
+  EXPECT_THAT(big_string_cord.CharAt(0, arena()), StringValueIs("T"));
+  EXPECT_THAT(small_string.CharAt(1, arena()), StringValueIs("b"));
+  EXPECT_THAT(small_string_cord.CharAt(1, arena()), StringValueIs("b"));
+  EXPECT_THAT(unicode_string.CharAt(1, arena()), StringValueIs("μ"));
+  EXPECT_THAT(unicode_string_cord.CharAt(1, arena()), StringValueIs("μ"));
 
   EXPECT_THAT(
-      big_string.CharAt(100),
+      big_string.CharAt(100, arena()),
       ErrorValueIs(absl::InvalidArgumentError(
           "<string>.charAt(<pos>): <pos> is greater than <string>.size()")));
   EXPECT_THAT(
-      big_string_cord.CharAt(100),
+      big_string_cord.CharAt(100, arena()),
       ErrorValueIs(absl::InvalidArgumentError(
           "<string>.charAt(<pos>): <pos> is greater than <string>.size()")));
-  EXPECT_THAT(big_string.CharAt(-1),
+  EXPECT_THAT(big_string.CharAt(-1, arena()),
               ErrorValueIs(absl::InvalidArgumentError(
                   "<string>.charAt(<pos>): <pos> is less than 0")));
-  EXPECT_THAT(big_string_cord.CharAt(-1),
+  EXPECT_THAT(big_string_cord.CharAt(-1, arena()),
               ErrorValueIs(absl::InvalidArgumentError(
                   "<string>.charAt(<pos>): <pos> is less than 0")));
 }
@@ -470,20 +469,20 @@ TEST_F(StringValueTest, Substring) {
   StringValue unicode_cord = StringValue::From(absl::Cord("€€€€€€"), arena());
   StringValue unicode_view = StringValue::WrapUnsafe("€€€€€€");
 
-  EXPECT_THAT(unicode_cord.Substring(0, 2), StringValueIs("€€"));
-  EXPECT_THAT(unicode_view.Substring(0, 2), StringValueIs("€€"));
-  EXPECT_THAT(unicode_cord.Substring(1, 2), StringValueIs("€"));
-  EXPECT_THAT(unicode_view.Substring(1, 2), StringValueIs("€"));
-  EXPECT_THAT(unicode_cord.Substring(2, 4), StringValueIs("€€"));
-  EXPECT_THAT(unicode_view.Substring(2, 4), StringValueIs("€€"));
-  EXPECT_THAT(unicode_cord.Substring(2), StringValueIs("€€€€"));
-  EXPECT_THAT(unicode_view.Substring(2), StringValueIs("€€€€"));
+  EXPECT_THAT(unicode_cord.Substring(0, 2, arena()), StringValueIs("€€"));
+  EXPECT_THAT(unicode_view.Substring(0, 2, arena()), StringValueIs("€€"));
+  EXPECT_THAT(unicode_cord.Substring(1, 2, arena()), StringValueIs("€"));
+  EXPECT_THAT(unicode_view.Substring(1, 2, arena()), StringValueIs("€"));
+  EXPECT_THAT(unicode_cord.Substring(2, 4, arena()), StringValueIs("€€"));
+  EXPECT_THAT(unicode_view.Substring(2, 4, arena()), StringValueIs("€€"));
+  EXPECT_THAT(unicode_cord.Substring(2, arena()), StringValueIs("€€€€"));
+  EXPECT_THAT(unicode_view.Substring(2, arena()), StringValueIs("€€€€"));
 
-  EXPECT_THAT(unicode_cord.Substring(0, 7),
+  EXPECT_THAT(unicode_cord.Substring(0, 7, arena()),
               ErrorValueIs(absl::InvalidArgumentError(
                   "<string>.substring(<start>, <end>): <start> or <end> is "
                   "greater than <string>.size()")));
-  EXPECT_THAT(unicode_cord.Substring(-1),
+  EXPECT_THAT(unicode_cord.Substring(-1, arena()),
               ErrorValueIs(absl::InvalidArgumentError(
                   "<string>.substring(<start>): <start> is less than 0")));
 }

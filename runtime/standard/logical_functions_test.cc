@@ -168,9 +168,7 @@ INSTANTIATE_TEST_SUITE_P(
                  []() -> std::vector<Value> { return {BoolValue(false)}; },
                  IsBool(false)},
         TestCase{builtin::kNotStrictlyFalse,
-                 []() -> std::vector<Value> {
-                   return {ErrorValue(absl::InternalError("test"))};
-                 },
+                 []() -> std::vector<Value> { return {ErrorValue()}; },
                  IsBool(true)},
         TestCase{builtin::kNotStrictlyFalse,
                  []() -> std::vector<Value> { return {UnknownValue()}; },

@@ -56,7 +56,7 @@ struct ConvertVisitor {
   }
   absl::StatusOr<cel::Value> operator()(const absl::Duration duration) {
     if (duration >= kDurationHigh || duration <= kDurationLow) {
-      return ErrorValue(*DurationOverflowError());
+      return ErrorValue::WrapUnsafe(DurationOverflowError());
     }
     return UnsafeDurationValue(duration);
   }

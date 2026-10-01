@@ -97,9 +97,9 @@ class EmptyListValue final : public common_internal::CompatListValue {
  private:
   absl::Status Get(size_t index, const google::protobuf::DescriptorPool* absl_nonnull,
                    google::protobuf::MessageFactory* absl_nonnull,
-                   google::protobuf::Arena* absl_nonnull,
+                   google::protobuf::Arena* absl_nonnull arena,
                    Value* absl_nonnull result) const override {
-    *result = IndexOutOfBoundsError(index);
+    *result = IndexOutOfBoundsError(index, arena);
     return absl::OkStatus();
   }
 };

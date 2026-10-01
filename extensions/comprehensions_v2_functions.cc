@@ -45,7 +45,7 @@ absl::StatusOr<Value> MapInsertKeyValue(
     // Fast path, runtime has given us a mutable map. We can mutate it directly
     // and return it.
     CEL_RETURN_IF_ERROR(mutable_map_value->Put(key, value))
-        .With(ErrorValueReturn());
+        .With(ErrorValueReturn(arena));
     return map;
   }
   // Slow path, we have to make a copy.
@@ -63,8 +63,8 @@ absl::StatusOr<Value> MapInsertKeyValue(
             return true;
           },
           descriptor_pool, message_factory, arena))
-      .With(ErrorValueReturn());
-  CEL_RETURN_IF_ERROR(builder->Put(key, value)).With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
+  CEL_RETURN_IF_ERROR(builder->Put(key, value)).With(ErrorValueReturn(arena));
   return std::move(*builder).Build();
 }
 
@@ -85,7 +85,7 @@ absl::StatusOr<Value> MapInsertMap(
               return true;
             },
             descriptor_pool, message_factory, arena))
-        .With(ErrorValueReturn());
+        .With(ErrorValueReturn(arena));
     return map;
   }
   // Slow path, we have to make a copy.
@@ -103,7 +103,7 @@ absl::StatusOr<Value> MapInsertMap(
             return true;
           },
           descriptor_pool, message_factory, arena))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   CEL_RETURN_IF_ERROR(
       value.ForEach(
           [&builder](const Value& key,
@@ -112,7 +112,7 @@ absl::StatusOr<Value> MapInsertMap(
             return true;
           },
           descriptor_pool, message_factory, arena))
-      .With(ErrorValueReturn());
+      .With(ErrorValueReturn(arena));
   return std::move(*builder).Build();
 }
 
