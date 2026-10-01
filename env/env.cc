@@ -28,11 +28,11 @@
 #include "common/decl.h"
 #include "common/signature.h"
 #include "common/type.h"
+#include "common/typedef/type_ref.h"
 #include "compiler/compiler.h"
 #include "compiler/compiler_factory.h"
 #include "compiler/standard_library.h"
 #include "env/config.h"
-#include "env/type_info.h"
 #include "internal/status_macros.h"
 #include "parser/macro.h"
 #include "google/protobuf/arena.h"
@@ -128,14 +128,14 @@ absl::StatusOr<FunctionDecl> FunctionConfigToFunctionDecl(
     OverloadDecl overload_decl;
     overload_decl.set_id(overload_config.overload_id);
     overload_decl.set_member(overload_config.is_member_function);
-    for (const Config::TypeInfo& parameter : overload_config.parameters) {
+    for (const TypeRef& parameter : overload_config.parameters) {
       CEL_ASSIGN_OR_RETURN(Type parameter_type,
-                           TypeInfoToType(parameter, descriptor_pool, arena));
+                           TypeRefToType(parameter, descriptor_pool, arena));
       overload_decl.mutable_args().push_back(parameter_type);
     }
     CEL_ASSIGN_OR_RETURN(
         Type return_type,
-        TypeInfoToType(overload_config.return_type, descriptor_pool, arena));
+        TypeRefToType(overload_config.return_type, descriptor_pool, arena));
     overload_decl.set_result(return_type);
     CEL_RETURN_IF_ERROR(function_decl.AddOverload(overload_decl));
   }
@@ -195,8 +195,8 @@ absl::StatusOr<std::unique_ptr<CompilerBuilder>> Env::NewCompilerBuilder()
     VariableDecl variable_decl;
     variable_decl.set_name(variable_config.name);
     CEL_ASSIGN_OR_RETURN(Type type,
-                         TypeInfoToType(variable_config.type_info,
-                                        descriptor_pool_.get(), arena));
+                         TypeRefToType(variable_config.type_info,
+                                       descriptor_pool_.get(), arena));
     variable_decl.set_type(type);
     if (variable_config.value.has_value()) {
       variable_decl.set_value(variable_config.value);
