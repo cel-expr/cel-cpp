@@ -17,6 +17,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -26,6 +27,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
+#include "absl/base/nullability.h"
 #include "absl/functional/overload.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
@@ -33,12 +35,16 @@
 #include "absl/types/optional_ref.h"
 #include "absl/types/span.h"
 #include "base/kind.h"
+#include "internal/cstring_view.h"
 
 namespace cel {
 
 namespace common_internal {
-class AttributeMatcherNode;
+class UnknownAttributeKey;
 struct WildcardType {};
+// Important. The types in the variants must align with each other and the order
+// matters. It must be int < uint < string < bool. If you change it here in the
+// header you must change the logic in the source.
 using AttributeQualifierVariant =
     std::variant<std::monostate, int64_t, uint64_t, std::string, bool>;
 using AttributeQualifierPatternVariant =
@@ -46,6 +52,9 @@ using AttributeQualifierPatternVariant =
                  WildcardType>;
 using AttributeQualifierViewVariant =
     std::variant<std::monostate, int64_t, uint64_t, absl::string_view, bool>;
+using UnknownAttributeKeyVariant =
+    std::variant<std::monostate, int64_t, uint64_t, internal::cstring_view,
+                 bool>;
 }  // namespace common_internal
 
 class AttributeQualifier;
@@ -840,6 +849,9 @@ class Attribute {
 
   absl::StatusOr<std::string> AsString() const;
 
+  [[nodiscard]]
+  std::string ToString() const;
+
  private:
   struct Impl final {
     Impl(std::string variable_name,
@@ -853,6 +865,11 @@ class Attribute {
 
   std::shared_ptr<const Impl> impl_;
 };
+
+template <typename S>
+void AbslStringify(S& sink, const Attribute& attribute) {
+  sink.Append(attribute.ToString());
+}
 
 // AttributePattern is a fully-qualified absolute attribute path pattern.
 // Supported segments steps in the path are:
@@ -868,8 +885,9 @@ class AttributePattern {
     FULL      // Pattern matches an attribute itself.
   };
 
-  AttributePattern(std::string variable,
-                   std::vector<AttributeQualifierPattern> qualifier_path)
+  explicit AttributePattern(
+      std::string variable,
+      std::vector<AttributeQualifierPattern> qualifier_path = {})
       : variable_(std::move(variable)),
         qualifier_path_(std::move(qualifier_path)) {}
 
@@ -902,10 +920,27 @@ class AttributePattern {
     return result;
   }
 
+  [[nodiscard]]
+  std::string ToString() const;
+
  private:
   std::string variable_;
   std::vector<AttributeQualifierPattern> qualifier_path_;
 };
+
+template <typename S>
+void AbslStringify(S& sink, const AttributePattern& pattern) {
+  sink.Append(pattern.ToString());
+}
+
+[[nodiscard]]
+bool operator==(const AttributePattern& lhs, const AttributePattern& rhs);
+
+[[nodiscard]]
+inline bool operator!=(const AttributePattern& lhs,
+                       const AttributePattern& rhs) {
+  return !operator==(lhs, rhs);
+}
 
 struct FieldSpecifier {
   int64_t number;
@@ -913,6 +948,144 @@ struct FieldSpecifier {
 };
 
 using SelectQualifier = std::variant<FieldSpecifier, AttributeQualifier>;
+
+namespace common_internal {
+
+[[nodiscard]]
+const UnknownAttributeKeyVariant& AsVariant(
+    const UnknownAttributeKey& key ABSL_ATTRIBUTE_LIFETIME_BOUND);
+
+// Similar to AttributeQualifierView, except this uses a C string for the string
+// key representation, allowing UnknownAttributeKey to be smaller by 8 bytes.
+class UnknownAttributeKey {
+ public:
+  UnknownAttributeKey() = default;
+  UnknownAttributeKey(const UnknownAttributeKey&) = default;
+  UnknownAttributeKey& operator=(const UnknownAttributeKey&) = default;
+
+  explicit UnknownAttributeKey(bool value)
+      : value_(std::in_place_type<bool>, value) {}
+
+  explicit UnknownAttributeKey(int64_t value)
+      : value_(std::in_place_type<int64_t>, value) {}
+
+  explicit UnknownAttributeKey(uint64_t value)
+      : value_(std::in_place_type<uint64_t>, value) {}
+
+  explicit UnknownAttributeKey(const char* absl_nonnull value)
+      : UnknownAttributeKey(internal::cstring_view(value)) {}
+
+  explicit UnknownAttributeKey(internal::cstring_view value)
+      : value_(std::in_place_type<internal::cstring_view>, value) {}
+
+  UnknownAttributeKey(std::nullptr_t) = delete;
+
+  [[nodiscard]]
+  bool IsBool() const {
+    return std::holds_alternative<bool>(value_);
+  }
+
+  [[nodiscard]]
+  bool GetBool() const {
+    ABSL_DCHECK(IsBool());
+    return std::get<bool>(value_);
+  }
+
+  [[nodiscard]]
+  bool IsInt() const {
+    return std::holds_alternative<int64_t>(value_);
+  }
+
+  [[nodiscard]]
+  int64_t GetInt() const {
+    ABSL_DCHECK(IsInt());
+    return std::get<int64_t>(value_);
+  }
+
+  [[nodiscard]]
+  bool IsUint() const {
+    return std::holds_alternative<uint64_t>(value_);
+  }
+
+  [[nodiscard]]
+  uint64_t GetUint() const {
+    ABSL_DCHECK(IsUint());
+    return std::get<uint64_t>(value_);
+  }
+
+  [[nodiscard]]
+  bool IsString() const {
+    return std::holds_alternative<internal::cstring_view>(value_);
+  }
+
+  [[nodiscard]]
+  internal::cstring_view GetString() const {
+    ABSL_DCHECK(IsString());
+    return std::get<internal::cstring_view>(value_);
+  }
+
+ private:
+  friend const UnknownAttributeKeyVariant& AsVariant(
+      const UnknownAttributeKey& key);
+
+  using Variant = UnknownAttributeKeyVariant;
+
+  Variant value_;
+};
+
+[[nodiscard]]
+inline const UnknownAttributeKeyVariant& AsVariant(
+    const UnknownAttributeKey& key ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+  return key.value_;
+}
+
+[[nodiscard]]
+inline bool operator==(const UnknownAttributeKey& lhs,
+                       const UnknownAttributeKey& rhs) {
+  return AsVariant(lhs) == AsVariant(rhs);
+}
+
+[[nodiscard]]
+bool operator==(const UnknownAttributeKey& lhs,
+                const AttributeQualifierView& rhs);
+
+[[nodiscard]]
+bool operator==(const AttributeQualifierView& lhs,
+                const UnknownAttributeKey& rhs);
+
+[[nodiscard]]
+inline bool operator!=(const UnknownAttributeKey& lhs,
+                       const UnknownAttributeKey& rhs) {
+  return AsVariant(lhs) != AsVariant(rhs);
+}
+
+[[nodiscard]]
+inline bool operator!=(const UnknownAttributeKey& lhs,
+                       const AttributeQualifierView& rhs) {
+  return !operator==(lhs, rhs);
+}
+
+[[nodiscard]]
+inline bool operator!=(const AttributeQualifierView& lhs,
+                       const UnknownAttributeKey& rhs) {
+  return !operator==(lhs, rhs);
+}
+
+[[nodiscard]]
+inline bool operator<(const UnknownAttributeKey& lhs,
+                      const UnknownAttributeKey& rhs) {
+  return common_internal::AsVariant(lhs) < common_internal::AsVariant(rhs);
+}
+
+[[nodiscard]]
+bool operator<(const UnknownAttributeKey& lhs,
+               const AttributeQualifierView& rhs);
+
+[[nodiscard]]
+bool operator<(const AttributeQualifierView& lhs,
+               const UnknownAttributeKey& rhs);
+
+}  // namespace common_internal
 
 }  // namespace cel
 

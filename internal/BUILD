@@ -22,6 +22,29 @@ package(default_visibility = ["//visibility:public"])
 licenses(["notice"])
 
 cc_library(
+    name = "cstring_view",
+    hdrs = ["cstring_view.h"],
+    deps = [
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_test(
+    name = "cstring_view_test_cc",
+    srcs = ["cstring_view_test.cc"],
+    deps = [
+        ":cstring_view",
+        ":testing",
+        "@com_google_absl//absl/hash",
+        "@com_google_absl//absl/hash:hash_testing",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
     name = "align",
     hdrs = ["align.h"],
     deps = [
