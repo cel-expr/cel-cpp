@@ -14,13 +14,13 @@
 
 #include "internal/strings.h"
 
+#include <cstddef>
 #include <string>
 
 #include "absl/base/attributes.h"
 #include "absl/status/status.h"
 #include "absl/strings/ascii.h"
 #include "absl/strings/cord.h"
-#include "absl/strings/escaping.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -441,62 +441,100 @@ bool UnescapeInternal(absl::string_view source, absl::string_view closing_str,
   return true;
 }
 
-std::string EscapeInternal(absl::string_view src, bool escape_all_bytes,
-                           char escape_quote_char) {
-  std::string dest;
-  // Worst case size is every byte has to be hex escaped, so 4 char for every
-  // byte.
-  dest.reserve(src.size() * 4);
+[[nodiscard]]
+bool EscapeChar(std::string* dest, unsigned char c, bool escape_all_bytes,
+                char escape_quote_char, bool last_hex_escape) {
+  bool is_hex_escape = false;
+  switch (c) {
+    case '\n':
+      dest->append("\\n");
+      break;
+    case '\r':
+      dest->append("\\r");
+      break;
+    case '\t':
+      dest->append("\\t");
+      break;
+    case '\\':
+      dest->append("\\\\");
+      break;
+    case '\'':
+      ABSL_FALLTHROUGH_INTENDED;
+    case '\"':
+      ABSL_FALLTHROUGH_INTENDED;
+    case '`':
+      // Escape only quote chars that match escape_quote_char.
+      if (escape_quote_char == 0 || c == escape_quote_char) {
+        dest->push_back('\\');
+      }
+      dest->push_back(c);
+      break;
+    default:
+      // Note that if we emit \xNN and the src character after that is a hex
+      // digit then that digit must be escaped too to prevent it being
+      // interpreted as part of the character code by C.
+      if ((!escape_all_bytes || c < 0x80) &&
+          (!absl::ascii_isprint(c) ||
+           (last_hex_escape && absl::ascii_isxdigit(c)))) {
+        dest->append("\\x");
+        dest->push_back(kHexTable[c / 16]);
+        dest->push_back(kHexTable[c % 16]);
+        is_hex_escape = true;
+      } else {
+        dest->push_back(c);
+        break;
+      }
+  }
+  return is_hex_escape;
+}
+
+template <typename Iter>
+void EscapeStringInternal(std::string* dest, Iter src_begin, const Iter src_end,
+                          bool escape_all_bytes, char escape_quote_char) {
   bool last_hex_escape = false;  // true if last output char was \xNN.
-  const char* p = src.data();
-  const char* end = p + src.size();
-  for (; p < end; ++p) {
-    unsigned char c = static_cast<unsigned char>(*p);
-    bool is_hex_escape = false;
-    switch (c) {
-      case '\n':
-        dest.append("\\n");
-        break;
-      case '\r':
-        dest.append("\\r");
-        break;
-      case '\t':
-        dest.append("\\t");
-        break;
+  for (; src_begin != src_end; ++src_begin) {
+    last_hex_escape =
+        EscapeChar(dest, static_cast<unsigned char>(*src_begin),
+                   escape_all_bytes, escape_quote_char, last_hex_escape);
+  }
+}
+
+void EscapeByte(std::string* dest, unsigned char b, bool escape_all_bytes,
+                char escape_quote_char) {
+  if (escape_all_bytes || !absl::ascii_isprint(b)) {
+    dest->append("\\x");
+    dest->push_back(kHexTable[b / 16]);
+    dest->push_back(kHexTable[b % 16]);
+  } else {
+    switch (b) {
+      // Note that we only handle printable escape characters here.  All
+      // unprintable (\n, \r, \t, etc.) are hex escaped above.
       case '\\':
-        dest.append("\\\\");
+        dest->append("\\\\");
         break;
       case '\'':
-        ABSL_FALLTHROUGH_INTENDED;
-      case '\"':
-        ABSL_FALLTHROUGH_INTENDED;
+      case '"':
       case '`':
         // Escape only quote chars that match escape_quote_char.
-        if (escape_quote_char == 0 || c == escape_quote_char) {
-          dest.push_back('\\');
+        if (escape_quote_char == 0 || b == escape_quote_char) {
+          dest->push_back('\\');
         }
-        dest.push_back(c);
+        dest->push_back(static_cast<char>(b));
         break;
       default:
-        // Note that if we emit \xNN and the src character after that is a hex
-        // digit then that digit must be escaped too to prevent it being
-        // interpreted as part of the character code by C.
-        if ((!escape_all_bytes || c < 0x80) &&
-            (!absl::ascii_isprint(c) ||
-             (last_hex_escape && absl::ascii_isxdigit(c)))) {
-          dest.append("\\x");
-          dest.push_back(kHexTable[c / 16]);
-          dest.push_back(kHexTable[c % 16]);
-          is_hex_escape = true;
-        } else {
-          dest.push_back(c);
-          break;
-        }
+        dest->push_back(static_cast<char>(b));
+        break;
     }
-    last_hex_escape = is_hex_escape;
   }
-  dest.shrink_to_fit();
-  return dest;
+}
+
+template <typename Iter>
+void EscapeBytesInternal(std::string* dest, Iter src_begin, const Iter src_end,
+                         bool escape_all_bytes, char escape_quote_char) {
+  for (; src_begin != src_end; ++src_begin) {
+    EscapeByte(dest, static_cast<unsigned char>(*src_begin), escape_all_bytes,
+               escape_quote_char);
+  }
 }
 
 bool MayBeTripleQuotedString(absl::string_view str) {
@@ -550,42 +588,25 @@ absl::StatusOr<std::string> UnescapeBytes(absl::string_view str) {
 }
 
 std::string EscapeString(absl::string_view str) {
-  return EscapeInternal(str, true, '\0');
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4);
+  EscapeStringInternal(&dest, str.begin(), str.end(), true, '\0');
+  dest.shrink_to_fit();
+  return dest;
 }
 
 std::string EscapeBytes(absl::string_view str, bool escape_all_bytes,
                         char escape_quote_char) {
-  std::string escaped_bytes;
-  const char* p = str.data();
-  const char* end = p + str.size();
-  for (; p < end; ++p) {
-    unsigned char c = *p;
-    if (escape_all_bytes || !absl::ascii_isprint(c)) {
-      escaped_bytes += "\\x";
-      escaped_bytes += absl::BytesToHexString(absl::string_view(p, 1));
-    } else {
-      switch (c) {
-        // Note that we only handle printable escape characters here.  All
-        // unprintable (\n, \r, \t, etc.) are hex escaped above.
-        case '\\':
-          escaped_bytes += "\\\\";
-          break;
-        case '\'':
-        case '"':
-        case '`':
-          // Escape only quote chars that match escape_quote_char.
-          if (escape_quote_char == 0 || c == escape_quote_char) {
-            escaped_bytes += '\\';
-          }
-          escaped_bytes += c;
-          break;
-        default:
-          escaped_bytes += c;
-          break;
-      }
-    }
-  }
-  return escaped_bytes;
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4);
+  EscapeBytesInternal(&dest, str.begin(), str.end(), escape_all_bytes,
+                      escape_quote_char);
+  dest.shrink_to_fit();
+  return dest;
 }
 
 absl::StatusOr<std::string> ParseStringLiteral(absl::string_view str) {
@@ -649,38 +670,143 @@ absl::StatusOr<std::string> ParseBytesLiteral(absl::string_view str) {
 }
 
 std::string FormatStringLiteral(absl::string_view str) {
-  absl::string_view quote =
-      (str.find('"') != str.npos && str.find('\'') == str.npos) ? "'" : "\"";
-  return absl::StrCat(quote, EscapeInternal(str, true, quote[0]), quote);
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 2);
+  FormatStringLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
 }
 
 std::string FormatStringLiteral(const absl::Cord& str) {
-  if (auto flat = str.TryFlat(); flat) {
-    return FormatStringLiteral(*flat);
-  }
-  return FormatStringLiteral(static_cast<std::string>(str));
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 2);
+  FormatStringLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
+}
+
+void FormatStringLiteralTo(absl::string_view str, std::string* dest) {
+  const char quote =
+      absl::StrContains(str, '"') && !absl::StrContains(str, '\'') ? '\'' : '"';
+  dest->push_back(quote);
+  EscapeStringInternal(dest, str.begin(), str.end(), true, quote);
+  dest->push_back(quote);
+}
+
+void FormatStringLiteralTo(const absl::Cord& str, std::string* dest) {
+  const char quote = (str.Contains("\"") && !str.Contains("'")) ? '\'' : '"';
+  dest->push_back(quote);
+  EscapeStringInternal(dest, str.char_begin(), str.char_end(), true, quote);
+  dest->push_back(quote);
 }
 
 std::string FormatSingleQuotedStringLiteral(absl::string_view str) {
-  return absl::StrCat("'", EscapeInternal(str, true, '\''), "'");
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 2);
+  FormatSingleQuotedStringLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
+}
+
+void FormatSingleQuotedStringLiteralTo(absl::string_view str,
+                                       std::string* dest) {
+  dest->push_back('\'');
+  EscapeStringInternal(dest, str.begin(), str.end(), true, '\'');
+  dest->push_back('\'');
 }
 
 std::string FormatDoubleQuotedStringLiteral(absl::string_view str) {
-  return absl::StrCat("\"", EscapeInternal(str, true, '"'), "\"");
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 2);
+  FormatDoubleQuotedStringLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
+}
+
+void FormatDoubleQuotedStringLiteralTo(absl::string_view str,
+                                       std::string* dest) {
+  dest->push_back('"');
+  EscapeStringInternal(dest, str.begin(), str.end(), true, '"');
+  dest->push_back('"');
 }
 
 std::string FormatBytesLiteral(absl::string_view str) {
-  absl::string_view quote =
-      (str.find('"') != str.npos && str.find('\'') == str.npos) ? "'" : "\"";
-  return absl::StrCat("b", quote, EscapeBytes(str, false, quote[0]), quote);
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 3);
+  FormatBytesLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
+}
+
+std::string FormatBytesLiteral(const absl::Cord& str) {
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 3);
+  FormatBytesLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
+}
+
+void FormatBytesLiteralTo(absl::string_view str, std::string* dest) {
+  const char quote =
+      absl::StrContains(str, '"') && !absl::StrContains(str, '\'') ? '\'' : '"';
+  dest->push_back('b');
+  dest->push_back(quote);
+  EscapeBytesInternal(dest, str.begin(), str.end(), false, quote);
+  dest->push_back(quote);
+}
+
+void FormatBytesLiteralTo(const absl::Cord& str, std::string* dest) {
+  const char quote = (str.Contains("\"") && !str.Contains("'")) ? '\'' : '"';
+  dest->push_back('b');
+  dest->push_back(quote);
+  EscapeBytesInternal(dest, str.char_begin(), str.char_end(), false, quote);
+  dest->push_back(quote);
 }
 
 std::string FormatSingleQuotedBytesLiteral(absl::string_view str) {
-  return absl::StrCat("b'", EscapeBytes(str, false, '\''), "'");
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 3);
+  FormatSingleQuotedBytesLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
+}
+
+void FormatSingleQuotedBytesLiteralTo(absl::string_view str,
+                                      std::string* dest) {
+  dest->push_back('\'');
+  EscapeBytesInternal(dest, str.begin(), str.end(), false, '\'');
+  dest->push_back('\'');
 }
 
 std::string FormatDoubleQuotedBytesLiteral(absl::string_view str) {
-  return absl::StrCat("b\"", EscapeBytes(str, false, '"'), "\"");
+  std::string dest;
+  // Worst case size is every byte has to be hex escaped, so 4 char for every
+  // byte.
+  dest.reserve(str.size() * 4 + 3);
+  FormatDoubleQuotedBytesLiteralTo(str, &dest);
+  dest.shrink_to_fit();
+  return dest;
+}
+
+void FormatDoubleQuotedBytesLiteralTo(absl::string_view str,
+                                      std::string* dest) {
+  dest->push_back('"');
+  EscapeBytesInternal(dest, str.begin(), str.end(), false, '"');
+  dest->push_back('"');
 }
 
 absl::StatusOr<std::string> ParseIdentifier(absl::string_view str) {

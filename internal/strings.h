@@ -61,26 +61,37 @@ absl::StatusOr<std::string> ParseBytesLiteral(absl::string_view str);
 // May choose to quote with ' or " to produce nicer output.
 std::string FormatStringLiteral(absl::string_view str);
 std::string FormatStringLiteral(const absl::Cord& str);
+void FormatStringLiteralTo(absl::string_view str, std::string* dest);
+void FormatStringLiteralTo(const absl::Cord& str, std::string* dest);
 
 // Return a quoted and escaped CEL string literal for <str>.
 // Always uses single quotes.
 std::string FormatSingleQuotedStringLiteral(absl::string_view str);
+void FormatSingleQuotedStringLiteralTo(absl::string_view str,
+                                       std::string* dest);
 
 // Return a quoted and escaped CEL string literal for <str>.
 // Always uses double quotes.
 std::string FormatDoubleQuotedStringLiteral(absl::string_view str);
+void FormatDoubleQuotedStringLiteralTo(absl::string_view str,
+                                       std::string* dest);
 
 // Return a quoted and escaped CEL bytes literal for <str>.
 // Prefixes with b and may choose to quote with ' or " to produce nicer output.
 std::string FormatBytesLiteral(absl::string_view str);
+std::string FormatBytesLiteral(const absl::Cord& str);
+void FormatBytesLiteralTo(absl::string_view str, std::string* dest);
+void FormatBytesLiteralTo(const absl::Cord& str, std::string* dest);
 
 // Return a quoted and escaped CEL bytes literal for <str>.
 // Prefixes with b and always uses single quotes.
 std::string FormatSingleQuotedBytesLiteral(absl::string_view str);
+void FormatSingleQuotedBytesLiteralTo(absl::string_view str, std::string* dest);
 
 // Return a quoted and escaped CEL bytes literal for <str>.
 // Prefixes with b and always uses double quotes.
 std::string FormatDoubleQuotedBytesLiteral(absl::string_view str);
+void FormatDoubleQuotedBytesLiteralTo(absl::string_view str, std::string* dest);
 
 // Parse a CEL identifier.
 absl::StatusOr<std::string> ParseIdentifier(absl::string_view str);
