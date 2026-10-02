@@ -20,6 +20,7 @@
 #include <type_traits>
 #include <variant>
 
+#include "absl/algorithm/container.h"
 #include "absl/base/macros.h"
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
@@ -30,6 +31,7 @@
 #include "absl/strings/string_view.h"
 #include "base/kind.h"
 #include "internal/status_macros.h"
+#include "internal/strings.h"
 
 namespace cel {
 
@@ -119,6 +121,26 @@ struct AttributeQualifierTypeVisitor final {
   Kind operator()(bool) const { return Kind::kBool; }
 };
 
+struct AttributeQualifierToString {
+  void operator()(std::monostate) const {}
+
+  void operator()(bool value) const { output.append(value ? "true" : "false"); }
+
+  void operator()(int64_t value) const { absl::StrAppend(&output, value); }
+
+  void operator()(uint64_t value) const {
+    absl::StrAppend(&output, value, "u");
+  }
+
+  void operator()(absl::string_view value) const {
+    absl::StrAppend(&output, internal::FormatStringLiteral(value));
+  }
+
+  void operator()(common_internal::WildcardType) const { output.append("*"); }
+
+  std::string& output;
+};
+
 }  // namespace
 
 Kind AttributeQualifier::kind() const {
@@ -190,6 +212,30 @@ absl::StatusOr<std::string> Attribute::AsString() const {
                                    common_internal::AsVariant(qualifier)));
   }
 
+  return result;
+}
+
+std::string Attribute::ToString() const {
+  std::string result;
+  result.append(variable_name());
+  for (const auto& qualifier : qualifier_path()) {
+    result.push_back('[');
+    std::visit(AttributeQualifierToString{result},
+               common_internal::AsVariant(qualifier));
+    result.push_back(']');
+  }
+  return result;
+}
+
+std::string AttributePattern::ToString() const {
+  std::string result;
+  result.append(variable());
+  for (const auto& qualifier : qualifier_path()) {
+    result.push_back('[');
+    std::visit(AttributeQualifierToString{result},
+               common_internal::AsVariant(qualifier));
+    result.push_back(']');
+  }
   return result;
 }
 
@@ -515,6 +561,11 @@ bool operator<(const AttributeQualifierPattern& lhs,
                const AttributeQualifierView& rhs) {
   return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
                     common_internal::AsVariant(rhs));
+}
+
+bool operator==(const AttributePattern& lhs, const AttributePattern& rhs) {
+  return lhs.variable() == rhs.variable() &&
+         absl::c_equal(lhs.qualifier_path(), rhs.qualifier_path());
 }
 
 }  // namespace cel
