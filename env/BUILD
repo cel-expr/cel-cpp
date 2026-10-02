@@ -21,7 +21,6 @@ cc_library(
     name = "config",
     srcs = [
         "config.cc",
-        "type_info.cc",
     ],
     hdrs = [
         "config.h",
@@ -31,10 +30,8 @@ cc_library(
         "//common:ast",
         "//common:constant",
         "//common:type",
-        "//common:type_kind",
+        "//common/typedef:type_ref",
         "//internal:status_macros",
-        "@com_google_absl//absl/base:no_destructor",
-        "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/functional:overload",
         "@com_google_absl//absl/status",
@@ -57,6 +54,7 @@ cc_library(
         "//common:decl",
         "//common:signature",
         "//common:type",
+        "//common/typedef:type_ref",
         "//compiler",
         "//compiler:compiler_factory",
         "//compiler:standard_library",
@@ -125,6 +123,7 @@ cc_library(
         "//common:ast",
         "//common:constant",
         "//common:signature",
+        "//common/typedef:type_ref",
         "//internal:status_macros",
         "//internal:strings",
         "@com_google_absl//absl/algorithm:container",
@@ -173,22 +172,6 @@ cc_test(
         "//internal:testing",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
-    ],
-)
-
-cc_test(
-    name = "type_info_test",
-    srcs = ["type_info_test.cc"],
-    deps = [
-        ":config",
-        "//common:type",
-        "//common:type_proto",
-        "//common/ast:metadata",
-        "//internal:proto_matchers",
-        "//internal:testing",
-        "//internal:testing_descriptor_pool",
-        "@com_google_absl//absl/status",
-        "@com_google_protobuf//:protobuf",
     ],
 )
 
@@ -280,6 +263,7 @@ cc_test(
         ":config",
         ":env_yaml",
         "//common:constant",
+        "//common/typedef:type_ref",
         "//internal:status_macros",
         "//internal:testing",
         "@com_google_absl//absl/status",

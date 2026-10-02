@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "env/type_info.h"
+#include "common/typedef/type_ref.h"
 
 #include <cstddef>
 #include <memory>
@@ -24,7 +24,6 @@
 #include "common/ast/metadata.h"
 #include "common/type.h"
 #include "common/type_proto.h"
-#include "env/config.h"
 #include "internal/proto_matchers.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
@@ -34,16 +33,16 @@
 
 namespace cel {
 
-std::ostream& operator<<(std::ostream& os, const Config::TypeInfo& type_info) {
-  if (type_info.is_type_param) {
+std::ostream& operator<<(std::ostream& os, const TypeRef& type_ref) {
+  if (type_ref.is_type_param) {
     os << "?";
   }
-  os << type_info.name;
-  if (!type_info.params.empty()) {
+  os << type_ref.name;
+  if (!type_ref.params.empty()) {
     os << "<";
-    for (size_t i = 0; i < type_info.params.size(); ++i) {
+    for (size_t i = 0; i < type_ref.params.size(); ++i) {
       if (i > 0) os << ", ";
-      os << type_info.params[i];
+      os << type_ref.params[i];
     }
     os << ">";
   }
@@ -57,13 +56,13 @@ using absl_testing::StatusIs;
 using testing::ValuesIn;
 
 struct TestCase {
-  Config::TypeInfo type_info;
+  TypeRef type_ref;
   std::string expected_type_pb;
 };
 
-using TypeInfoTest = testing::TestWithParam<TestCase>;
+using TypeRefTest = testing::TestWithParam<TestCase>;
 
-TEST_P(TypeInfoTest, TypeInfo) {
+TEST_P(TypeRefTest, TypeRef) {
   const TestCase& param = GetParam();
   cel::expr::Type expected_type_pb;
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(param.expected_type_pb,
@@ -74,7 +73,7 @@ TEST_P(TypeInfoTest, TypeInfo) {
       cel::internal::GetTestingDescriptorPool();
   ASSERT_OK_AND_ASSIGN(
       cel::Type actual_type,
-      cel::TypeInfoToType(param.type_info, descriptor_pool, &arena));
+      cel::TypeRefToType(param.type_ref, descriptor_pool, &arena));
 
   cel::expr::Type actual_type_pb;
   ASSERT_THAT(cel::TypeToProto(actual_type, &actual_type_pb), IsOk());
@@ -85,62 +84,59 @@ TEST_P(TypeInfoTest, TypeInfo) {
 std::vector<TestCase> GetTestCases() {
   return {
       TestCase{
-          .type_info = {.name = "int"},
+          .type_ref = {.name = "int"},
           .expected_type_pb = "primitive: INT64",
       },
       TestCase{
-          .type_info = {.name = "list",
-                        .params = {Config::TypeInfo{.name = "int"}}},
+          .type_ref = {.name = "list", .params = {TypeRef{.name = "int"}}},
           .expected_type_pb = "list_type { elem_type { primitive: INT64 } }",
       },
       TestCase{
-          .type_info = {.name = "list"},
+          .type_ref = {.name = "list"},
           .expected_type_pb = "list_type { elem_type { dyn {} }}",
       },
       TestCase{
-          .type_info = {.name = "map",
-                        .params = {Config::TypeInfo{.name = "string"},
-                                   Config::TypeInfo{.name = "int"}}},
+          .type_ref = {.name = "map",
+                       .params = {TypeRef{.name = "string"},
+                                  TypeRef{.name = "int"}}},
           .expected_type_pb = "map_type { key_type { primitive: STRING } "
                               "value_type { primitive: INT64 }}",
       },
       TestCase{
-          .type_info = {.name = "cel.expr.conformance.proto2.TestAllTypes"},
+          .type_ref = {.name = "cel.expr.conformance.proto2.TestAllTypes"},
           .expected_type_pb =
               "message_type: 'cel.expr.conformance.proto2.TestAllTypes'",
       },
       TestCase{
-          .type_info = {.name = "A",
-                        .params = {Config::TypeInfo{.name = "B",
-                                                    .is_type_param = true}}},
+          .type_ref = {.name = "A",
+                       .params = {TypeRef{.name = "B", .is_type_param = true}}},
           .expected_type_pb =
               "abstract_type { name: 'A' parameter_types { type_param: 'B' } }",
       },
       TestCase{
-          .type_info = {.name = "any"},
+          .type_ref = {.name = "any"},
           .expected_type_pb = "well_known: ANY",
       },
       TestCase{
-          .type_info = {.name = "timestamp"},
+          .type_ref = {.name = "timestamp"},
           .expected_type_pb = "well_known: TIMESTAMP",
       },
       TestCase{
-          .type_info = {.name = "google.protobuf.DoubleValue"},
+          .type_ref = {.name = "google.protobuf.DoubleValue"},
           .expected_type_pb = "wrapper: DOUBLE",
       },
       TestCase{
-          .type_info = {.name = "double_wrapper"},
+          .type_ref = {.name = "double_wrapper"},
           .expected_type_pb = "wrapper: DOUBLE",
       },
       TestCase{
-          .type_info = {.name = "type",
-                        .params = {Config::TypeInfo{.name = "duration"}}},
+          .type_ref = {.name = "type", .params = {TypeRef{.name = "duration"}}},
           .expected_type_pb = "type: { well_known: DURATION }",
       },
       TestCase{
-          .type_info = {.name = "parameterized",
-                        .params = {{.name = "A", .is_type_param = true},
-                                   {.name = "double"}}},
+          .type_ref = {.name = "parameterized",
+                       .params = {{.name = "A", .is_type_param = true},
+                                  {.name = "double"}}},
           .expected_type_pb = "abstract_type { name: 'parameterized' "
                               "parameter_types { type_param: 'A' } "
                               "parameter_types { primitive: DOUBLE } }",
@@ -148,151 +144,149 @@ std::vector<TestCase> GetTestCases() {
   };
 }
 
-INSTANTIATE_TEST_SUITE_P(TypeInfoTest, TypeInfoTest, ValuesIn(GetTestCases()));
+INSTANTIATE_TEST_SUITE_P(TypeRefTest, TypeRefTest, ValuesIn(GetTestCases()));
 
-bool TypeInfoEqImpl(const Config::TypeInfo& actual,
-                    const Config::TypeInfo& expected) {
+bool TypeRefEqImpl(const TypeRef& actual, const TypeRef& expected) {
   if (actual.name != expected.name) return false;
   if (actual.is_type_param != expected.is_type_param) return false;
   if (actual.params.size() != expected.params.size()) return false;
   for (size_t i = 0; i < actual.params.size(); ++i) {
-    if (!TypeInfoEqImpl(actual.params[i], expected.params[i])) return false;
+    if (!TypeRefEqImpl(actual.params[i], expected.params[i])) return false;
   }
   return true;
 }
 
-MATCHER_P(TypeInfoEq, expected, "") { return TypeInfoEqImpl(arg, expected); }
+MATCHER_P(TypeRefEq, expected, "") { return TypeRefEqImpl(arg, expected); }
 
 struct TypeSpecTestCase {
   TypeSpec type_spec;
-  Config::TypeInfo expected_type_info;
+  TypeRef expected_type_ref;
 };
 
-using TypeSpecToTypeInfoTest = testing::TestWithParam<TypeSpecTestCase>;
+using TypeSpecToTypeRefTest = testing::TestWithParam<TypeSpecTestCase>;
 
-TEST_P(TypeSpecToTypeInfoTest, Convert) {
+TEST_P(TypeSpecToTypeRefTest, Convert) {
   const TypeSpecTestCase& param = GetParam();
-  ASSERT_OK_AND_ASSIGN(Config::TypeInfo actual_type_info,
-                       TypeSpecToTypeInfo(param.type_spec));
-  EXPECT_THAT(actual_type_info, TypeInfoEq(param.expected_type_info));
+  ASSERT_OK_AND_ASSIGN(TypeRef actual_type_ref,
+                       TypeSpecToTypeRef(param.type_spec));
+  EXPECT_THAT(actual_type_ref, TypeRefEq(param.expected_type_ref));
 }
 
 std::vector<TypeSpecTestCase> GetTypeSpecTestCases() {
   return {
       TypeSpecTestCase{
           .type_spec = TypeSpec(PrimitiveType::kInt64),
-          .expected_type_info = {.name = "int"},
+          .expected_type_ref = {.name = "int"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(
               ListTypeSpec(std::make_unique<TypeSpec>(PrimitiveType::kInt64))),
-          .expected_type_info = {.name = "list",
-                                 .params = {Config::TypeInfo{.name = "int"}}},
+          .expected_type_ref = {.name = "list",
+                                .params = {TypeRef{.name = "int"}}},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(ListTypeSpec()),
-          .expected_type_info = {.name = "list"},
+          .expected_type_ref = {.name = "list"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(
               MapTypeSpec(std::make_unique<TypeSpec>(PrimitiveType::kString),
                           std::make_unique<TypeSpec>(PrimitiveType::kInt64))),
-          .expected_type_info = {.name = "map",
-                                 .params = {Config::TypeInfo{.name = "string"},
-                                            Config::TypeInfo{.name = "int"}}},
+          .expected_type_ref = {.name = "map",
+                                .params = {TypeRef{.name = "string"},
+                                           TypeRef{.name = "int"}}},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(MapTypeSpec()),
-          .expected_type_info = {.name = "map"},
+          .expected_type_ref = {.name = "map"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(
               MessageTypeSpec("cel.expr.conformance.proto2.TestAllTypes")),
-          .expected_type_info =
-              {.name = "cel.expr.conformance.proto2.TestAllTypes"},
+          .expected_type_ref = {.name =
+                                    "cel.expr.conformance.proto2.TestAllTypes"},
       },
       TypeSpecTestCase{
           .type_spec =
               TypeSpec(AbstractType("A", {TypeSpec(ParamTypeSpec("B"))})),
-          .expected_type_info = {.name = "A",
-                                 .params = {Config::TypeInfo{
-                                     .name = "B", .is_type_param = true}}},
+          .expected_type_ref = {.name = "A",
+                                .params = {TypeRef{.name = "B",
+                                                   .is_type_param = true}}},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(WellKnownTypeSpec::kAny),
-          .expected_type_info = {.name = "any"},
+          .expected_type_ref = {.name = "any"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(WellKnownTypeSpec::kTimestamp),
-          .expected_type_info = {.name = "timestamp"},
+          .expected_type_ref = {.name = "timestamp"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(PrimitiveTypeWrapper(PrimitiveType::kDouble)),
-          .expected_type_info = {.name = "double_wrapper"},
+          .expected_type_ref = {.name = "double_wrapper"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(
               std::make_unique<TypeSpec>(WellKnownTypeSpec::kDuration)),
-          .expected_type_info = {.name = "type",
-                                 .params = {Config::TypeInfo{.name =
-                                                                 "duration"}}},
+          .expected_type_ref = {.name = "type",
+                                .params = {TypeRef{.name = "duration"}}},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(std::make_unique<TypeSpec>(DynTypeSpec())),
-          .expected_type_info = {.name = "type",
-                                 .params = {Config::TypeInfo{.name = "dyn"}}},
+          .expected_type_ref = {.name = "type",
+                                .params = {TypeRef{.name = "dyn"}}},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(DynTypeSpec{}),
-          .expected_type_info = {.name = "dyn"},
+          .expected_type_ref = {.name = "dyn"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(NullTypeSpec{}),
-          .expected_type_info = {.name = "null"},
+          .expected_type_ref = {.name = "null"},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(
               MapTypeSpec(std::make_unique<TypeSpec>(PrimitiveType::kString),
                           std::make_unique<TypeSpec>(DynTypeSpec()))),
-          .expected_type_info = {.name = "map",
-                                 .params = {Config::TypeInfo{.name = "string"},
-                                            Config::TypeInfo{.name = "dyn"}}},
+          .expected_type_ref = {.name = "map",
+                                .params = {TypeRef{.name = "string"},
+                                           TypeRef{.name = "dyn"}}},
       },
       TypeSpecTestCase{
           .type_spec = TypeSpec(
               MapTypeSpec(std::make_unique<TypeSpec>(DynTypeSpec()),
                           std::make_unique<TypeSpec>(PrimitiveType::kInt64))),
-          .expected_type_info = {.name = "map",
-                                 .params = {Config::TypeInfo{.name = "dyn"},
-                                            Config::TypeInfo{.name = "int"}}},
+          .expected_type_ref = {.name = "map",
+                                .params = {TypeRef{.name = "dyn"},
+                                           TypeRef{.name = "int"}}},
       },
   };
 }
 
-INSTANTIATE_TEST_SUITE_P(TypeSpecToTypeInfoTest, TypeSpecToTypeInfoTest,
+INSTANTIATE_TEST_SUITE_P(TypeSpecToTypeRefTest, TypeSpecToTypeRefTest,
                          ValuesIn(GetTypeSpecTestCases()));
 
-using TypeInfoToTypeSpecTest = testing::TestWithParam<TypeSpecTestCase>;
+using TypeRefToTypeSpecTest = testing::TestWithParam<TypeSpecTestCase>;
 
-TEST_P(TypeInfoToTypeSpecTest, Convert) {
+TEST_P(TypeRefToTypeSpecTest, Convert) {
   const TypeSpecTestCase& param = GetParam();
   ASSERT_OK_AND_ASSIGN(TypeSpec actual_type_spec,
-                       TypeInfoToTypeSpec(param.expected_type_info));
+                       TypeRefToTypeSpec(param.expected_type_ref));
   EXPECT_EQ(actual_type_spec, param.type_spec);
 }
 
-INSTANTIATE_TEST_SUITE_P(TypeInfoToTypeSpecTest, TypeInfoToTypeSpecTest,
+INSTANTIATE_TEST_SUITE_P(TypeRefToTypeSpecTest, TypeRefToTypeSpecTest,
                          ValuesIn(GetTypeSpecTestCases()));
 
-TEST(TypeSpecToTypeInfoTest, ErrorConversions) {
-  EXPECT_THAT(TypeSpecToTypeInfo(TypeSpec(ErrorTypeSpec::kValue)),
+TEST(TypeSpecToTypeRefTest, ErrorConversions) {
+  EXPECT_THAT(TypeSpecToTypeRef(TypeSpec(ErrorTypeSpec::kValue)),
               StatusIs(absl::StatusCode::kInvalidArgument,
-                       "ErrorType cannot be converted to TypeInfo"));
-  EXPECT_THAT(TypeSpecToTypeInfo(TypeSpec(FunctionTypeSpec())),
+                       "ErrorType cannot be converted to TypeRef"));
+  EXPECT_THAT(TypeSpecToTypeRef(TypeSpec(FunctionTypeSpec())),
               StatusIs(absl::StatusCode::kInvalidArgument,
-                       "FunctionType cannot be converted to TypeInfo"));
+                       "FunctionType cannot be converted to TypeRef"));
   EXPECT_THAT(
-      TypeSpecToTypeInfo(TypeSpec(UnsetTypeSpec())),
+      TypeSpecToTypeRef(TypeSpec(UnsetTypeSpec())),
       StatusIs(absl::StatusCode::kInvalidArgument, "Unknown TypeSpec kind"));
 }
 

@@ -30,6 +30,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "common/constant.h"
+#include "common/typedef/type_ref.h"
 #include "env/config.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
@@ -185,10 +186,10 @@ TEST(EnvYamlTest, ParseVariableConfigs) {
   const Config::VariableConfig& variable_config =
       config.GetVariableConfigs()[0];
   EXPECT_EQ(variable_config.name, "msg");
-  const auto& type_info = variable_config.type_info;
-  EXPECT_EQ(type_info.name, "google.expr.proto3.test.TestAllTypes");
-  EXPECT_FALSE(type_info.is_type_param);
-  EXPECT_THAT(type_info.params, IsEmpty());
+  const TypeRef& type_ref = variable_config.type_info;
+  EXPECT_EQ(type_ref.name, "google.expr.proto3.test.TestAllTypes");
+  EXPECT_FALSE(type_ref.is_type_param);
+  EXPECT_THAT(type_ref.params, IsEmpty());
   EXPECT_EQ(variable_config.description,
             "msg represents all possible type permutation which CEL "
             "understands from a proto perspective");
@@ -204,16 +205,16 @@ TEST(EnvYamlTest, ParseVariableConfigWithTypeParams) {
   const Config::VariableConfig& variable_config =
       config.GetVariableConfigs()[0];
   EXPECT_EQ(variable_config.name, "dict");
-  const auto& type_info = variable_config.type_info;
-  EXPECT_EQ(type_info.name, "map");
-  EXPECT_FALSE(type_info.is_type_param);
-  EXPECT_THAT(type_info.params, SizeIs(2));
-  EXPECT_EQ(type_info.params[0].name, "string");
-  EXPECT_FALSE(type_info.params[0].is_type_param);
-  EXPECT_THAT(type_info.params[0].params, IsEmpty());
-  EXPECT_EQ(type_info.params[1].name, "A");
-  EXPECT_TRUE(type_info.params[1].is_type_param);
-  EXPECT_THAT(type_info.params[1].params, IsEmpty());
+  const TypeRef& type_ref = variable_config.type_info;
+  EXPECT_EQ(type_ref.name, "map");
+  EXPECT_FALSE(type_ref.is_type_param);
+  EXPECT_THAT(type_ref.params, SizeIs(2));
+  EXPECT_EQ(type_ref.params[0].name, "string");
+  EXPECT_FALSE(type_ref.params[0].is_type_param);
+  EXPECT_THAT(type_ref.params[0].params, IsEmpty());
+  EXPECT_EQ(type_ref.params[1].name, "A");
+  EXPECT_TRUE(type_ref.params[1].is_type_param);
+  EXPECT_THAT(type_ref.params[1].params, IsEmpty());
 }
 
 TEST(EnvYamlTest, ParseContextVariableConfig) {
@@ -271,16 +272,16 @@ TEST(EnvYamlTest, ParseVariableConfigWithTypeParamsLegacySyntax) {
   const Config::VariableConfig& variable_config =
       config.GetVariableConfigs()[0];
   EXPECT_EQ(variable_config.name, "dict");
-  const auto& type_info = variable_config.type_info;
-  EXPECT_EQ(type_info.name, "map");
-  EXPECT_FALSE(type_info.is_type_param);
-  EXPECT_THAT(type_info.params, SizeIs(2));
-  EXPECT_EQ(type_info.params[0].name, "string");
-  EXPECT_FALSE(type_info.params[0].is_type_param);
-  EXPECT_THAT(type_info.params[0].params, IsEmpty());
-  EXPECT_EQ(type_info.params[1].name, "A");
-  EXPECT_TRUE(type_info.params[1].is_type_param);
-  EXPECT_THAT(type_info.params[1].params, IsEmpty());
+  const TypeRef& type_ref = variable_config.type_info;
+  EXPECT_EQ(type_ref.name, "map");
+  EXPECT_FALSE(type_ref.is_type_param);
+  EXPECT_THAT(type_ref.params, SizeIs(2));
+  EXPECT_EQ(type_ref.params[0].name, "string");
+  EXPECT_FALSE(type_ref.params[0].is_type_param);
+  EXPECT_THAT(type_ref.params[0].params, IsEmpty());
+  EXPECT_EQ(type_ref.params[1].name, "A");
+  EXPECT_TRUE(type_ref.params[1].is_type_param);
+  EXPECT_THAT(type_ref.params[1].params, IsEmpty());
 }
 
 TEST(EnvYamlTest, ParseVariableConfigWithNestedRuleOldFormat) {
@@ -295,10 +296,10 @@ TEST(EnvYamlTest, ParseVariableConfigWithNestedRuleOldFormat) {
   const Config::VariableConfig& variable_config =
       config.GetVariableConfigs()[0];
   EXPECT_EQ(variable_config.name, "x");
-  const auto& type_info = variable_config.type_info;
-  EXPECT_EQ(type_info.name, "int");
-  EXPECT_FALSE(type_info.is_type_param);
-  EXPECT_THAT(type_info.params, IsEmpty());
+  const TypeRef& type_ref = variable_config.type_info;
+  EXPECT_EQ(type_ref.name, "int");
+  EXPECT_FALSE(type_ref.is_type_param);
+  EXPECT_THAT(type_ref.params, IsEmpty());
 }
 
 struct ParseConstantTestCase {
@@ -470,13 +471,12 @@ struct ParseFunctionTestCase {
 class EnvYamlParseFunctionTest
     : public testing::TestWithParam<ParseFunctionTestCase> {};
 
-void ExpectTypeInfoEqual(const Config::TypeInfo& actual,
-                         const Config::TypeInfo& expected) {
+void ExpectTypeRefEqual(const TypeRef& actual, const TypeRef& expected) {
   EXPECT_EQ(actual.name, expected.name);
   EXPECT_EQ(actual.is_type_param, expected.is_type_param);
   ASSERT_THAT(actual.params, SizeIs(expected.params.size()));
   for (size_t i = 0; i < expected.params.size(); ++i) {
-    ExpectTypeInfoEqual(actual.params[i], expected.params[i]);
+    ExpectTypeRefEqual(actual.params[i], expected.params[i]);
   }
 }
 
@@ -508,12 +508,12 @@ TEST_P(EnvYamlParseFunctionTest, EnvYamlParseFunction) {
     ASSERT_THAT(actual_overload.parameters,
                 SizeIs(expected_overload.parameters.size()));
     for (size_t j = 0; j < expected_overload.parameters.size(); ++j) {
-      ExpectTypeInfoEqual(actual_overload.parameters[j],
-                          expected_overload.parameters[j]);
+      ExpectTypeRefEqual(actual_overload.parameters[j],
+                         expected_overload.parameters[j]);
     }
 
-    ExpectTypeInfoEqual(actual_overload.return_type,
-                        expected_overload.return_type);
+    ExpectTypeRefEqual(actual_overload.return_type,
+                       expected_overload.return_type);
   }
 }
 

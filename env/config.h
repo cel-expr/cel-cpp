@@ -24,6 +24,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "common/constant.h"
+#include "common/typedef/type_ref.h"  // IWYU pragma: export
 
 namespace cel {
 
@@ -108,16 +109,12 @@ class Config {
     return standard_library_config_;
   }
 
-  struct TypeInfo {
-    std::string name;
-    std::vector<TypeInfo> params;
-    bool is_type_param = false;
-  };
+  using TypeInfo = cel::TypeRef;
 
   struct VariableConfig {
     std::string name;
     std::string description;
-    TypeInfo type_info;
+    TypeRef type_info;
     Constant value;
   };
 
@@ -137,8 +134,8 @@ class Config {
     std::string overload_id;
     std::vector<std::string> examples;
     bool is_member_function = false;
-    std::vector<TypeInfo> parameters;
-    TypeInfo return_type;
+    std::vector<TypeRef> parameters;
+    TypeRef return_type;
   };
 
   struct FunctionConfig {
