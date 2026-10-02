@@ -19,6 +19,54 @@
 #include "google/protobuf/map_field.h"
 #include "google/protobuf/message.h"
 
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+namespace cel::extensions::protobuf_internal {
+
+bool LookupMapValue(const google::protobuf::Reflection& reflection,
+                    const google::protobuf::Message& message,
+                    const google::protobuf::FieldDescriptor& field,
+                    const google::protobuf::MapKey& key,
+                    google::protobuf::MapValueConstRef* value) {
+  auto map = reflection.GetMap(message, &field);
+  auto it = map.find(key);
+  if (it == map.end()) return false;
+  *value = it->value();
+  return true;
+}
+
+bool ContainsMapKey(const google::protobuf::Reflection& reflection,
+                    const google::protobuf::Message& message,
+                    const google::protobuf::FieldDescriptor& field,
+                    const google::protobuf::MapKey& key) {
+  return reflection.GetMap(message, &field).contains(key);
+}
+
+int MapSize(const google::protobuf::Reflection& reflection,
+            const google::protobuf::Message& message,
+            const google::protobuf::FieldDescriptor& field) {
+  return reflection.GetMap(message, &field).size();
+}
+
+bool InsertOrLookupMapValue(const google::protobuf::Reflection& reflection,
+                            google::protobuf::Message* message,
+                            const google::protobuf::FieldDescriptor& field,
+                            const google::protobuf::MapKey& key,
+                            google::protobuf::MapValueRef* value) {
+  auto map = reflection.MutableMap(message, &field);
+  auto res = map.try_emplace(key);
+  *value = res.first->value();
+  return res.second;
+}
+
+bool DeleteMapValue(const google::protobuf::Reflection* absl_nonnull reflection,
+                    google::protobuf::Message* absl_nonnull message,
+                    const google::protobuf::FieldDescriptor* absl_nonnull field,
+                    const google::protobuf::MapKey& key) {
+  return reflection->MutableMap(message, field).erase(key);
+}
+
+}  // namespace cel::extensions::protobuf_internal
+#else
 namespace google::protobuf::expr {
 
 class CelMapReflectionFriend final {
@@ -130,3 +178,4 @@ bool DeleteMapValue(const google::protobuf::Reflection* absl_nonnull reflection,
 }
 
 }  // namespace cel::extensions::protobuf_internal
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS

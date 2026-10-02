@@ -50,8 +50,6 @@ namespace cel::internal {
 
 namespace {
 
-using ::cel::extensions::protobuf_internal::ConstMapBegin;
-using ::cel::extensions::protobuf_internal::ConstMapEnd;
 using ::cel::extensions::protobuf_internal::LookupMapValue;
 using ::cel::extensions::protobuf_internal::MapSize;
 using ::google::protobuf::Descriptor;
@@ -904,14 +902,42 @@ class MessageEqualsState final {
         MapSize(*rhs_reflection, rhs, *rhs_field)) {
       return false;
     }
-    auto lhs_begin = ConstMapBegin(*lhs_reflection, lhs, *lhs_field);
-    const auto lhs_end = ConstMapEnd(*lhs_reflection, lhs, *lhs_field);
+
     Unique<Message> lhs_unpacked;
     EquatableValue lhs_value;
     Unique<Message> rhs_unpacked;
     EquatableValue rhs_value;
     google::protobuf::MapKey rhs_map_key;
     google::protobuf::MapValueConstRef rhs_map_value;
+#if defined(PROTOBUF_HAS_MAP_REFLECTION_APIS)
+    for (auto lhs_entry : lhs_reflection->GetMap(lhs, lhs_field)) {
+      if (!CoalesceMapKey(lhs_entry.key(), rhs_entry_key_field->cpp_type(),
+                          &rhs_map_key)) {
+        return false;
+      }
+      if (!LookupMapValue(*rhs_reflection, rhs, *rhs_field, rhs_map_key,
+                          &rhs_map_value)) {
+        return false;
+      }
+      CEL_ASSIGN_OR_RETURN(
+          lhs_value,
+          MapValueAsEquatableValue(&arena_, pool_, factory_, lhs_reflection_,
+                                   lhs_entry.value(), lhs_entry_value_field,
+                                   lhs_scratch_, lhs_unpacked));
+      CEL_ASSIGN_OR_RETURN(
+          rhs_value,
+          MapValueAsEquatableValue(&arena_, pool_, factory_, rhs_reflection_,
+                                   rhs_map_value, rhs_entry_value_field,
+                                   rhs_scratch_, rhs_unpacked));
+      if (!EquatableValueEquals(lhs_value, rhs_value)) {
+        return false;
+      }
+    }
+#else   // PROTOBUF_HAS_MAP_REFLECTION_APIS
+    using ::cel::extensions::protobuf_internal::ConstMapBegin;
+    using ::cel::extensions::protobuf_internal::ConstMapEnd;
+    auto lhs_begin = ConstMapBegin(*lhs_reflection, lhs, *lhs_field);
+    const auto lhs_end = ConstMapEnd(*lhs_reflection, lhs, *lhs_field);
     for (; lhs_begin != lhs_end; ++lhs_begin) {
       if (!CoalesceMapKey(lhs_begin.GetKey(), rhs_entry_key_field->cpp_type(),
                           &rhs_map_key)) {
@@ -935,6 +961,7 @@ class MessageEqualsState final {
         return false;
       }
     }
+#endif  // PROTOBUF_HAS_MAP_REFLECTION_APIS
     return true;
   }
 
