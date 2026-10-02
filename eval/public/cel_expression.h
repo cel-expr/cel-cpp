@@ -5,15 +5,18 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 
 #include "cel/expr/checked.pb.h"
 #include "cel/expr/syntax.pb.h"
+#include "absl/base/attributes.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "eval/public/base_activation.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_type_registry.h"
 #include "eval/public/cel_value.h"
+#include "google/protobuf/arena.h"
 
 namespace google::api::expr::runtime {
 
@@ -46,34 +49,59 @@ class CelExpression {
   virtual ~CelExpression() = default;
 
   // Initializes the state
+  ABSL_DEPRECATED("Use CreateState and pass arena on each evaluation")
   virtual std::unique_ptr<CelEvaluationState> InitializeState(
       google::protobuf::Arena* arena) const = 0;
+
+  // Initializes the state
+  virtual std::unique_ptr<CelEvaluationState> CreateState() const = 0;
 
   // Evaluates expression and returns value.
   // activation contains bindings from parameter names to values
   // arena parameter specifies Arena object where output result and
   // internal data will be allocated.
   virtual absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
-                                            google::protobuf::Arena* arena) const = 0;
+                                            google::protobuf::Arena* arena) const {
+    return Evaluate(activation, arena, nullptr);
+  }
 
   // Evaluates expression and returns value.
   // activation contains bindings from parameter names to values
   // state must be non-null and created prior to calling Evaluate by
   // InitializeState.
-  virtual absl::StatusOr<CelValue> Evaluate(
-      const BaseActivation& activation, CelEvaluationState* state) const = 0;
+  ABSL_DEPRECATED(
+      "Use CreateState and the overloads which take both an arena and state")
+  virtual absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
+                                            CelEvaluationState* state) const {
+    return Evaluate(activation, nullptr, state);
+  }
+  virtual absl::StatusOr<CelValue> Evaluate(const BaseActivation& activation,
+                                            google::protobuf::Arena* arena,
+                                            CelEvaluationState* state) const {
+    return Trace(activation, arena, nullptr, state);
+  }
 
   // Trace evaluates expression calling the callback on each sub-tree.
-  virtual absl::StatusOr<CelValue> Trace(
-      const BaseActivation& activation, google::protobuf::Arena* arena,
-      CelEvaluationListener callback) const = 0;
+  virtual absl::StatusOr<CelValue> Trace(const BaseActivation& activation,
+                                         google::protobuf::Arena* arena,
+                                         CelEvaluationListener callback) const {
+    return Trace(activation, arena, std::move(callback), nullptr);
+  }
 
   // Trace evaluates expression calling the callback on each sub-tree.
   // state must be non-null and created prior to calling Evaluate by
   // InitializeState.
-  virtual absl::StatusOr<CelValue> Trace(
-      const BaseActivation& activation, CelEvaluationState* state,
-      CelEvaluationListener callback) const = 0;
+  ABSL_DEPRECATED(
+      "Use CreateState and the overloads which take both an arena and state")
+  virtual absl::StatusOr<CelValue> Trace(const BaseActivation& activation,
+                                         CelEvaluationState* state,
+                                         CelEvaluationListener callback) const {
+    return Trace(activation, nullptr, std::move(callback), state);
+  }
+  virtual absl::StatusOr<CelValue> Trace(const BaseActivation& activation,
+                                         google::protobuf::Arena* arena,
+                                         CelEvaluationListener callback,
+                                         CelEvaluationState* state) const = 0;
 };
 
 // Base class for Expression Builder implementations

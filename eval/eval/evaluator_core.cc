@@ -231,6 +231,14 @@ FlatExpressionEvaluatorState FlatExpression::MakeEvaluatorState(
                                       message_factory, arena);
 }
 
+FlatExpressionEvaluatorState FlatExpression::MakeEvaluatorState(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nullable message_factory) const {
+  return FlatExpressionEvaluatorState(path_.size(), comprehension_slots_size_,
+                                      type_provider_, descriptor_pool,
+                                      message_factory);
+}
+
 absl::StatusOr<cel::Value> FlatExpression::EvaluateWithCallback(
     const cel::ActivationInterface& activation,
     const cel::EmbedderContext* absl_nullable embedder_context,

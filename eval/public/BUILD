@@ -523,11 +523,12 @@ cc_library(
         ":cel_function_registry",
         ":cel_type_registry",
         ":cel_value",
-        "//common:legacy_value",
+        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_cel_spec//proto/cel/expr:checked_cc_proto",
         "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 
