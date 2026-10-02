@@ -40,12 +40,12 @@ namespace common_internal {
 class AttributeMatcherNode;
 struct WildcardType {};
 using AttributeQualifierVariant =
-    std::variant<std::monostate, bool, int64_t, uint64_t, std::string>;
+    std::variant<std::monostate, int64_t, uint64_t, std::string, bool>;
 using AttributeQualifierPatternVariant =
-    std::variant<std::monostate, bool, int64_t, uint64_t, std::string,
+    std::variant<std::monostate, int64_t, uint64_t, std::string, bool,
                  WildcardType>;
 using AttributeQualifierViewVariant =
-    std::variant<std::monostate, bool, int64_t, uint64_t, absl::string_view>;
+    std::variant<std::monostate, int64_t, uint64_t, absl::string_view, bool>;
 }  // namespace common_internal
 
 class AttributeQualifier;
