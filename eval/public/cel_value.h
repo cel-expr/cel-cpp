@@ -494,7 +494,7 @@ class CelValue {
   explicit CelValue(T value) : value_(value) {}
 
   // Crashes with a null pointer error.
-  static void CrashNullPointer(Type type) ABSL_ATTRIBUTE_COLD {
+  ABSL_ATTRIBUTE_COLD static void CrashNullPointer(Type type) {
     ABSL_LOG(FATAL) << "Null pointer supplied for "
                     << TypeName(type);  // Crash ok
   }
@@ -507,8 +507,8 @@ class CelValue {
   }
 
   // Crashes with a type mismatch error.
-  static void CrashTypeMismatch(Type requested_type,
-                                Type actual_type) ABSL_ATTRIBUTE_COLD {
+  ABSL_ATTRIBUTE_COLD static void CrashTypeMismatch(Type requested_type,
+                                                    Type actual_type) {
     ABSL_LOG(FATAL) << "Type mismatch"                             // Crash ok
                     << ": expected " << TypeName(requested_type)   // Crash ok
                     << ", encountered " << TypeName(actual_type);  // Crash ok
