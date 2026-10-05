@@ -1151,17 +1151,14 @@ cc_library(
         "//common/ast:constant_proto",
         "//common/ast:expr_proto",
         "//common/ast:source_info_proto",
+        "//common/ast:type_proto",
         "//internal:status_macros",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_map",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:variant",
         "@com_google_cel_spec//proto/cel/expr:checked_cc_proto",
         "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
-        "@com_google_protobuf//:duration_cc_proto",
-        "@com_google_protobuf//:struct_cc_proto",
-        "@com_google_protobuf//:timestamp_cc_proto",
     ],
 )
 
