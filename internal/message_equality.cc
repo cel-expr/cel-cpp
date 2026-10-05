@@ -462,7 +462,7 @@ absl::StatusOr<EquatableValue> MapValueAsEquatableValue(
     MessageFactory* absl_nonnull factory, EquatableValueReflection& reflection,
     const google::protobuf::MapValueConstRef& value,
     const FieldDescriptor* absl_nonnull field, std::string& scratch,
-    Unique<Message>& unpacked) {
+    google::protobuf::Arena::UniquePtr<Message>& unpacked) {
   if (IsAnyField(field)) {
     CEL_ASSIGN_OR_RETURN(unpacked, well_known_types::UnpackAnyIfResolveable(
                                        arena, reflection.any_reflection,
@@ -516,7 +516,8 @@ absl::StatusOr<EquatableValue> RepeatedFieldAsEquatableValue(
     google::protobuf::Arena* absl_nonnull arena, const DescriptorPool* absl_nonnull pool,
     MessageFactory* absl_nonnull factory, EquatableValueReflection& reflection,
     const Message& message, const FieldDescriptor* absl_nonnull field,
-    int index, std::string& scratch, Unique<Message>& unpacked) {
+    int index, std::string& scratch,
+    google::protobuf::Arena::UniquePtr<Message>& unpacked) {
   if (IsAnyField(field)) {
     const auto& field_value =
         message.GetReflection()->GetRepeatedMessage(message, field, index);
@@ -834,8 +835,8 @@ class MessageEqualsState final {
     auto rhs_well_known_type = rhs_descriptor->well_known_type();
     const Message* absl_nonnull lhs_ptr = &lhs;
     const Message* absl_nonnull rhs_ptr = &rhs;
-    Unique<Message> lhs_unpacked;
-    Unique<Message> rhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> lhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> rhs_unpacked;
     // Deal with any first. We could in theory check if we should bother
     // unpacking, but that is more complicated. We can always implement it
     // later.
@@ -906,9 +907,9 @@ class MessageEqualsState final {
     }
     auto lhs_begin = ConstMapBegin(*lhs_reflection, lhs, *lhs_field);
     const auto lhs_end = ConstMapEnd(*lhs_reflection, lhs, *lhs_field);
-    Unique<Message> lhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> lhs_unpacked;
     EquatableValue lhs_value;
-    Unique<Message> rhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> rhs_unpacked;
     EquatableValue rhs_value;
     google::protobuf::MapKey rhs_map_key;
     google::protobuf::MapValueConstRef rhs_map_value;
@@ -960,9 +961,9 @@ class MessageEqualsState final {
     if (size != rhs_reflection->FieldSize(rhs, rhs_field)) {
       return false;
     }
-    Unique<Message> lhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> lhs_unpacked;
     EquatableValue lhs_value;
-    Unique<Message> rhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> rhs_unpacked;
     EquatableValue rhs_value;
     for (int i = 0; i < size; ++i) {
       CEL_ASSIGN_OR_RETURN(lhs_value,
@@ -1007,8 +1008,8 @@ class MessageEqualsState final {
     }
     const Message* absl_nonnull lhs_ptr = &lhs;
     const Message* absl_nonnull rhs_ptr = &rhs;
-    Unique<Message> lhs_unpacked;
-    Unique<Message> rhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> lhs_unpacked;
+    google::protobuf::Arena::UniquePtr<Message> rhs_unpacked;
     if (lhs_field != nullptr && IsAnyField(lhs_field)) {
       CEL_ASSIGN_OR_RETURN(lhs_unpacked,
                            well_known_types::UnpackAnyIfResolveable(
@@ -1093,7 +1094,7 @@ class MessageEqualsState final {
         return false;
       }
       const Message* absl_nullable rhs_packed = nullptr;
-      Unique<Message> rhs_unpacked;
+      google::protobuf::Arena::UniquePtr<Message> rhs_unpacked;
       if (rhs_field != nullptr && IsAnyField(rhs_field)) {
         rhs_packed = &rhs.GetReflection()->GetMessage(rhs, rhs_field);
       } else if (rhs_field == nullptr && IsAny(rhs)) {
@@ -1174,7 +1175,7 @@ class MessageEqualsState final {
         return false;
       }
       const Message* absl_nullable lhs_packed = nullptr;
-      Unique<Message> lhs_unpacked;
+      google::protobuf::Arena::UniquePtr<Message> lhs_unpacked;
       if (lhs_field != nullptr && IsAnyField(lhs_field)) {
         lhs_packed = &lhs.GetReflection()->GetMessage(lhs, lhs_field);
       } else if (lhs_field == nullptr && IsAny(lhs)) {
@@ -1262,7 +1263,7 @@ class MessageEqualsState final {
         return false;
       }
       const Message* absl_nullable rhs_packed = nullptr;
-      Unique<Message> rhs_unpacked;
+      google::protobuf::Arena::UniquePtr<Message> rhs_unpacked;
       if (rhs_field != nullptr && IsAnyField(rhs_field)) {
         rhs_packed = &rhs.GetReflection()->GetMessage(rhs, rhs_field);
       } else if (rhs_field == nullptr && IsAny(rhs)) {
@@ -1342,7 +1343,7 @@ class MessageEqualsState final {
         return false;
       }
       const Message* absl_nullable lhs_packed = nullptr;
-      Unique<Message> lhs_unpacked;
+      google::protobuf::Arena::UniquePtr<Message> lhs_unpacked;
       if (lhs_field != nullptr && IsAnyField(lhs_field)) {
         lhs_packed = &lhs.GetReflection()->GetMessage(lhs, lhs_field);
       } else if (lhs_field == nullptr && IsAny(lhs)) {

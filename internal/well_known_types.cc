@@ -1489,7 +1489,7 @@ google::protobuf::Message* absl_nonnull ValueReflection::MutableStructValue(
   return message->GetReflection()->MutableMessage(message, struct_value_field_);
 }
 
-Unique<google::protobuf::Message> ValueReflection::ReleaseListValue(
+google::protobuf::Arena::UniquePtr<google::protobuf::Message> ValueReflection::ReleaseListValue(
     google::protobuf::Message* absl_nonnull message) const {
   ABSL_DCHECK(IsInitialized());
   ABSL_DCHECK_EQ(message->GetDescriptor(), descriptor_);
@@ -1497,12 +1497,12 @@ Unique<google::protobuf::Message> ValueReflection::ReleaseListValue(
   if (!reflection->HasField(*message, list_value_field_)) {
     reflection->MutableMessage(message, list_value_field_);
   }
-  return WrapUnique(
-      reflection->UnsafeArenaReleaseMessage(message, list_value_field_),
-      message->GetArena());
+  return google::protobuf::Arena::UnsafeWrapUniquePtr(
+      message->GetArena(),
+      reflection->UnsafeArenaReleaseMessage(message, list_value_field_));
 }
 
-Unique<google::protobuf::Message> ValueReflection::ReleaseStructValue(
+google::protobuf::Arena::UniquePtr<google::protobuf::Message> ValueReflection::ReleaseStructValue(
     google::protobuf::Message* absl_nonnull message) const {
   ABSL_DCHECK(IsInitialized());
   ABSL_DCHECK_EQ(message->GetDescriptor(), descriptor_);
@@ -1510,9 +1510,9 @@ Unique<google::protobuf::Message> ValueReflection::ReleaseStructValue(
   if (!reflection->HasField(*message, struct_value_field_)) {
     reflection->MutableMessage(message, struct_value_field_);
   }
-  return WrapUnique(
-      reflection->UnsafeArenaReleaseMessage(message, struct_value_field_),
-      message->GetArena());
+  return google::protobuf::Arena::UnsafeWrapUniquePtr(
+      message->GetArena(),
+      reflection->UnsafeArenaReleaseMessage(message, struct_value_field_));
 }
 
 absl::StatusOr<ValueReflection> GetValueReflection(
@@ -1899,9 +1899,9 @@ namespace {
 // it as `ListValue`. If adapted is empty, we return as a reference. If adapted
 // is present, message must be a reference to the value held in adapted and it
 // will be returned by value.
-absl::StatusOr<ListValue> AdaptListValue(google::protobuf::Arena* absl_nullable arena,
-                                         const google::protobuf::Message& message,
-                                         Unique<google::protobuf::Message> adapted) {
+absl::StatusOr<ListValue> AdaptListValue(
+    google::protobuf::Arena* absl_nullable arena, const google::protobuf::Message& message,
+    google::protobuf::Arena::UniquePtr<google::protobuf::Message> adapted) {
   ABSL_DCHECK(!adapted || &message == cel::to_address(adapted));
   const auto* descriptor = message.GetDescriptor();
   if (ABSL_PREDICT_FALSE(descriptor == nullptr)) {
@@ -1922,9 +1922,9 @@ absl::StatusOr<ListValue> AdaptListValue(google::protobuf::Arena* absl_nullable 
 // as `Struct`. If adapted is empty, we return as a reference. If adapted is
 // present, message must be a reference to the value held in adapted and it will
 // be returned by value.
-absl::StatusOr<Struct> AdaptStruct(google::protobuf::Arena* absl_nullable arena,
-                                   const google::protobuf::Message& message,
-                                   Unique<google::protobuf::Message> adapted) {
+absl::StatusOr<Struct> AdaptStruct(
+    google::protobuf::Arena* absl_nullable arena, const google::protobuf::Message& message,
+    google::protobuf::Arena::UniquePtr<google::protobuf::Message> adapted) {
   ABSL_DCHECK(!adapted || &message == cel::to_address(adapted));
   const auto* descriptor = message.GetDescriptor();
   if (ABSL_PREDICT_FALSE(descriptor == nullptr)) {
@@ -1942,14 +1942,14 @@ absl::StatusOr<Struct> AdaptStruct(google::protobuf::Arena* absl_nullable arena,
 
 // AdaptAny recursively unpacks a protocol buffer message which is an instance
 // of `google.protobuf.Any`.
-absl::StatusOr<Unique<google::protobuf::Message>> AdaptAny(
+absl::StatusOr<google::protobuf::Arena::UniquePtr<google::protobuf::Message>> AdaptAny(
     google::protobuf::Arena* absl_nullable arena, AnyReflection& reflection,
     const google::protobuf::Message& message, const Descriptor* absl_nonnull descriptor,
     const DescriptorPool* absl_nonnull pool,
     google::protobuf::MessageFactory* absl_nonnull factory, bool error_if_unresolveable) {
   ABSL_DCHECK_EQ(descriptor->well_known_type(), Descriptor::WELLKNOWNTYPE_ANY);
   const google::protobuf::Message* absl_nonnull to_unwrap = &message;
-  Unique<google::protobuf::Message> unwrapped;
+  google::protobuf::Arena::UniquePtr<google::protobuf::Message> unwrapped;
   std::string type_url_scratch;
   std::string value_scratch;
   do {
@@ -1979,7 +1979,8 @@ absl::StatusOr<Unique<google::protobuf::Message>> AdaptAny(
           "unable to build prototype for type name: ", type_url_view));
     }
     BytesValue value = reflection.GetValue(*to_unwrap, value_scratch);
-    Unique<google::protobuf::Message> unpacked = WrapUnique(prototype->New(arena), arena);
+    google::protobuf::Arena::UniquePtr<google::protobuf::Message> unpacked =
+        google::protobuf::Arena::UnsafeWrapUniquePtr(arena, prototype->New(arena));
     // TODO(b/557267722): Extensions that are not included in the same
     // descriptor pool as the resolved descriptor will be treated as unknown
     // fields. Extending messages like this should be exceedingly rare and is
@@ -2014,7 +2015,7 @@ absl::StatusOr<Unique<google::protobuf::Message>> AdaptAny(
 
 }  // namespace
 
-absl::StatusOr<Unique<google::protobuf::Message>> UnpackAnyFrom(
+absl::StatusOr<google::protobuf::Arena::UniquePtr<google::protobuf::Message>> UnpackAnyFrom(
     google::protobuf::Arena* absl_nullable arena, AnyReflection& reflection,
     const google::protobuf::Message& message,
     const google::protobuf::DescriptorPool* absl_nonnull pool,
@@ -2025,11 +2026,12 @@ absl::StatusOr<Unique<google::protobuf::Message>> UnpackAnyFrom(
                   factory, /*error_if_unresolveable=*/true);
 }
 
-absl::StatusOr<Unique<google::protobuf::Message>> UnpackAnyIfResolveable(
-    google::protobuf::Arena* absl_nullable arena, AnyReflection& reflection,
-    const google::protobuf::Message& message,
-    const google::protobuf::DescriptorPool* absl_nonnull pool,
-    google::protobuf::MessageFactory* absl_nonnull factory) {
+absl::StatusOr<google::protobuf::Arena::UniquePtr<google::protobuf::Message>>
+UnpackAnyIfResolveable(google::protobuf::Arena* absl_nullable arena,
+                       AnyReflection& reflection,
+                       const google::protobuf::Message& message,
+                       const google::protobuf::DescriptorPool* absl_nonnull pool,
+                       google::protobuf::MessageFactory* absl_nonnull factory) {
   ABSL_DCHECK_EQ(message.GetDescriptor()->well_known_type(),
                  Descriptor::WELLKNOWNTYPE_ANY);
   return AdaptAny(arena, reflection, message, message.GetDescriptor(), pool,
@@ -2047,7 +2049,7 @@ absl::StatusOr<well_known_types::Value> AdaptFromMessage(
                      message.GetTypeName()));
   }
   const google::protobuf::Message* absl_nonnull to_adapt;
-  Unique<google::protobuf::Message> adapted;
+  google::protobuf::Arena::UniquePtr<google::protobuf::Message> adapted;
   Descriptor::WellKnownType well_known_type = descriptor->well_known_type();
   if (well_known_type == Descriptor::WELLKNOWNTYPE_ANY) {
     AnyReflection reflection;

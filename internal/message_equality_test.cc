@@ -14,6 +14,7 @@
 
 #include "internal/message_equality.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -27,12 +28,12 @@
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/die_if_null.h"
+#include "absl/memory/memory.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/cord.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "common/allocator.h"
 #include "common/memory.h"
 #include "internal/message_type_name.h"
 #include "internal/parse_text_proto.h"
@@ -394,7 +395,7 @@ void PackMessageTo(const google::protobuf::Message& message, google::protobuf::M
   reflection.SetValue(instance, value);
 }
 
-absl::optional<std::pair<Owned<google::protobuf::Message>,
+absl::optional<std::pair<std::unique_ptr<google::protobuf::Message>,
                          const google::protobuf::FieldDescriptor* absl_nonnull>>
 PackTestAllTypesProto3Field(const google::protobuf::Message& message,
                             const google::protobuf::FieldDescriptor* absl_nonnull field) {
@@ -405,7 +406,7 @@ PackTestAllTypesProto3Field(const google::protobuf::Message& message,
       field->type() == google::protobuf::FieldDescriptor::TYPE_MESSAGE) {
     const auto* descriptor = message.GetDescriptor();
     const auto* any_field = descriptor->FindFieldByName("repeated_any");
-    auto packed = WrapShared(message.New(), NewDeleteAllocator<>{});
+    auto packed = absl::WrapUnique(message.New());
     const int size = message.GetReflection()->FieldSize(message, field);
     for (int i = 0; i < size; ++i) {
       PackMessageTo(
@@ -413,17 +414,17 @@ PackTestAllTypesProto3Field(const google::protobuf::Message& message,
           packed->GetReflection()->AddMessage(cel::to_address(packed),
                                               any_field));
     }
-    return std::pair{packed, any_field};
+    return std::pair{std::move(packed), any_field};
   }
   if (!field->is_repeated() &&
       field->type() == google::protobuf::FieldDescriptor::TYPE_MESSAGE) {
     const auto* descriptor = message.GetDescriptor();
     const auto* any_field = descriptor->FindFieldByName("single_any");
-    auto packed = WrapShared(message.New(), NewDeleteAllocator<>{});
+    auto packed = absl::WrapUnique(message.New());
     PackMessageTo(message.GetReflection()->GetMessage(message, field),
                   packed->GetReflection()->MutableMessage(
                       cel::to_address(packed), any_field));
-    return std::pair{packed, any_field};
+    return std::pair{std::move(packed), any_field};
   }
   return std::nullopt;
 }
@@ -499,10 +500,10 @@ TEST_P(UnaryMessageFieldEqualsTest, Equals) {
             << rhs_field->name();
       }
       // Test `google.protobuf.Any`.
-      absl::optional<std::pair<Owned<google::protobuf::Message>,
+      absl::optional<std::pair<google::protobuf::Arena::UniquePtr<google::protobuf::Message>,
                                const google::protobuf::FieldDescriptor* absl_nonnull>>
           lhs_any = PackTestAllTypesProto3Field(*lhs_message, lhs_field);
-      absl::optional<std::pair<Owned<google::protobuf::Message>,
+      absl::optional<std::pair<google::protobuf::Arena::UniquePtr<google::protobuf::Message>,
                                const google::protobuf::FieldDescriptor* absl_nonnull>>
           rhs_any = PackTestAllTypesProto3Field(*rhs_message, rhs_field);
       if (lhs_any) {

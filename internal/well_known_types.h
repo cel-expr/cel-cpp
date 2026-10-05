@@ -50,7 +50,6 @@
 #include "absl/time/time.h"
 #include "absl/types/variant.h"
 #include "common/any.h"
-#include "common/memory.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/map_field.h"
@@ -1007,10 +1006,10 @@ class ValueReflection final {
   google::protobuf::Message* absl_nonnull MutableStructValue(
       google::protobuf::Message* absl_nonnull message) const;
 
-  Unique<google::protobuf::Message> ReleaseListValue(
+  google::protobuf::Arena::UniquePtr<google::protobuf::Message> ReleaseListValue(
       google::protobuf::Message* absl_nonnull message) const;
 
-  Unique<google::protobuf::Message> ReleaseStructValue(
+  google::protobuf::Arena::UniquePtr<google::protobuf::Message> ReleaseStructValue(
       google::protobuf::Message* absl_nonnull message) const;
 
  private:
@@ -1278,18 +1277,18 @@ absl::StatusOr<FieldMaskReflection> GetFieldMaskReflection(
     const google::protobuf::Descriptor* absl_nonnull descriptor
         ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
-using ListValuePtr = Unique<google::protobuf::Message>;
+using ListValuePtr = google::protobuf::Arena::UniquePtr<google::protobuf::Message>;
 
 using ListValueConstRef = std::reference_wrapper<const google::protobuf::Message>;
 
-using StructPtr = Unique<google::protobuf::Message>;
+using StructPtr = google::protobuf::Arena::UniquePtr<google::protobuf::Message>;
 
 using StructConstRef = std::reference_wrapper<const google::protobuf::Message>;
 
 // Variant holding `std::reference_wrapper<const
-// google::protobuf::Message>` or `Unique<google::protobuf::Message>`, either of which is an
-// instance of `google.protobuf.ListValue` which is either a generated message
-// or dynamic message.
+// google::protobuf::Message>` or `google::protobuf::Arena::UniquePtr<google::protobuf::Message>`, either of
+// which is an instance of `google.protobuf.ListValue` which is either a
+// generated message or dynamic message.
 class ListValue final : public absl::variant<ListValueConstRef, ListValuePtr> {
   using absl::variant<ListValueConstRef, ListValuePtr>::variant;
 };
@@ -1316,9 +1315,9 @@ inline absl::variant<ListValueConstRef, ListValuePtr>&& AsVariant(
 }
 
 // Variant holding `std::reference_wrapper<const
-// google::protobuf::Message>` or `Unique<google::protobuf::Message>`, either of which is an
-// instance of `google.protobuf.Struct` which is either a generated message or
-// dynamic message.
+// google::protobuf::Message>` or `google::protobuf::Arena::UniquePtr<google::protobuf::Message>`, either of
+// which is an instance of `google.protobuf.Struct` which is either a generated
+// message or dynamic message.
 class Struct final : public absl::variant<StructConstRef, StructPtr> {
  public:
   using absl::variant<StructConstRef, StructPtr>::variant;
@@ -1342,13 +1341,14 @@ inline absl::variant<StructConstRef, StructPtr>&& AsVariant(Struct&& value) {
 }
 
 // Variant capable of representing any unwrapped well known type or message.
-using Value = absl::variant<absl::monostate, std::nullptr_t, bool, int32_t,
-                            int64_t, uint32_t, uint64_t, float, double,
-                            StringValue, BytesValue, absl::Duration, absl::Time,
-                            ListValue, Struct, Unique<google::protobuf::Message>>;
+using Value =
+    absl::variant<absl::monostate, std::nullptr_t, bool, int32_t, int64_t,
+                  uint32_t, uint64_t, float, double, StringValue, BytesValue,
+                  absl::Duration, absl::Time, ListValue, Struct,
+                  google::protobuf::Arena::UniquePtr<google::protobuf::Message>>;
 
 // Unpacks the given instance of `google.protobuf.Any`.
-absl::StatusOr<Unique<google::protobuf::Message>> UnpackAnyFrom(
+absl::StatusOr<google::protobuf::Arena::UniquePtr<google::protobuf::Message>> UnpackAnyFrom(
     google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND,
     AnyReflection& reflection, const google::protobuf::Message& message,
     const google::protobuf::DescriptorPool* absl_nonnull pool
@@ -1356,7 +1356,8 @@ absl::StatusOr<Unique<google::protobuf::Message>> UnpackAnyFrom(
     google::protobuf::MessageFactory* absl_nonnull factory ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
 // Unpacks the given instance of `google.protobuf.Any` if it is resolvable.
-absl::StatusOr<Unique<google::protobuf::Message>> UnpackAnyIfResolveable(
+absl::StatusOr<google::protobuf::Arena::UniquePtr<google::protobuf::Message>>
+UnpackAnyIfResolveable(
     google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND,
     AnyReflection& reflection, const google::protobuf::Message& message,
     const google::protobuf::DescriptorPool* absl_nonnull pool
