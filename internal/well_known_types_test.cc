@@ -34,6 +34,8 @@
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/variant.h"
+#include "common/memory.h"
 #include "internal/message_type_name.h"
 #include "internal/minimal_descriptor_pool.h"
 #include "internal/parse_text_proto.h"
@@ -1025,10 +1027,8 @@ TEST_F(AdaptFromMessageTest, Any_Struct) {
 TEST_F(AdaptFromMessageTest, Any_TestAllTypesProto3) {
   auto message = DynamicParseTextProto<google::protobuf::Any>(
       R"pb(type_url: "type.googleapis.com/cel.expr.conformance.proto3.TestAllTypes")pb");
-  EXPECT_THAT(
-      AdaptFromMessage(*message),
-      IsOkAndHolds(
-          VariantWith<google::protobuf::Arena::UniquePtr<google::protobuf::Message>>(NotNull())));
+  EXPECT_THAT(AdaptFromMessage(*message),
+              IsOkAndHolds(VariantWith<Unique<google::protobuf::Message>>(NotNull())));
 }
 
 TEST_F(AdaptFromMessageTest, Any_BadTypeUrlDomain) {
