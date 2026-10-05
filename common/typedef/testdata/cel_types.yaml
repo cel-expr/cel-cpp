@@ -1,0 +1,257 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Struct with no fields
+- struct:
+    name: "NoFields"
+
+# Enum with no constants
+- enum:
+    name: "NoConstants"
+
+# Struct with aspects and defaults
+- struct:
+    name: "com.example.Item"
+    doc: "Store item entity."
+    aspects:
+      aspect_a:
+        name: "ItemObj"
+      aspect_b:
+        name: "com.example.store.ItemProto"
+    fields:
+      - name: "item_id"
+        type: "string"
+        doc: "Unique item identifier."
+        default: "default_id"
+        aspects:
+          aspect_a:
+            name: "itemId"
+          aspect_b:
+            name: "com.example.store.Price"
+            id: 12
+      - name: "tags"
+        type: "list<string>"
+      - name: "attributes"
+        type:
+          type_name: "map"
+          params:
+            - type_name: "string"
+            - type_name: "int"
+      - name: "nested_type"
+        type:
+          type_name: "list"
+          params:
+            - type_name: "T"
+              is_type_param: true
+
+# Concise type syntax
+- struct:
+    name: "com.example.store.Order"
+    fields:
+      - name: "items"
+        type: "list<com.example.store.Item>"
+      - name: "metadata"
+        type: "map<string, dyn>"
+      - name: "notes"
+        type: "string_wrapper"
+
+# Structured type syntax
+- struct:
+    name: "com.example.store.Order"
+    fields:
+      - name: "items"
+        type:
+          type_name: "list"
+          params:
+            - type_name: "com.example.store.Item"
+      - name: "metadata"
+        type:
+          type_name: "map"
+          params:
+            - type_name: "string"
+            - type_name: "dyn"
+      - name: "notes"
+        type:
+          type_name: "string_wrapper"
+
+# All supported field types
+- struct:
+    name: "AllSupportedFieldTypes"
+    fields:
+      - name: "f_null"
+        type: "null"
+        default: ~
+      - name: "f_null_empty"
+        type: "null"
+        default: ""
+      - name: "f_null_word"
+        type: "null"
+        default: null
+      - name: "f_bool"
+        type: "bool"
+        default: true
+      - name: "f_bool_false"
+        type: "bool"
+        default: false
+      - name: "f_int"
+        type: "int"
+        default: -42
+      - name: "f_uint"
+        type: "uint"
+        default: 100u
+      - name: "f_double"
+        type: "double"
+        default: 3.25
+      - name: "f_bytes"
+        type: "bytes"
+        default: b"\xff\x00\x01"
+      - name: "f_bytes_b64"
+        type: "bytes"
+        default: !!binary "AQID"
+      - name: "f_string"
+        type: "string"
+        default: "hello"
+      - name: "f_duration"
+        type: "duration"
+        default: "1h2m3s"
+      - name: "f_timestamp"
+        type: "timestamp"
+        default: "2026-01-02T03:04:05Z"
+      - name: "f_enum"
+        type: "com.example.Status"
+        default: "ACTIVE"
+      - name: "struct_field"
+        type:
+          type_name: "google.protobuf.Struct"
+      - name: "list_value_field"
+        type:
+          type_name: "google.protobuf.ListValue"
+      - name: "any_field"
+        type:
+          type_name: "any"
+      - name: "timestamp_field"
+        type:
+          type_name: "timestamp"
+      - name: "duration_field"
+        type:
+          type_name: "duration"
+      - name: "func_field"
+        type:
+          type_name: "function"
+          params:
+            - type_name: "bool"
+            - type_name: "int"
+            - type_name: "string"
+      - name: "null_f"
+        type:
+          type_name: "null"
+      - name: "uint_f"
+        type:
+          type_name: "uint"
+      - name: "double_f"
+        type:
+          type_name: "double"
+      - name: "bytes_f"
+        type:
+          type_name: "bytes"
+      - name: "bool_w_f"
+        type:
+          type_name: "bool_wrapper"
+      - name: "int_w_f"
+        type:
+          type_name: "int_wrapper"
+      - name: "uint_w_f"
+        type:
+          type_name: "uint_wrapper"
+      - name: "double_w_f"
+        type:
+          type_name: "double_wrapper"
+      - name: "bytes_w_f"
+        type:
+          type_name: "bytes_wrapper"
+      - name: "type_int_f"
+        type:
+          type_name: "type"
+          params:
+            - type_name: "int"
+      - name: "type_unspec_f"
+        type:
+          type_name: "type"
+      - name: "abstract_params_f"
+        type:
+          type_name: "MyGeneric"
+          params:
+            - type_name: "int"
+      - name: "msg_f"
+        type:
+          type_name: "com.example.Msg"
+
+# Enum type definition
+- enum:
+    name: "com.example.OrderStatus"
+    doc: "Order lifecycle state."
+    aspects:
+      aspect_a:
+        name: "OrderStatusA"
+      aspect_b:
+        name: "com.example.proto.OrderStatus"
+    constants:
+      - name: "UNSPECIFIED"
+        doc: "Default value."
+      - name: "PENDING"
+      - name: "SHIPPED"
+        id: 10
+        doc: "Shipped to customer."
+        aspects:
+          aspect_a:
+            name: "shipped"
+          aspect_b:
+            name: "ORDER_STATUS_SHIPPED"
+      - name: "DELIVERED"
+
+# An aspect may not support custom properties on all schema elements (e.g., it
+# may only define field properties, or none at all like stub_aspect). If a YAML
+# file still includes an empty entry for that aspect (`{}` or `~`), the base
+# AspectYaml::Decode*Properties implementation returns an empty std::any()
+# rather than failing.
+- struct:
+    name: "Item"
+    aspects:
+      stub_aspect: {}
+    fields:
+      - name: "f"
+        type: "int"
+        aspects:
+          stub_aspect: ~
+- enum:
+    name: "Status"
+    aspects:
+      stub_aspect: {}
+    constants:
+      - name: "A"
+        aspects:
+          stub_aspect: ~
+
+# Unsupported aspects are ignored
+- struct:
+    name: "Item"
+    aspects:
+      unknown_aspect:
+        name: "Foo"
+    fields:
+      - name: "f"
+        type: "int"
+        aspects:
+          unknown_aspect:
+            name: "Bar"
