@@ -811,7 +811,6 @@ cc_library(
         ":number",
         ":status_macros",
         ":well_known_types",
-        "//common:memory",
         "//extensions/protobuf/internal:map_reflection",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",

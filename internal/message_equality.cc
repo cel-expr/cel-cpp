@@ -33,7 +33,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/variant.h"
-#include "common/memory.h"
 #include "extensions/protobuf/internal/map_reflection.h"
 #include "internal/json.h"
 #include "internal/number.h"
@@ -846,7 +845,7 @@ class MessageEqualsState final {
           well_known_types::UnpackAnyIfResolveable(
               &arena_, lhs_reflection_.any_reflection, lhs, pool_, factory_));
       if (lhs_unpacked) {
-        lhs_ptr = cel::to_address(lhs_unpacked);
+        lhs_ptr = lhs_unpacked.get();
         lhs_descriptor = lhs_ptr->GetDescriptor();
         lhs_well_known_type = lhs_descriptor->well_known_type();
       }
@@ -857,7 +856,7 @@ class MessageEqualsState final {
           well_known_types::UnpackAnyIfResolveable(
               &arena_, rhs_reflection_.any_reflection, rhs, pool_, factory_));
       if (rhs_unpacked) {
-        rhs_ptr = cel::to_address(rhs_unpacked);
+        rhs_ptr = rhs_unpacked.get();
         rhs_descriptor = rhs_ptr->GetDescriptor();
         rhs_well_known_type = rhs_descriptor->well_known_type();
       }
@@ -1017,7 +1016,7 @@ class MessageEqualsState final {
                                lhs.GetReflection()->GetMessage(lhs, lhs_field),
                                pool_, factory_));
       if (lhs_unpacked) {
-        lhs_ptr = cel::to_address(lhs_unpacked);
+        lhs_ptr = lhs_unpacked.get();
         lhs_field = nullptr;
       }
     } else if (lhs_field == nullptr && IsAny(lhs)) {
@@ -1026,7 +1025,7 @@ class MessageEqualsState final {
           well_known_types::UnpackAnyIfResolveable(
               &arena_, lhs_reflection_.any_reflection, lhs, pool_, factory_));
       if (lhs_unpacked) {
-        lhs_ptr = cel::to_address(lhs_unpacked);
+        lhs_ptr = lhs_unpacked.get();
       }
     }
     if (rhs_field != nullptr && IsAnyField(rhs_field)) {
@@ -1036,7 +1035,7 @@ class MessageEqualsState final {
                                rhs.GetReflection()->GetMessage(rhs, rhs_field),
                                pool_, factory_));
       if (rhs_unpacked) {
-        rhs_ptr = cel::to_address(rhs_unpacked);
+        rhs_ptr = rhs_unpacked.get();
         rhs_field = nullptr;
       }
     } else if (rhs_field == nullptr && IsAny(rhs)) {
@@ -1045,7 +1044,7 @@ class MessageEqualsState final {
           well_known_types::UnpackAnyIfResolveable(
               &arena_, rhs_reflection_.any_reflection, rhs, pool_, factory_));
       if (rhs_unpacked) {
-        rhs_ptr = cel::to_address(rhs_unpacked);
+        rhs_ptr = rhs_unpacked.get();
       }
     }
     EquatableValue lhs_value;
@@ -1125,8 +1124,8 @@ class MessageEqualsState final {
       const Message* absl_nonnull rhs_message =
           rhs_field != nullptr
               ? &rhs.GetReflection()->GetMessage(rhs, rhs_field)
-          : rhs_unpacked != nullptr ? cel::to_address(rhs_unpacked)
-                                    : &rhs;
+          : rhs_unpacked.get() != nullptr ? rhs_unpacked.get()
+                                          : &rhs;
       const auto* rhs_descriptor = rhs_message->GetDescriptor();
       const auto rhs_well_known_type = rhs_descriptor->well_known_type();
       switch (rhs_well_known_type) {
@@ -1206,8 +1205,8 @@ class MessageEqualsState final {
       const Message* absl_nonnull lhs_message =
           lhs_field != nullptr
               ? &lhs.GetReflection()->GetMessage(lhs, lhs_field)
-          : lhs_unpacked != nullptr ? cel::to_address(lhs_unpacked)
-                                    : &lhs;
+          : lhs_unpacked.get() != nullptr ? lhs_unpacked.get()
+                                          : &lhs;
       const auto* lhs_descriptor = lhs_message->GetDescriptor();
       const auto lhs_well_known_type = lhs_descriptor->well_known_type();
       switch (lhs_well_known_type) {
@@ -1294,8 +1293,8 @@ class MessageEqualsState final {
       const Message* absl_nonnull rhs_message =
           rhs_field != nullptr
               ? &rhs.GetReflection()->GetMessage(rhs, rhs_field)
-          : rhs_unpacked != nullptr ? cel::to_address(rhs_unpacked)
-                                    : &rhs;
+          : rhs_unpacked.get() != nullptr ? rhs_unpacked.get()
+                                          : &rhs;
       const auto* rhs_descriptor = rhs_message->GetDescriptor();
       const auto rhs_well_known_type = rhs_descriptor->well_known_type();
       switch (rhs_well_known_type) {
@@ -1374,8 +1373,8 @@ class MessageEqualsState final {
       const Message* absl_nonnull lhs_message =
           lhs_field != nullptr
               ? &lhs.GetReflection()->GetMessage(lhs, lhs_field)
-          : lhs_unpacked != nullptr ? cel::to_address(lhs_unpacked)
-                                    : &lhs;
+          : lhs_unpacked.get() != nullptr ? lhs_unpacked.get()
+                                          : &lhs;
       const auto* lhs_descriptor = lhs_message->GetDescriptor();
       const auto lhs_well_known_type = lhs_descriptor->well_known_type();
       switch (lhs_well_known_type) {
