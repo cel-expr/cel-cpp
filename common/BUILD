@@ -895,17 +895,10 @@ cc_library(
 )
 
 cc_library(
-    name = "reference_count",
-    hdrs = ["reference_count.h"],
-    deps = ["//common/internal:reference_count"],
-)
-
-cc_library(
     name = "allocator",
     hdrs = ["allocator.h"],
     deps = [
         ":arena",
-        ":data",
         "//internal:new",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
@@ -923,29 +916,6 @@ cc_test(
         ":allocator",
         "//internal:testing",
         "@com_google_absl//absl/strings",
-        "@com_google_protobuf//:protobuf",
-    ],
-)
-
-cc_library(
-    name = "data",
-    hdrs = ["data.h"],
-    deps = [
-        "//common/internal:metadata",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_absl//absl/log:absl_check",
-        "@com_google_protobuf//:protobuf",
-    ],
-)
-
-cc_test(
-    name = "data_test",
-    srcs = ["data_test.cc"],
-    deps = [
-        ":data",
-        "//common/internal:reference_count",
-        "//internal:testing",
-        "@com_google_absl//absl/base:nullability",
         "@com_google_protobuf//:protobuf",
     ],
 )

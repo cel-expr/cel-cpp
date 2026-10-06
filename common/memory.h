@@ -49,12 +49,10 @@ enum class MemoryManagement {
 std::ostream& operator<<(std::ostream& out, MemoryManagement memory_management);
 
 class MemoryManager;
-class ReferenceCountingMemoryManager;
-class PoolingMemoryManager;
 
 // `ReferenceCountingMemoryManager` is a `MemoryManager` which employs automatic
 // memory management through reference counting.
-class ReferenceCountingMemoryManager final {
+class ABSL_DEPRECATED("Do not use") ReferenceCountingMemoryManager final {
  public:
   ReferenceCountingMemoryManager(const ReferenceCountingMemoryManager&) =
       delete;
@@ -76,7 +74,7 @@ class ReferenceCountingMemoryManager final {
 
 // `PoolingMemoryManager` is a `MemoryManager` which employs automatic
 // memory management through memory pooling.
-class PoolingMemoryManager final {
+class ABSL_DEPRECATED("Do not use") PoolingMemoryManager final {
  public:
   PoolingMemoryManager(const PoolingMemoryManager&) = delete;
   PoolingMemoryManager(PoolingMemoryManager&&) = delete;

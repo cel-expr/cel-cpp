@@ -39,8 +39,6 @@ class ThreadCompatibleMemoryTest
   MemoryManagerRef memory_manager() {
     switch (memory_management()) {
       case MemoryManagement::kReferenceCounting:
-        return MemoryManager::ReferenceCounting();
-        break;
       case MemoryManagement::kPooling:
         if (!arena_) {
           arena_.emplace();

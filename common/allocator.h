@@ -27,7 +27,6 @@
 #include "absl/log/die_if_null.h"
 #include "absl/numeric/bits.h"
 #include "common/arena.h"
-#include "common/data.h"
 #include "internal/new.h"
 #include "google/protobuf/arena.h"
 
@@ -291,9 +290,6 @@ class ArenaAllocator<void> {
     using U = std::remove_const_t<T>;
     U* object;
     if constexpr (google::protobuf::Arena::is_arena_constructable<U>::value) {
-      // Classes derived from `cel::Data` are manually allocated and constructed
-      // as those class support determining whether the destructor is skippable
-      // at runtime.
       object = google::protobuf::Arena::Create<U>(arena(), std::forward<Args>(args)...);
     } else {
       if constexpr (ArenaTraits<>::constructible<U>()) {
@@ -309,8 +305,7 @@ class ArenaAllocator<void> {
         }
       }
     }
-    if constexpr (google::protobuf::Arena::is_arena_constructable<U>::value ||
-                  std::is_base_of_v<Data, U>) {
+    if constexpr (google::protobuf::Arena::is_arena_constructable<U>::value) {
       ABSL_DCHECK_EQ(object->GetArena(), arena());
     }
     return object;
@@ -322,8 +317,7 @@ class ArenaAllocator<void> {
   void delete_object(T* p) noexcept {
     using U = std::remove_const_t<T>;
     ABSL_DCHECK(p != nullptr);
-    if constexpr (google::protobuf::Arena::is_arena_constructable<U>::value ||
-                  std::is_base_of_v<Data, U>) {
+    if constexpr (google::protobuf::Arena::is_arena_constructable<U>::value) {
       ABSL_DCHECK_EQ(p->GetArena(), arena());
     }
   }

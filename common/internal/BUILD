@@ -29,40 +29,6 @@ cc_library(
 )
 
 cc_library(
-    name = "reference_count",
-    srcs = ["reference_count.cc"],
-    hdrs = ["reference_count.h"],
-    deps = [
-        "//common:data",
-        "//internal:new",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_absl//absl/log:absl_check",
-        "@com_google_absl//absl/strings:string_view",
-        "@com_google_protobuf//:protobuf",
-    ],
-)
-
-cc_test(
-    name = "reference_count_test",
-    srcs = ["reference_count_test.cc"],
-    deps = [
-        ":reference_count",
-        "//common:data",
-        "//internal:testing",
-        "@com_google_absl//absl/base:nullability",
-        "@com_google_protobuf//:protobuf",
-        "@com_google_protobuf//:struct_cc_proto",
-    ],
-)
-
-cc_library(
-    name = "metadata",
-    hdrs = ["metadata.h"],
-    deps = ["@com_google_protobuf//:protobuf"],
-)
-
-cc_library(
     name = "byte_string",
     srcs = ["byte_string.cc"],
     hdrs = ["byte_string.h"],
