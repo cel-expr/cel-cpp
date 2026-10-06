@@ -111,7 +111,7 @@ class DynamicMap : public CelMap {
           "Invalid map key type: '", CelValue::TypeName(key.type()), "'"));
     }
 
-    return values_->fields().contains(std::string(str_key.value()));
+    return values_->fields().contains(str_key.value());
   }
 
   absl::optional<CelValue> operator[](CelValue key) const override;
@@ -692,7 +692,7 @@ absl::optional<CelValue> DynamicMap::operator[](CelValue key) const {
                                         CelValue::TypeName(key.type()), "'")));
   }
 
-  auto it = values_->fields().find(std::string(str_key.value()));
+  auto it = values_->fields().find(str_key.value());
   if (it == values_->fields().end()) {
     return std::nullopt;
   }

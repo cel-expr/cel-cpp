@@ -104,7 +104,6 @@ absl::StatusOr<absl::optional<google::protobuf::MapValueConstRef>> LookupMapValu
         key_desc->cpp_type_name());
   }
 
-  std::string proto_key_string;
   google::protobuf::MapKey proto_key;
   switch (key_desc->cpp_type()) {
     case google::protobuf::FieldDescriptor::CPPTYPE_BOOL:
@@ -122,8 +121,7 @@ absl::StatusOr<absl::optional<google::protobuf::MapValueConstRef>> LookupMapValu
       proto_key.SetInt64Value(*key.GetInt64Key());
       break;
     case google::protobuf::FieldDescriptor::CPPTYPE_STRING: {
-      proto_key_string = std::string(*key.GetStringKey());
-      proto_key.SetStringValue(proto_key_string);
+      proto_key.SetStringValue(*key.GetStringKey());
     } break;
     case google::protobuf::FieldDescriptor::CPPTYPE_UINT32: {
       uint64_t key_value = *key.GetUint64Key();

@@ -270,7 +270,8 @@ absl::StatusOr<Value> MapKeyFromQualifier(const AttributeQualifier& qual,
     case Kind::kBool:
       return cel::BoolValue(*qual.GetBoolKey());
     case Kind::kString:
-      return StringValue::From(*qual.GetStringKey(), arena);
+      // Safe as `qual` is valid for the lifetime of the expression/program.
+      return StringValue::WrapUnsafe(*qual.GetStringKey());
     default:
       return runtime_internal::CreateNoMatchingOverloadError(
           cel::builtin::kIndex);

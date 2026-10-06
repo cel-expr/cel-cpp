@@ -174,7 +174,6 @@ absl::StatusOr<bool> FieldBackedMapImpl::LookupMapValue(
     return InvalidMapKeyType(key_desc_->cpp_type_name());
   }
 
-  std::string map_key_string;
   google::protobuf::MapKey proto_key;
   switch (key_desc_->cpp_type()) {
     case google::protobuf::FieldDescriptor::CPPTYPE_BOOL: {
@@ -199,8 +198,7 @@ absl::StatusOr<bool> FieldBackedMapImpl::LookupMapValue(
     case google::protobuf::FieldDescriptor::CPPTYPE_STRING: {
       CelValue::StringHolder key_value;
       key.GetValue(&key_value);
-      map_key_string.assign(key_value.value().data(), key_value.value().size());
-      proto_key.SetStringValue(map_key_string);
+      proto_key.SetStringValue(key_value.value());
     } break;
     case google::protobuf::FieldDescriptor::CPPTYPE_UINT32: {
       uint64_t key_value;

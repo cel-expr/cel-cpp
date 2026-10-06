@@ -391,8 +391,9 @@ absl::StatusOr<absl::optional<ErrorValue>> ProtoStringMapKeyFromValueConverter(
     const Value& value, google::protobuf::MapKey& key, std::string& key_string,
     google::protobuf::Arena* absl_nonnull arena) {
   if (auto string_value = value.AsString(); string_value) {
-    key_string = string_value->NativeString();
-    key.SetStringValue(key_string);
+    // `google::protobuf::MapKey` does not own the string, which may be stored inline in
+    // `value` or in `key_string`; `value` must not be moved.
+    key.SetStringValue(string_value->ToStringView(&key_string));
     return std::nullopt;
   }
   return TypeConversionError(value.GetTypeName(), "string", arena);

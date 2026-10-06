@@ -304,8 +304,9 @@ bool ValueToProtoMapKey(const Value& key,
     }
     case google::protobuf::FieldDescriptor::CPPTYPE_STRING: {
       if (auto string_key = key.AsString(); string_key) {
-        proto_key_scratch = string_key->NativeString();
-        proto_key->SetStringValue(proto_key_scratch);
+        // `google::protobuf::MapKey` does not own the string, which may be stored inline
+        // in `key` or in `proto_key_scratch`; `key` must not be moved.
+        proto_key->SetStringValue(string_key->ToStringView(&proto_key_scratch));
         return true;
       }
       return false;
