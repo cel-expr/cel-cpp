@@ -86,7 +86,7 @@ void TestBytesEscaping(const std::string& unquoted, const std::string& quoted) {
 }
 
 // <quoted> takes a byte literal of the form b'...', b'''...'''
-void TestBytesLiteral(const std::string& quoted) {
+void TestBytesLiteralString(const std::string& quoted) {
   // Parse the literal.
   ASSERT_OK_AND_ASSIGN(auto unquoted, ParseBytesLiteral(quoted));
 
@@ -101,6 +101,30 @@ void TestBytesLiteral(const std::string& quoted) {
       << "unquoted : " << unquoted << "\nunquoted2: " << unquoted2;
 
   TestBytesEscaping(unquoted, quoted);
+}
+
+// <quoted> takes a byte literal of the form b'...', b'''...'''
+void TestBytesLiteralCord(const std::string& quoted) {
+  // Parse the literal.
+  ASSERT_OK_AND_ASSIGN(auto unquoted, ParseBytesLiteral(quoted));
+
+  // Take the parsed literal and turn it back to a literal.
+  std::string requoted = FormatBytesLiteral(absl::Cord(unquoted));
+  // Parse it again.
+  ASSERT_OK_AND_ASSIGN(auto unquoted2, ParseBytesLiteral(requoted));
+  // Test the parsed literal forms for equality, not the unparsed forms.
+  // This is because the unparsed forms can have different representations for
+  // the same data, i.e., \000 and \x00.
+  EXPECT_EQ(unquoted, unquoted2)
+      << "unquoted : " << unquoted << "\nunquoted2: " << unquoted2;
+
+  TestBytesEscaping(unquoted, quoted);
+}
+
+// <quoted> takes a byte literal of the form b'...', b'''...'''
+void TestBytesLiteral(const std::string& quoted) {
+  TestBytesLiteralString(quoted);
+  TestBytesLiteralCord(quoted);
 }
 
 // <quoted> takes a raw byte literal of the form rb'...', br'...', rb'''...'''
