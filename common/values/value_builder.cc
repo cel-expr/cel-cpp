@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -27,6 +28,7 @@
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/hash/hash.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
@@ -246,6 +248,11 @@ class ListValueBuilderImpl final : public ListValueBuilder {
   bool elements_trivially_destructible_ = true;
 };
 
+using StringFlatHashSet =
+    absl::flat_hash_set<StringValue, absl::Hash<StringValue>,
+                        std::equal_to<StringValue>,
+                        ArenaAllocator<StringValue>>;
+
 class CompatListValueImpl final : public CompatListValue {
  public:
   explicit CompatListValueImpl(ValueVector&& elements)
@@ -319,6 +326,77 @@ class CompatListValueImpl final : public CompatListValue {
 
   int size() const override { return static_cast<int>(Size()); }
 
+  absl::Status Contains(
+      const Value& other,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      Value* absl_nonnull result) const override {
+    if (other.IsString()) {
+      const StringValue& other_string = other.GetString();
+      if (elements_.size() >= 4) {
+        if (seen_contains_.load(std::memory_order_relaxed)) {
+          absl::call_once(string_set_once_, [this]() {
+            google::protobuf::Arena* list_arena = elements_.get_allocator().arena();
+            auto* set = ::new (list_arena->AllocateAligned(
+                sizeof(StringFlatHashSet), alignof(StringFlatHashSet)))
+                StringFlatHashSet(list_arena);
+            set->reserve(elements_.size());
+            for (const auto& element : elements_) {
+              if (element.IsString()) {
+                set->insert(element.GetString());
+              }
+            }
+            string_set_ = set;
+          });
+          *result = BoolValue(string_set_->contains(other_string));
+          return absl::OkStatus();
+        }
+        seen_contains_.store(true, std::memory_order_relaxed);
+      }
+      for (const auto& element : elements_) {
+        if (element.IsString() && element.GetString().Equals(other_string)) {
+          *result = TrueValue();
+          return absl::OkStatus();
+        }
+      }
+      *result = FalseValue();
+      return absl::OkStatus();
+    }
+    if (other.IsInt()) {
+      const IntValue other_int = other.GetInt();
+      for (const auto& element : elements_) {
+        if (element.IsInt()) {
+          if (element.GetInt() == other_int) {
+            *result = TrueValue();
+            return absl::OkStatus();
+          }
+        } else if (element.IsUint()) {
+          if (other_int == element.GetUint()) {
+            *result = TrueValue();
+            return absl::OkStatus();
+          }
+        } else if (element.IsDouble()) {
+          if (other_int == element.GetDouble()) {
+            *result = TrueValue();
+            return absl::OkStatus();
+          }
+        }
+      }
+      *result = FalseValue();
+      return absl::OkStatus();
+    }
+    for (const auto& element : elements_) {
+      CEL_RETURN_IF_ERROR(element.Equal(other, descriptor_pool, message_factory,
+                                        arena, result));
+      if (result->IsTrue()) {
+        return absl::OkStatus();
+      }
+    }
+    *result = FalseValue();
+    return absl::OkStatus();
+  }
+
  protected:
   absl::Status Get(size_t index,
                    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
@@ -335,6 +413,9 @@ class CompatListValueImpl final : public CompatListValue {
 
  private:
   const ValueVector elements_;
+  mutable std::atomic<bool> seen_contains_{false};
+  mutable absl::once_flag string_set_once_;
+  mutable const StringFlatHashSet* absl_nullable string_set_ = nullptr;
 };
 
 }  // namespace
@@ -470,6 +551,57 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
   }
 
   void Reserve(size_t capacity) const override { elements_.reserve(capacity); }
+
+  absl::Status Contains(
+      const Value& other,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      Value* absl_nonnull result) const override {
+    if (other.IsString()) {
+      const StringValue& other_string = other.GetString();
+      for (const auto& element : elements_) {
+        if (element.IsString() && element.GetString().Equals(other_string)) {
+          *result = TrueValue();
+          return absl::OkStatus();
+        }
+      }
+      *result = FalseValue();
+      return absl::OkStatus();
+    }
+    if (other.IsInt()) {
+      const IntValue other_int = other.GetInt();
+      for (const auto& element : elements_) {
+        if (element.IsInt()) {
+          if (element.GetInt() == other_int) {
+            *result = TrueValue();
+            return absl::OkStatus();
+          }
+        } else if (element.IsUint()) {
+          if (other_int == element.GetUint()) {
+            *result = TrueValue();
+            return absl::OkStatus();
+          }
+        } else if (element.IsDouble()) {
+          if (other_int == element.GetDouble()) {
+            *result = TrueValue();
+            return absl::OkStatus();
+          }
+        }
+      }
+      *result = FalseValue();
+      return absl::OkStatus();
+    }
+    for (const auto& element : elements_) {
+      CEL_RETURN_IF_ERROR(element.Equal(other, descriptor_pool, message_factory,
+                                        arena, result));
+      if (result->IsTrue()) {
+        return absl::OkStatus();
+      }
+    }
+    *result = FalseValue();
+    return absl::OkStatus();
+  }
 
  protected:
   absl::Status Get(size_t index,
