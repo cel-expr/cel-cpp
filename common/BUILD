@@ -506,7 +506,6 @@ cc_library(
         ":allocator",
         "//internal:to_address",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/numeric:bits",

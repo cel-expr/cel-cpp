@@ -22,7 +22,6 @@ namespace cel::extensions {
 namespace {
 
 using ::testing::Eq;
-using ::testing::IsNull;
 using ::testing::NotNull;
 
 TEST(ProtoMemoryManager, MemoryManagement) {
@@ -41,17 +40,12 @@ TEST(ProtoMemoryManagerRef, MemoryManagement) {
   google::protobuf::Arena arena;
   auto memory_manager = ProtoMemoryManagerRef(&arena);
   EXPECT_EQ(memory_manager.memory_management(), MemoryManagement::kPooling);
-  memory_manager = ProtoMemoryManagerRef(nullptr);
-  EXPECT_EQ(memory_manager.memory_management(),
-            MemoryManagement::kReferenceCounting);
 }
 
 TEST(ProtoMemoryManagerRef, Arena) {
   google::protobuf::Arena arena;
   auto memory_manager = ProtoMemoryManagerRef(&arena);
   EXPECT_THAT(ProtoMemoryManagerArena(memory_manager), Eq(&arena));
-  memory_manager = ProtoMemoryManagerRef(nullptr);
-  EXPECT_THAT(ProtoMemoryManagerArena(memory_manager), IsNull());
 }
 
 }  // namespace

@@ -19,10 +19,8 @@
 #include <new>
 #include <ostream>
 
-#include "absl/base/no_destructor.h"
 #include "absl/log/absl_check.h"
 #include "absl/numeric/bits.h"
-#include "google/protobuf/arena.h"
 
 namespace cel {
 
@@ -71,13 +69,6 @@ bool ReferenceCountingMemoryManager::Deallocate(void* ptr, size_t size,
 #endif
   }
   return true;
-}
-
-MemoryManager MemoryManager::Unmanaged() {
-  // A static singleton arena, using `absl::NoDestructor` to avoid warnings
-  // related static variables without trivial destructors.
-  static absl::NoDestructor<google::protobuf::Arena> arena;
-  return MemoryManager::Pooling(&*arena);
 }
 
 }  // namespace cel

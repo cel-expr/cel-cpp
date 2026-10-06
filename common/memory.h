@@ -152,17 +152,6 @@ class PoolingMemoryManager final {
 // resources.
 class MemoryManager final {
  public:
-  // Returns a `MemoryManager` which utilizes an arena but never frees its
-  // memory. It is effectively a memory leak and should only be used for limited
-  // use cases, such as initializing singletons which live for the life of the
-  // program.
-  static MemoryManager Unmanaged();
-
-  // Returns a `MemoryManager` which utilizes reference counting.
-  ABSL_MUST_USE_RESULT static MemoryManager ReferenceCounting() {
-    return MemoryManager(nullptr);
-  }
-
   // Returns a `MemoryManager` which utilizes an arena.
   ABSL_MUST_USE_RESULT static MemoryManager Pooling(
       google::protobuf::Arena* absl_nonnull arena) {

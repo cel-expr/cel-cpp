@@ -23,8 +23,7 @@ namespace cel {
 namespace extensions {
 
 MemoryManagerRef ProtoMemoryManager(google::protobuf::Arena* arena) {
-  return arena != nullptr ? MemoryManagerRef::Pooling(arena)
-                          : MemoryManagerRef::ReferenceCounting();
+  return MemoryManagerRef::Pooling(arena);
 }
 
 google::protobuf::Arena* absl_nullable ProtoMemoryManagerArena(

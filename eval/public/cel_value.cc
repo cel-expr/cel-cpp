@@ -14,10 +14,8 @@
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "common/memory.h"
 #include "eval/internal/errors.h"
 #include "eval/public/structs/legacy_type_info_apis.h"
-#include "extensions/protobuf/memory_manager.h"
 #include "google/protobuf/arena.h"
 
 namespace google::api::expr::runtime {
@@ -286,23 +284,6 @@ CelValue CelValue::CreateList() { return CreateList(EmptyCelList::Get()); }
 
 CelValue CelValue::CreateMap() { return CreateMap(EmptyCelMap::Get()); }
 
-CelValue CreateErrorValue(cel::MemoryManagerRef manager,
-                          absl::string_view message,
-                          absl::StatusCode error_code) {
-  // TODO(uncreated-issue/1): assume arena-style allocator while migrating to new
-  // value type.
-  Arena* arena = cel::extensions::ProtoMemoryManagerArena(manager);
-  return CreateErrorValue(arena, message, error_code);
-}
-
-CelValue CreateErrorValue(cel::MemoryManagerRef manager,
-                          const absl::Status& status) {
-  // TODO(uncreated-issue/1): assume arena-style allocator while migrating to new
-  // value type.
-  Arena* arena = cel::extensions::ProtoMemoryManagerArena(manager);
-  return CreateErrorValue(arena, status);
-}
-
 CelValue CreateErrorValue(Arena* arena, absl::string_view message,
                           absl::StatusCode error_code) {
   CelError* error = Arena::Create<CelError>(arena, error_code, message);
@@ -312,12 +293,6 @@ CelValue CreateErrorValue(Arena* arena, absl::string_view message,
 CelValue CreateErrorValue(Arena* arena, const absl::Status& status) {
   CelError* error = Arena::Create<CelError>(arena, status);
   return CelValue::CreateError(error);
-}
-
-CelValue CreateNoMatchingOverloadError(cel::MemoryManagerRef manager,
-                                       absl::string_view fn) {
-  return CelValue::CreateError(interop::CreateNoMatchingOverloadError(
-      cel::extensions::ProtoMemoryManagerArena(manager), fn));
 }
 
 CelValue CreateNoMatchingOverloadError(google::protobuf::Arena* arena,
@@ -333,20 +308,8 @@ bool CheckNoMatchingOverloadError(CelValue value) {
                            cel::runtime_internal::kErrNoMatchingOverload);
 }
 
-CelValue CreateNoSuchFieldError(cel::MemoryManagerRef manager,
-                                absl::string_view field) {
-  return CelValue::CreateError(interop::CreateNoSuchFieldError(
-      cel::extensions::ProtoMemoryManagerArena(manager), field));
-}
-
 CelValue CreateNoSuchFieldError(google::protobuf::Arena* arena, absl::string_view field) {
   return CelValue::CreateError(interop::CreateNoSuchFieldError(arena, field));
-}
-
-CelValue CreateNoSuchKeyError(cel::MemoryManagerRef manager,
-                              absl::string_view key) {
-  return CelValue::CreateError(interop::CreateNoSuchKeyError(
-      cel::extensions::ProtoMemoryManagerArena(manager), key));
 }
 
 CelValue CreateNoSuchKeyError(google::protobuf::Arena* arena, absl::string_view key) {
@@ -365,15 +328,6 @@ CelValue CreateMissingAttributeError(google::protobuf::Arena* arena,
       interop::CreateMissingAttributeError(arena, missing_attribute_path));
 }
 
-CelValue CreateMissingAttributeError(cel::MemoryManagerRef manager,
-                                     absl::string_view missing_attribute_path) {
-  // TODO(uncreated-issue/1): assume arena-style allocator while migrating
-  // to new value type.
-  return CelValue::CreateError(interop::CreateMissingAttributeError(
-      cel::extensions::ProtoMemoryManagerArena(manager),
-      missing_attribute_path));
-}
-
 bool IsMissingAttributeError(const CelValue& value) {
   const CelError* error;
   if (!value.GetValue(&error)) return false;
@@ -383,12 +337,6 @@ bool IsMissingAttributeError(const CelValue& value) {
     return path.has_value();
   }
   return false;
-}
-
-CelValue CreateUnknownFunctionResultError(cel::MemoryManagerRef manager,
-                                          absl::string_view help_message) {
-  return CelValue::CreateError(interop::CreateUnknownFunctionResultError(
-      cel::extensions::ProtoMemoryManagerArena(manager), help_message));
 }
 
 CelValue CreateUnknownFunctionResultError(google::protobuf::Arena* arena,

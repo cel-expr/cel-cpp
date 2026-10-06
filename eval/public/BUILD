@@ -96,7 +96,6 @@ cc_library(
         "//common:native_type",
         "//eval/internal:errors",
         "//eval/public/structs:legacy_type_info_apis",
-        "//extensions/protobuf:memory_manager",
         "//internal:casts",
         "//internal:status_macros",
         "//internal:utf8",
