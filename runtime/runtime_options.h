@@ -156,12 +156,18 @@ struct RuntimeOptions {
   // -1 means unbounded.
   // 0 means disabled (using a heap-based stack machine instead), which is the
   // default.
+  ABSL_DEPRECATED(
+      "The ability to enable recursive planning is being removed in the "
+      "near future")
   int max_recursion_depth = 0;
 
   // Enable tracing support for recursively planned programs.
   //
   // Unlike the stack machine implementation, supporting tracing can affect
   // performance whether or not tracing is requested for a given evaluation.
+  ABSL_DEPRECATED(
+      "The ability to enable recursive planning is being removed in the "
+      "near future")
   bool enable_recursive_tracing = false;
 
   // Enable fast implementations for some CEL standard functions.
