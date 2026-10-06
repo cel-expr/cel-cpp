@@ -157,11 +157,13 @@ inline absl::StatusOr<Value> Invoke(
     context.set_embedder_context(frame.embedder_context());
   }
 
-  CEL_ASSIGN_OR_RETURN(Value result,
-                       overload.implementation.Invoke(args, context));
+  absl::StatusOr<Value> result = overload.implementation.Invoke(args, context);
+  if (!result.ok()) {
+    return result;
+  }
 
   if (frame.unknown_function_results_enabled() &&
-      IsUnknownFunctionResultError(result)) {
+      IsUnknownFunctionResultError(*result)) {
     return frame.attribute_utility().CreateUnknownSet(overload.descriptor,
                                                       expr_id, args);
   }
@@ -402,18 +404,33 @@ void EvaluateFunctionStep(const Step* step, ExecutionFrame& frame) {
   }
 
   // Derived class resolves to a single function overload or none.
-  absl::StatusOr<ResolveResult> matched_function =
-      step->ResolveFunction(input_args, frame);
-  if (!matched_function.ok()) {
-    frame.Abort(std::move(matched_function).status());
-    return;
+  // The extra complexity here is to avoid an unnecessary absl::StatusOr
+  // wrapping ResolveResult for the common case (static resolution).
+  ResolveResult resolved_function;
+  if constexpr (std::is_same_v<absl::StatusOr<ResolveResult>,
+                               decltype(step->ResolveFunction(input_args,
+                                                              frame))>) {
+    absl::StatusOr<ResolveResult> matched_function =
+        step->ResolveFunction(input_args, frame);
+    if (!matched_function.ok()) {
+      frame.Abort(std::move(matched_function).status());
+      return;
+    }
+    if (matched_function->has_value()) {
+      resolved_function.emplace(**matched_function);
+    }
+  } else {
+    ResolveResult matched_function = step->ResolveFunction(input_args, frame);
+    if (matched_function.has_value()) {
+      resolved_function.emplace(*matched_function);
+    }
   }
 
   // Overload found and is allowed to consume the arguments.
-  if (matched_function->has_value() &&
-      ShouldAcceptOverload((*matched_function)->descriptor, input_args)) {
+  if (resolved_function.has_value() &&
+      ShouldAcceptOverload(resolved_function->descriptor, input_args)) {
     absl::StatusOr<Value> result =
-        Invoke(**matched_function, step->expr_id_, input_args, frame);
+        Invoke(*resolved_function, step->expr_id_, input_args, frame);
     if (!result.ok()) {
       frame.Abort(std::move(result).status());
       return;
