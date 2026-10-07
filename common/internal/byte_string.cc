@@ -253,7 +253,7 @@ absl::optional<absl::string_view> ByteString::TryFlat() const {
       return GetMedium();
     case ByteStringKind::kLarge: {
       if (auto flat = rep_.large.data->TryFlat(); flat.has_value()) {
-        return flat->substr(rep_.large.offset, rep_.large.offset);
+        return flat->substr(rep_.large.offset, rep_.large.size);
       }
       return absl::nullopt;
     }
