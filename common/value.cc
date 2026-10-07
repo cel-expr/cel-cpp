@@ -2007,25 +2007,9 @@ Value Value::WrapMapFieldValueUnsafe(
                                        message_factory, arena);
 }
 
-optional_ref<const BytesValue> Value::AsBytes() const& {
-  if (const auto* alternative = variant_.As<BytesValue>();
-      alternative != nullptr) {
-    return *alternative;
-  }
-  return std::nullopt;
-}
-
 absl::optional<BytesValue> Value::AsBytes() && {
   if (auto* alternative = variant_.As<BytesValue>(); alternative != nullptr) {
     return std::move(*alternative);
-  }
-  return std::nullopt;
-}
-
-absl::optional<DoubleValue> Value::AsDouble() const {
-  if (const auto* alternative = variant_.As<DoubleValue>();
-      alternative != nullptr) {
-    return *alternative;
   }
   return std::nullopt;
 }
@@ -2049,14 +2033,6 @@ optional_ref<const ErrorValue> Value::AsError() const& {
 absl::optional<ErrorValue> Value::AsError() && {
   if (auto* alternative = variant_.As<ErrorValue>(); alternative != nullptr) {
     return std::move(*alternative);
-  }
-  return std::nullopt;
-}
-
-absl::optional<IntValue> Value::AsInt() const {
-  if (const auto* alternative = variant_.As<IntValue>();
-      alternative != nullptr) {
-    return *alternative;
   }
   return std::nullopt;
 }
@@ -2325,14 +2301,6 @@ absl::optional<CustomStructValue> Value::AsCustomStruct() && {
   return std::nullopt;
 }
 
-optional_ref<const StringValue> Value::AsString() const& {
-  if (const auto* alternative = variant_.As<StringValue>();
-      alternative != nullptr) {
-    return *alternative;
-  }
-  return std::nullopt;
-}
-
 absl::optional<StringValue> Value::AsString() && {
   if (auto* alternative = variant_.As<StringValue>(); alternative != nullptr) {
     return std::move(*alternative);
@@ -2396,14 +2364,6 @@ absl::optional<TypeValue> Value::AsType() && {
   return std::nullopt;
 }
 
-absl::optional<UintValue> Value::AsUint() const {
-  if (const auto* alternative = variant_.As<UintValue>();
-      alternative != nullptr) {
-    return *alternative;
-  }
-  return std::nullopt;
-}
-
 optional_ref<const UnknownValue> Value::AsUnknown() const& {
   if (const auto* alternative = variant_.As<UnknownValue>();
       alternative != nullptr) {
@@ -2419,19 +2379,9 @@ absl::optional<UnknownValue> Value::AsUnknown() && {
   return std::nullopt;
 }
 
-const BytesValue& Value::GetBytes() const& {
-  ABSL_DCHECK(IsBytes()) << *this;
-  return variant_.Get<BytesValue>();
-}
-
 BytesValue Value::GetBytes() && {
   ABSL_DCHECK(IsBytes()) << *this;
   return std::move(variant_).Get<BytesValue>();
-}
-
-DoubleValue Value::GetDouble() const {
-  ABSL_DCHECK(IsDouble()) << *this;
-  return variant_.Get<DoubleValue>();
 }
 
 DurationValue Value::GetDuration() const {
@@ -2447,11 +2397,6 @@ const ErrorValue& Value::GetError() const& {
 ErrorValue Value::GetError() && {
   ABSL_DCHECK(IsError()) << *this;
   return std::move(variant_).Get<ErrorValue>();
-}
-
-IntValue Value::GetInt() const {
-  ABSL_DCHECK(IsInt()) << *this;
-  return variant_.Get<IntValue>();
 }
 
 #ifdef ABSL_HAVE_EXCEPTIONS
@@ -2660,11 +2605,6 @@ CustomStructValue Value::GetCustomStruct() && {
   return std::move(variant_).Get<CustomStructValue>();
 }
 
-const StringValue& Value::GetString() const& {
-  ABSL_DCHECK(IsString()) << *this;
-  return variant_.Get<StringValue>();
-}
-
 StringValue Value::GetString() && {
   ABSL_DCHECK(IsString()) << *this;
   return std::move(variant_).Get<StringValue>();
@@ -2718,11 +2658,6 @@ const TypeValue& Value::GetType() const& {
 TypeValue Value::GetType() && {
   ABSL_DCHECK(IsType()) << *this;
   return std::move(variant_).Get<TypeValue>();
-}
-
-UintValue Value::GetUint() const {
-  ABSL_DCHECK(IsUint()) << *this;
-  return variant_.Get<UintValue>();
 }
 
 const UnknownValue& Value::GetUnknown() const& {

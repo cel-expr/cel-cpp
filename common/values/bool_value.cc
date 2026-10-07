@@ -76,22 +76,4 @@ absl::Status BoolValue::ConvertToJson(
   return absl::OkStatus();
 }
 
-absl::Status BoolValue::Equal(
-    const Value& other,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  ABSL_DCHECK(descriptor_pool != nullptr);
-  ABSL_DCHECK(message_factory != nullptr);
-  ABSL_DCHECK(arena != nullptr);
-  ABSL_DCHECK(result != nullptr);
-
-  if (auto other_value = other.AsBool(); other_value.has_value()) {
-    *result = BoolValue{NativeValue() == other_value->NativeValue()};
-    return absl::OkStatus();
-  }
-  *result = FalseValue();
-  return absl::OkStatus();
-}
-
 }  // namespace cel

@@ -2943,6 +2943,125 @@ absl::StatusOr<RepeatedFieldAccessor> RepeatedFieldAccessorFor(
 
 }  // namespace common_internal
 
+inline optional_ref<const BytesValue> Value::AsBytes() const& {
+  if (const auto* alternative = variant_.As<BytesValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<DoubleValue> Value::AsDouble() const {
+  if (const auto* alternative = variant_.As<DoubleValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<IntValue> Value::AsInt() const {
+  if (const auto* alternative = variant_.As<IntValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const StringValue> Value::AsString() const& {
+  if (const auto* alternative = variant_.As<StringValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<UintValue> Value::AsUint() const {
+  if (const auto* alternative = variant_.As<UintValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline const BytesValue& Value::GetBytes() const& {
+  ABSL_DCHECK(IsBytes()) << *this;
+  return variant_.Get<BytesValue>();
+}
+
+inline DoubleValue Value::GetDouble() const {
+  ABSL_DCHECK(IsDouble()) << *this;
+  return variant_.Get<DoubleValue>();
+}
+
+inline IntValue Value::GetInt() const {
+  ABSL_DCHECK(IsInt()) << *this;
+  return variant_.Get<IntValue>();
+}
+
+inline const StringValue& Value::GetString() const& {
+  ABSL_DCHECK(IsString()) << *this;
+  return variant_.Get<StringValue>();
+}
+
+inline UintValue Value::GetUint() const {
+  ABSL_DCHECK(IsUint()) << *this;
+  return variant_.Get<UintValue>();
+}
+
+inline absl::Status BoolValue::Equal(
+    const Value& other,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  ABSL_DCHECK(descriptor_pool != nullptr);
+  ABSL_DCHECK(message_factory != nullptr);
+  ABSL_DCHECK(arena != nullptr);
+  ABSL_DCHECK(result != nullptr);
+
+  if (auto other_value = other.AsBool(); other_value.has_value()) {
+    *result = BoolValue{NativeValue() == other_value->NativeValue()};
+    return absl::OkStatus();
+  }
+  *result = FalseValue();
+  return absl::OkStatus();
+}
+
+inline absl::Status BytesValue::Equal(
+    const Value& other,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  ABSL_DCHECK(descriptor_pool != nullptr);
+  ABSL_DCHECK(message_factory != nullptr);
+  ABSL_DCHECK(arena != nullptr);
+  ABSL_DCHECK(result != nullptr);
+
+  if (auto other_value = other.AsBytes(); other_value.has_value()) {
+    *result = BoolValue{Equals(*other_value)};
+    return absl::OkStatus();
+  }
+  *result = FalseValue();
+  return absl::OkStatus();
+}
+
+inline absl::Status StringValue::Equal(
+    const Value& other,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  ABSL_DCHECK(descriptor_pool != nullptr);
+  ABSL_DCHECK(message_factory != nullptr);
+  ABSL_DCHECK(arena != nullptr);
+  ABSL_DCHECK(result != nullptr);
+
+  if (auto other_value = other.AsString(); other_value.has_value()) {
+    *result = BoolValue{Equals(*other_value)};
+    return absl::OkStatus();
+  }
+  *result = FalseValue();
+  return absl::OkStatus();
+}
+
 inline BytesValue::BytesValue(const StringValue& other)
     : BytesValue(other.value_) {}
 

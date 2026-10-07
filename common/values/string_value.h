@@ -212,9 +212,11 @@ class StringValue final : private common_internal::ValueMixin<StringValue> {
 
   bool IsEmpty() const;
 
-  bool Equals(absl::string_view string) const;
-  bool Equals(const absl::Cord& string) const;
-  bool Equals(const StringValue& string) const;
+  bool Equals(absl::string_view string) const { return value_.Equals(string); }
+  bool Equals(const absl::Cord& string) const { return value_.Equals(string); }
+  bool Equals(const StringValue& string) const {
+    return value_.Equals(string.value_);
+  }
 
   int Compare(absl::string_view string) const;
   int Compare(const absl::Cord& string) const;

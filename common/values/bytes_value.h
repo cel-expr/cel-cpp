@@ -176,9 +176,11 @@ class BytesValue final : private common_internal::ValueMixin<BytesValue> {
 
   bool IsEmpty() const;
 
-  bool Equals(absl::string_view bytes) const;
-  bool Equals(const absl::Cord& bytes) const;
-  bool Equals(const BytesValue& bytes) const;
+  bool Equals(absl::string_view bytes) const { return value_.Equals(bytes); }
+  bool Equals(const absl::Cord& bytes) const { return value_.Equals(bytes); }
+  bool Equals(const BytesValue& bytes) const {
+    return value_.Equals(bytes.value_);
+  }
 
   int Compare(absl::string_view bytes) const;
   int Compare(const absl::Cord& bytes) const;

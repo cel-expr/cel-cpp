@@ -114,29 +114,6 @@ absl::Status StringValue::ConvertToJson(
   return absl::OkStatus();
 }
 
-absl::Status StringValue::Equal(
-    const Value& other,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  ABSL_DCHECK(descriptor_pool != nullptr);
-  ABSL_DCHECK(message_factory != nullptr);
-  ABSL_DCHECK(arena != nullptr);
-  ABSL_DCHECK(result != nullptr);
-
-  if (auto other_value = other.AsString(); other_value.has_value()) {
-    *result = NativeValue([other_value](const auto& value) -> BoolValue {
-      return other_value->NativeValue(
-          [&value](const auto& other_value) -> BoolValue {
-            return BoolValue{value == other_value};
-          });
-    });
-    return absl::OkStatus();
-  }
-  *result = FalseValue();
-  return absl::OkStatus();
-}
-
 size_t StringValue::Size() const {
   return NativeValue([](const auto& alternative) -> size_t {
     return internal::Utf8CodePointCount(alternative);
@@ -146,18 +123,6 @@ size_t StringValue::Size() const {
 bool StringValue::IsEmpty() const {
   return NativeValue(
       [](const auto& alternative) -> bool { return alternative.empty(); });
-}
-
-bool StringValue::Equals(absl::string_view string) const {
-  return value_.Equals(string);
-}
-
-bool StringValue::Equals(const absl::Cord& string) const {
-  return value_.Equals(string);
-}
-
-bool StringValue::Equals(const StringValue& string) const {
-  return value_.Equals(string.value_);
 }
 
 StringValue StringValue::Clone(google::protobuf::Arena* absl_nonnull arena) const {

@@ -100,29 +100,6 @@ absl::Status BytesValue::ConvertToJson(
   return absl::OkStatus();
 }
 
-absl::Status BytesValue::Equal(
-    const Value& other,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  ABSL_DCHECK(descriptor_pool != nullptr);
-  ABSL_DCHECK(message_factory != nullptr);
-  ABSL_DCHECK(arena != nullptr);
-  ABSL_DCHECK(result != nullptr);
-
-  if (auto other_value = other.AsBytes(); other_value.has_value()) {
-    *result = NativeValue([other_value](const auto& value) -> BoolValue {
-      return other_value->NativeValue(
-          [&value](const auto& other_value) -> BoolValue {
-            return BoolValue{value == other_value};
-          });
-    });
-    return absl::OkStatus();
-  }
-  *result = FalseValue();
-  return absl::OkStatus();
-}
-
 BytesValue BytesValue::Clone(google::protobuf::Arena* absl_nonnull arena) const {
   return BytesValue(value_.Clone(arena));
 }
@@ -135,23 +112,6 @@ size_t BytesValue::Size() const {
 bool BytesValue::IsEmpty() const {
   return NativeValue(
       [](const auto& alternative) -> bool { return alternative.empty(); });
-}
-
-bool BytesValue::Equals(absl::string_view bytes) const {
-  return NativeValue([bytes](const auto& alternative) -> bool {
-    return alternative == bytes;
-  });
-}
-
-bool BytesValue::Equals(const absl::Cord& bytes) const {
-  return NativeValue([&bytes](const auto& alternative) -> bool {
-    return alternative == bytes;
-  });
-}
-
-bool BytesValue::Equals(const BytesValue& bytes) const {
-  return bytes.NativeValue(
-      [this](const auto& alternative) -> bool { return Equals(alternative); });
 }
 
 namespace {
