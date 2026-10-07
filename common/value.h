@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <type_traits>
@@ -2945,6 +2946,498 @@ absl::StatusOr<RepeatedFieldAccessor> RepeatedFieldAccessorFor(
 
 inline BytesValue::BytesValue(const StringValue& other)
     : BytesValue(other.value_) {}
+
+inline optional_ref<const BytesValue> Value::AsBytes() const& {
+  if (const auto* alternative = variant_.As<BytesValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<BytesValue> Value::AsBytes() && {
+  if (auto* alternative = variant_.As<BytesValue>(); alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<DoubleValue> Value::AsDouble() const {
+  if (const auto* alternative = variant_.As<DoubleValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<DurationValue> Value::AsDuration() const {
+  if (const auto* alternative = variant_.As<DurationValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const ErrorValue> Value::AsError() const& {
+  if (const auto* alternative = variant_.As<ErrorValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<ErrorValue> Value::AsError() && {
+  if (auto* alternative = variant_.As<ErrorValue>(); alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<IntValue> Value::AsInt() const {
+  if (const auto* alternative = variant_.As<IntValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<MessageValue> Value::AsMessage() const& {
+  if (const auto* alternative = variant_.As<ParsedMessageValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<MessageValue> Value::AsMessage() && {
+  if (auto* alternative = variant_.As<ParsedMessageValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<NullValue> Value::AsNull() const {
+  if (const auto* alternative = variant_.As<NullValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const OpaqueValue> Value::AsOpaque() const& {
+  if (const auto* alternative = variant_.As<OpaqueValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<OpaqueValue> Value::AsOpaque() && {
+  if (auto* alternative = variant_.As<OpaqueValue>(); alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const OptionalValue> Value::AsOptional() const& {
+  if (const auto* alternative = variant_.As<OpaqueValue>();
+      alternative != nullptr && alternative->IsOptional()) {
+    return static_cast<const OptionalValue&>(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<OptionalValue> Value::AsOptional() && {
+  if (auto* alternative = variant_.As<OpaqueValue>();
+      alternative != nullptr && alternative->IsOptional()) {
+    return static_cast<OptionalValue&&>(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const ParsedJsonListValue> Value::AsParsedJsonList()
+    const& {
+  if (const auto* alternative = variant_.As<ParsedJsonListValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<ParsedJsonListValue> Value::AsParsedJsonList() && {
+  if (auto* alternative = variant_.As<ParsedJsonListValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const ParsedJsonMapValue> Value::AsParsedJsonMap() const& {
+  if (const auto* alternative = variant_.As<ParsedJsonMapValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<ParsedJsonMapValue> Value::AsParsedJsonMap() && {
+  if (auto* alternative = variant_.As<ParsedJsonMapValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const CustomListValue> Value::AsCustomList() const& {
+  if (const auto* alternative = variant_.As<CustomListValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<CustomListValue> Value::AsCustomList() && {
+  if (auto* alternative = variant_.As<CustomListValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const CustomMapValue> Value::AsCustomMap() const& {
+  if (const auto* alternative = variant_.As<CustomMapValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<CustomMapValue> Value::AsCustomMap() && {
+  if (auto* alternative = variant_.As<CustomMapValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const ParsedMapFieldValue> Value::AsParsedMapField()
+    const& {
+  if (const auto* alternative = variant_.As<ParsedMapFieldValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<ParsedMapFieldValue> Value::AsParsedMapField() && {
+  if (auto* alternative = variant_.As<ParsedMapFieldValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const ParsedMessageValue> Value::AsParsedMessage() const& {
+  if (const auto* alternative = variant_.As<ParsedMessageValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<ParsedMessageValue> Value::AsParsedMessage() && {
+  if (auto* alternative = variant_.As<ParsedMessageValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const ParsedRepeatedFieldValue>
+Value::AsParsedRepeatedField() const& {
+  if (const auto* alternative = variant_.As<ParsedRepeatedFieldValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<ParsedRepeatedFieldValue>
+Value::AsParsedRepeatedField() && {
+  if (auto* alternative = variant_.As<ParsedRepeatedFieldValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const CustomStructValue> Value::AsCustomStruct() const& {
+  if (const auto* alternative = variant_.As<CustomStructValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<CustomStructValue> Value::AsCustomStruct() && {
+  if (auto* alternative = variant_.As<CustomStructValue>();
+      alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const StringValue> Value::AsString() const& {
+  if (const auto* alternative = variant_.As<StringValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<StringValue> Value::AsString() && {
+  if (auto* alternative = variant_.As<StringValue>(); alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<TimestampValue> Value::AsTimestamp() const {
+  if (const auto* alternative = variant_.As<TimestampValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const TypeValue> Value::AsType() const& {
+  if (const auto* alternative = variant_.As<TypeValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<TypeValue> Value::AsType() && {
+  if (auto* alternative = variant_.As<TypeValue>(); alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<UintValue> Value::AsUint() const {
+  if (const auto* alternative = variant_.As<UintValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<const UnknownValue> Value::AsUnknown() const& {
+  if (const auto* alternative = variant_.As<UnknownValue>();
+      alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline absl::optional<UnknownValue> Value::AsUnknown() && {
+  if (auto* alternative = variant_.As<UnknownValue>(); alternative != nullptr) {
+    return std::move(*alternative);
+  }
+  return std::nullopt;
+}
+
+inline const BytesValue& Value::GetBytes() const& {
+  ABSL_DCHECK(IsBytes()) << *this;
+  return variant_.Get<BytesValue>();
+}
+
+inline BytesValue Value::GetBytes() && {
+  ABSL_DCHECK(IsBytes()) << *this;
+  return std::move(variant_).Get<BytesValue>();
+}
+
+inline DoubleValue Value::GetDouble() const {
+  ABSL_DCHECK(IsDouble()) << *this;
+  return variant_.Get<DoubleValue>();
+}
+
+inline DurationValue Value::GetDuration() const {
+  ABSL_DCHECK(IsDuration()) << *this;
+  return variant_.Get<DurationValue>();
+}
+
+inline const ErrorValue& Value::GetError() const& {
+  ABSL_DCHECK(IsError()) << *this;
+  return variant_.Get<ErrorValue>();
+}
+
+inline ErrorValue Value::GetError() && {
+  ABSL_DCHECK(IsError()) << *this;
+  return std::move(variant_).Get<ErrorValue>();
+}
+
+inline IntValue Value::GetInt() const {
+  ABSL_DCHECK(IsInt()) << *this;
+  return variant_.Get<IntValue>();
+}
+
+inline MessageValue Value::GetMessage() const& {
+  ABSL_DCHECK(IsMessage()) << *this;
+  return variant_.Get<ParsedMessageValue>();
+}
+
+inline MessageValue Value::GetMessage() && {
+  ABSL_DCHECK(IsMessage()) << *this;
+  return std::move(variant_).Get<ParsedMessageValue>();
+}
+
+inline NullValue Value::GetNull() const {
+  ABSL_DCHECK(IsNull()) << *this;
+  return variant_.Get<NullValue>();
+}
+
+inline const OpaqueValue& Value::GetOpaque() const& {
+  ABSL_DCHECK(IsOpaque()) << *this;
+  return variant_.Get<OpaqueValue>();
+}
+
+inline OpaqueValue Value::GetOpaque() && {
+  ABSL_DCHECK(IsOpaque()) << *this;
+  return std::move(variant_).Get<OpaqueValue>();
+}
+
+inline const OptionalValue& Value::GetOptional() const& {
+  ABSL_DCHECK(IsOptional()) << *this;
+  return static_cast<const OptionalValue&>(variant_.Get<OpaqueValue>());
+}
+
+inline OptionalValue Value::GetOptional() && {
+  ABSL_DCHECK(IsOptional()) << *this;
+  return static_cast<OptionalValue&&>(std::move(variant_).Get<OpaqueValue>());
+}
+
+inline const ParsedJsonListValue& Value::GetParsedJsonList() const& {
+  ABSL_DCHECK(IsParsedJsonList()) << *this;
+  return variant_.Get<ParsedJsonListValue>();
+}
+
+inline ParsedJsonListValue Value::GetParsedJsonList() && {
+  ABSL_DCHECK(IsParsedJsonList()) << *this;
+  return std::move(variant_).Get<ParsedJsonListValue>();
+}
+
+inline const ParsedJsonMapValue& Value::GetParsedJsonMap() const& {
+  ABSL_DCHECK(IsParsedJsonMap()) << *this;
+  return variant_.Get<ParsedJsonMapValue>();
+}
+
+inline ParsedJsonMapValue Value::GetParsedJsonMap() && {
+  ABSL_DCHECK(IsParsedJsonMap()) << *this;
+  return std::move(variant_).Get<ParsedJsonMapValue>();
+}
+
+inline const CustomListValue& Value::GetCustomList() const& {
+  ABSL_DCHECK(IsCustomList()) << *this;
+  return variant_.Get<CustomListValue>();
+}
+
+inline CustomListValue Value::GetCustomList() && {
+  ABSL_DCHECK(IsCustomList()) << *this;
+  return std::move(variant_).Get<CustomListValue>();
+}
+
+inline const CustomMapValue& Value::GetCustomMap() const& {
+  ABSL_DCHECK(IsCustomMap()) << *this;
+  return variant_.Get<CustomMapValue>();
+}
+
+inline CustomMapValue Value::GetCustomMap() && {
+  ABSL_DCHECK(IsCustomMap()) << *this;
+  return std::move(variant_).Get<CustomMapValue>();
+}
+
+inline const ParsedMapFieldValue& Value::GetParsedMapField() const& {
+  ABSL_DCHECK(IsParsedMapField()) << *this;
+  return variant_.Get<ParsedMapFieldValue>();
+}
+
+inline ParsedMapFieldValue Value::GetParsedMapField() && {
+  ABSL_DCHECK(IsParsedMapField()) << *this;
+  return std::move(variant_).Get<ParsedMapFieldValue>();
+}
+
+inline const ParsedMessageValue& Value::GetParsedMessage() const& {
+  ABSL_DCHECK(IsParsedMessage()) << *this;
+  return variant_.Get<ParsedMessageValue>();
+}
+
+inline ParsedMessageValue Value::GetParsedMessage() && {
+  ABSL_DCHECK(IsParsedMessage()) << *this;
+  return std::move(variant_).Get<ParsedMessageValue>();
+}
+
+inline const ParsedRepeatedFieldValue& Value::GetParsedRepeatedField() const& {
+  ABSL_DCHECK(IsParsedRepeatedField()) << *this;
+  return variant_.Get<ParsedRepeatedFieldValue>();
+}
+
+inline ParsedRepeatedFieldValue Value::GetParsedRepeatedField() && {
+  ABSL_DCHECK(IsParsedRepeatedField()) << *this;
+  return std::move(variant_).Get<ParsedRepeatedFieldValue>();
+}
+
+inline const CustomStructValue& Value::GetCustomStruct() const& {
+  ABSL_DCHECK(IsCustomStruct()) << *this;
+  return variant_.Get<CustomStructValue>();
+}
+
+inline CustomStructValue Value::GetCustomStruct() && {
+  ABSL_DCHECK(IsCustomStruct()) << *this;
+  return std::move(variant_).Get<CustomStructValue>();
+}
+
+inline const StringValue& Value::GetString() const& {
+  ABSL_DCHECK(IsString()) << *this;
+  return variant_.Get<StringValue>();
+}
+
+inline StringValue Value::GetString() && {
+  ABSL_DCHECK(IsString()) << *this;
+  return std::move(variant_).Get<StringValue>();
+}
+
+inline TimestampValue Value::GetTimestamp() const {
+  ABSL_DCHECK(IsTimestamp()) << *this;
+  return variant_.Get<TimestampValue>();
+}
+
+inline const TypeValue& Value::GetType() const& {
+  ABSL_DCHECK(IsType()) << *this;
+  return variant_.Get<TypeValue>();
+}
+
+inline TypeValue Value::GetType() && {
+  ABSL_DCHECK(IsType()) << *this;
+  return std::move(variant_).Get<TypeValue>();
+}
+
+inline UintValue Value::GetUint() const {
+  ABSL_DCHECK(IsUint()) << *this;
+  return variant_.Get<UintValue>();
+}
+
+inline const UnknownValue& Value::GetUnknown() const& {
+  ABSL_DCHECK(IsUnknown()) << *this;
+  return variant_.Get<UnknownValue>();
+}
+
+inline UnknownValue Value::GetUnknown() && {
+  ABSL_DCHECK(IsUnknown()) << *this;
+  return std::move(variant_).Get<UnknownValue>();
+}
 
 }  // namespace cel
 
