@@ -22,7 +22,6 @@
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "absl/types/optional.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_testing.h"
 #include "internal/testing.h"
@@ -139,16 +138,16 @@ TEST_F(MapValueTest, Get) {
                            std::pair{IntValue(2), DoubleValue(5.0)}));
   ASSERT_OK_AND_ASSIGN(auto value, map_value.Get(IntValue(0), descriptor_pool(),
                                                  message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<DoubleValue>(value));
-  ASSERT_EQ(Cast<DoubleValue>(value).NativeValue(), 3.0);
+  ASSERT_TRUE(value.Is<DoubleValue>());
+  ASSERT_EQ(value.Get<DoubleValue>().NativeValue(), 3.0);
   ASSERT_OK_AND_ASSIGN(value, map_value.Get(IntValue(1), descriptor_pool(),
                                             message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<DoubleValue>(value));
-  ASSERT_EQ(Cast<DoubleValue>(value).NativeValue(), 4.0);
+  ASSERT_TRUE(value.Is<DoubleValue>());
+  ASSERT_EQ(value.Get<DoubleValue>().NativeValue(), 4.0);
   ASSERT_OK_AND_ASSIGN(value, map_value.Get(IntValue(2), descriptor_pool(),
                                             message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<DoubleValue>(value));
-  ASSERT_EQ(Cast<DoubleValue>(value).NativeValue(), 5.0);
+  ASSERT_TRUE(value.Is<DoubleValue>());
+  ASSERT_EQ(value.Get<DoubleValue>().NativeValue(), 5.0);
   EXPECT_THAT(
       map_value.Get(IntValue(3), descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound))));
@@ -164,18 +163,18 @@ TEST_F(MapValueTest, Find) {
   ASSERT_OK_AND_ASSIGN(entry, map_value.Find(IntValue(0), descriptor_pool(),
                                              message_factory(), arena()));
   ASSERT_TRUE(entry);
-  ASSERT_TRUE(InstanceOf<DoubleValue>(*entry));
-  ASSERT_EQ(Cast<DoubleValue>(*entry).NativeValue(), 3.0);
+  ASSERT_TRUE(entry->Is<DoubleValue>());
+  ASSERT_EQ(entry->Get<DoubleValue>().NativeValue(), 3.0);
   ASSERT_OK_AND_ASSIGN(entry, map_value.Find(IntValue(1), descriptor_pool(),
                                              message_factory(), arena()));
   ASSERT_TRUE(entry);
-  ASSERT_TRUE(InstanceOf<DoubleValue>(*entry));
-  ASSERT_EQ(Cast<DoubleValue>(*entry).NativeValue(), 4.0);
+  ASSERT_TRUE(entry->Is<DoubleValue>());
+  ASSERT_EQ(entry->Get<DoubleValue>().NativeValue(), 4.0);
   ASSERT_OK_AND_ASSIGN(entry, map_value.Find(IntValue(2), descriptor_pool(),
                                              message_factory(), arena()));
   ASSERT_TRUE(entry);
-  ASSERT_TRUE(InstanceOf<DoubleValue>(*entry));
-  ASSERT_EQ(Cast<DoubleValue>(*entry).NativeValue(), 5.0);
+  ASSERT_TRUE(entry->Is<DoubleValue>());
+  ASSERT_EQ(entry->Get<DoubleValue>().NativeValue(), 5.0);
   ASSERT_OK_AND_ASSIGN(entry, map_value.Find(IntValue(3), descriptor_pool(),
                                              message_factory(), arena()));
   ASSERT_FALSE(entry);
@@ -189,20 +188,20 @@ TEST_F(MapValueTest, Has) {
                            std::pair{IntValue(2), DoubleValue(5.0)}));
   ASSERT_OK_AND_ASSIGN(auto value, map_value.Has(IntValue(0), descriptor_pool(),
                                                  message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<BoolValue>(value));
-  ASSERT_TRUE(Cast<BoolValue>(value).NativeValue());
+  ASSERT_TRUE(value.Is<BoolValue>());
+  ASSERT_TRUE(value.Get<BoolValue>().NativeValue());
   ASSERT_OK_AND_ASSIGN(value, map_value.Has(IntValue(1), descriptor_pool(),
                                             message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<BoolValue>(value));
-  ASSERT_TRUE(Cast<BoolValue>(value).NativeValue());
+  ASSERT_TRUE(value.Is<BoolValue>());
+  ASSERT_TRUE(value.Get<BoolValue>().NativeValue());
   ASSERT_OK_AND_ASSIGN(value, map_value.Has(IntValue(2), descriptor_pool(),
                                             message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<BoolValue>(value));
-  ASSERT_TRUE(Cast<BoolValue>(value).NativeValue());
+  ASSERT_TRUE(value.Is<BoolValue>());
+  ASSERT_TRUE(value.Get<BoolValue>().NativeValue());
   ASSERT_OK_AND_ASSIGN(value, map_value.Has(IntValue(3), descriptor_pool(),
                                             message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<BoolValue>(value));
-  ASSERT_FALSE(Cast<BoolValue>(value).NativeValue());
+  ASSERT_TRUE(value.Is<BoolValue>());
+  ASSERT_FALSE(value.Get<BoolValue>().NativeValue());
 }
 
 TEST_F(MapValueTest, ListKeys) {
@@ -217,7 +216,7 @@ TEST_F(MapValueTest, ListKeys) {
   std::vector<int64_t> keys;
   ASSERT_THAT(list_keys.ForEach(
                   [&keys](const Value& element) -> bool {
-                    keys.push_back(Cast<IntValue>(element).NativeValue());
+                    keys.push_back(element.Get<IntValue>().NativeValue());
                     return true;
                   },
                   descriptor_pool(), message_factory(), arena()),
@@ -235,8 +234,8 @@ TEST_F(MapValueTest, ForEach) {
   EXPECT_THAT(value.ForEach(
                   [&entries](const Value& key, const Value& value) {
                     entries.push_back(
-                        std::pair{Cast<IntValue>(key).NativeValue(),
-                                  Cast<DoubleValue>(value).NativeValue()});
+                        std::pair{key.Get<IntValue>().NativeValue(),
+                                  value.Get<DoubleValue>().NativeValue()});
                     return true;
                   },
                   descriptor_pool(), message_factory(), arena()),
@@ -258,8 +257,8 @@ TEST_F(MapValueTest, NewIterator) {
     ASSERT_OK_AND_ASSIGN(
         auto element,
         iterator->Next(descriptor_pool(), message_factory(), arena()));
-    ASSERT_TRUE(InstanceOf<IntValue>(element));
-    keys.push_back(Cast<IntValue>(element).NativeValue());
+    ASSERT_TRUE(element.Is<IntValue>());
+    keys.push_back(element.Get<IntValue>().NativeValue());
   }
   EXPECT_EQ(iterator->HasNext(), false);
   EXPECT_THAT(iterator->Next(descriptor_pool(), message_factory(), arena()),

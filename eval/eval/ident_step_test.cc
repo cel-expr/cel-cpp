@@ -7,7 +7,6 @@
 
 #include "absl/status/status.h"
 #include "base/type_provider.h"
-#include "common/casting.h"
 #include "common/memory.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
@@ -31,9 +30,7 @@ namespace {
 
 using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
-using ::cel::Cast;
 using ::cel::ErrorValue;
-using ::cel::InstanceOf;
 using ::cel::IntValue;
 using ::cel::MemoryManagerRef;
 using ::cel::RuntimeOptions;
@@ -224,8 +221,8 @@ TEST(DirectIdentStepTest, Basic) {
 
   ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
-  ASSERT_TRUE(InstanceOf<IntValue>(result));
-  EXPECT_THAT(Cast<IntValue>(result).NativeValue(), Eq(42));
+  ASSERT_TRUE(result.IsInt());
+  EXPECT_THAT(result.GetInt().NativeValue(), Eq(42));
 }
 
 TEST(DirectIdentStepTest, UnknownAttribute) {
@@ -249,8 +246,8 @@ TEST(DirectIdentStepTest, UnknownAttribute) {
 
   ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
-  ASSERT_TRUE(InstanceOf<UnknownValue>(result));
-  EXPECT_THAT(Cast<UnknownValue>(result).ToAttributeSet(), SizeIs(1));
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(), SizeIs(1));
 }
 
 TEST(DirectIdentStepTest, MissingAttribute) {
@@ -274,8 +271,8 @@ TEST(DirectIdentStepTest, MissingAttribute) {
 
   ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("var1")));
 }
 
@@ -296,8 +293,8 @@ TEST(DirectIdentStepTest, NotFound) {
 
   ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kUnknown,
                        HasSubstr("\"var1\" found in Activation")));
 }

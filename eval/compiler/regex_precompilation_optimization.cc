@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,10 +27,8 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
 #include "base/builtins.h"
 #include "common/ast.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/native_type.h"
 #include "common/value.h"
@@ -38,7 +37,6 @@
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/regex_match_step.h"
-#include "internal/casts.h"
 #include "internal/re2_options.h"
 #include "internal/status_macros.h"
 #include "re2/re2.h"
@@ -48,14 +46,10 @@ namespace {
 
 using ::cel::Ast;
 using ::cel::CallExpr;
-using ::cel::Cast;
 using ::cel::Expr;
-using ::cel::InstanceOf;
 using ::cel::NativeTypeId;
 using ::cel::Reference;
-using ::cel::StringValue;
 using ::cel::Value;
-using ::cel::internal::down_cast;
 
 using ReferenceMap = absl::flat_hash_map<int64_t, Reference>;
 
@@ -202,8 +196,8 @@ class RegexPrecompilationOptimization : public ProgramOptimizer {
       }
     }
 
-    if (constant.has_value() && InstanceOf<StringValue>(*constant)) {
-      return Cast<StringValue>(*constant).ToString();
+    if (constant.has_value() && constant->IsString()) {
+      return constant->GetString().ToString();
     }
 
     return std::nullopt;

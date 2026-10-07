@@ -24,7 +24,6 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "common/casting.h"
 #include "common/native_type.h"
 #include "common/value.h"
 #include "common/values/list_value_builder.h"
@@ -334,7 +333,7 @@ absl::Status CustomListValueInterface::Contains(
       [&](size_t index, const Value& element) -> absl::StatusOr<bool> {
         CEL_RETURN_IF_ERROR(element.Equal(other, descriptor_pool,
                                           message_factory, arena, &equal));
-        if (auto bool_result = As<BoolValue>(equal);
+        if (auto bool_result = equal.AsBool();
             bool_result.has_value() && bool_result->NativeValue()) {
           outcome = BoolValue(true);
           return false;
@@ -596,7 +595,7 @@ absl::Status CustomListValue::Contains(
       [&](size_t index, const Value& element) -> absl::StatusOr<bool> {
         CEL_RETURN_IF_ERROR(element.Equal(other, descriptor_pool,
                                           message_factory, arena, &equal));
-        if (auto bool_result = As<BoolValue>(equal);
+        if (auto bool_result = equal.As<BoolValue>();
             bool_result.has_value() && bool_result->NativeValue()) {
           outcome = BoolValue(true);
           return false;

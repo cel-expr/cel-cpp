@@ -138,7 +138,6 @@ cc_library(
         "function_adapter.h",
     ],
     deps = [
-        "//common:casting",
         "//common:kind",
         "//common:value",
         "@com_google_absl//absl/status",

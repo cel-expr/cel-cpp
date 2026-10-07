@@ -13,7 +13,6 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "base/attribute.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
@@ -33,8 +32,6 @@ enum class IterableKind {
 };
 
 using ::cel::AttributeQualifier;
-using ::cel::Cast;
-using ::cel::InstanceOf;
 using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::ValueIterator;

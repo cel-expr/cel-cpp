@@ -18,17 +18,6 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
-    name = "casting",
-    hdrs = ["casting.h"],
-    deps = [
-        "//internal:casts",
-        "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/meta:type_traits",
-        "@com_google_absl//absl/types:optional",
-    ],
-)
-
-cc_library(
     name = "byte_string",
     srcs = ["byte_string.cc"],
     hdrs = ["byte_string.h"],

@@ -69,8 +69,6 @@ cc_test(
     deps = [
         ":request_context_cc_proto",
         "//checker:validation_result",
-        "//common:allocator",
-        "//common:casting",
         "//common:decl",
         "//common:legacy_value",
         "//common:native_type",

@@ -17,7 +17,6 @@
 #include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/type_provider.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/legacy_value.h"
 #include "common/type.h"
@@ -62,10 +61,8 @@ using ::cel::Attribute;
 using ::cel::AttributeQualifier;
 using ::cel::AttributeSet;
 using ::cel::BoolValue;
-using ::cel::Cast;
 using ::cel::ErrorValue;
 using ::cel::Expr;
-using ::cel::InstanceOf;
 using ::cel::IntValue;
 using ::cel::OptionalValue;
 using ::cel::RuntimeOptions;
@@ -1140,9 +1137,9 @@ TEST_F(DirectSelectStepTest, SelectFromMap) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<IntValue>(result));
+  ASSERT_TRUE(result.IsInt());
 
-  EXPECT_EQ(Cast<IntValue>(result).NativeValue(), 1);
+  EXPECT_EQ(result.GetInt().NativeValue(), 1);
 }
 
 TEST_F(DirectSelectStepTest, HasMap) {
@@ -1171,9 +1168,9 @@ TEST_F(DirectSelectStepTest, HasMap) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<BoolValue>(result));
+  ASSERT_TRUE(result.GetBool());
 
-  EXPECT_TRUE(Cast<BoolValue>(result).NativeValue());
+  EXPECT_TRUE(result.GetBool().NativeValue());
 }
 
 TEST_F(DirectSelectStepTest, SelectFromOptionalMap) {
@@ -1204,9 +1201,8 @@ TEST_F(DirectSelectStepTest, SelectFromOptionalMap) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<OptionalValue>(result));
-  EXPECT_THAT(Cast<OptionalValue>(static_cast<const Value&>(result)).Value(),
-              IntValueIs(1));
+  ASSERT_TRUE(result.IsOptional());
+  EXPECT_THAT(result.GetOptional().Value(), IntValueIs(1));
 }
 
 TEST_F(DirectSelectStepTest, SelectFromOptionalMapAbsent) {
@@ -1237,9 +1233,8 @@ TEST_F(DirectSelectStepTest, SelectFromOptionalMapAbsent) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<OptionalValue>(result));
-  EXPECT_FALSE(
-      Cast<OptionalValue>(static_cast<const Value&>(result)).HasValue());
+  ASSERT_TRUE(result.IsOptional());
+  EXPECT_FALSE(result.GetOptional().HasValue());
 }
 
 TEST_F(DirectSelectStepTest, SelectFromOptionalStruct) {
@@ -1272,9 +1267,8 @@ TEST_F(DirectSelectStepTest, SelectFromOptionalStruct) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<OptionalValue>(result));
-  EXPECT_THAT(Cast<OptionalValue>(static_cast<const Value&>(result)).Value(),
-              IntValueIs(1));
+  ASSERT_TRUE(result.IsOptional());
+  EXPECT_THAT(result.GetOptional().Value(), IntValueIs(1));
 }
 
 TEST_F(DirectSelectStepTest, SelectFromOptionalStructFieldNotSet) {
@@ -1307,9 +1301,8 @@ TEST_F(DirectSelectStepTest, SelectFromOptionalStructFieldNotSet) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<OptionalValue>(result));
-  EXPECT_FALSE(
-      Cast<OptionalValue>(static_cast<const Value&>(result)).HasValue());
+  ASSERT_TRUE(result.IsOptional());
+  EXPECT_FALSE(result.GetOptional().HasValue());
 }
 
 TEST_F(DirectSelectStepTest, SelectFromEmptyOptional) {
@@ -1332,9 +1325,8 @@ TEST_F(DirectSelectStepTest, SelectFromEmptyOptional) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<OptionalValue>(result));
-  EXPECT_FALSE(
-      cel::Cast<OptionalValue>(static_cast<const Value&>(result)).HasValue());
+  ASSERT_TRUE(result.IsOptional());
+  EXPECT_FALSE(result.GetOptional().HasValue());
 }
 
 TEST_F(DirectSelectStepTest, HasOptional) {
@@ -1365,9 +1357,9 @@ TEST_F(DirectSelectStepTest, HasOptional) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<BoolValue>(result));
+  ASSERT_TRUE(result.IsBool());
 
-  EXPECT_TRUE(Cast<BoolValue>(result).NativeValue());
+  EXPECT_TRUE(result.GetBool().NativeValue());
 }
 
 TEST_F(DirectSelectStepTest, HasEmptyOptional) {
@@ -1390,9 +1382,9 @@ TEST_F(DirectSelectStepTest, HasEmptyOptional) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<BoolValue>(result));
+  ASSERT_TRUE(result.IsBool());
 
-  EXPECT_FALSE(Cast<BoolValue>(result).NativeValue());
+  EXPECT_FALSE(result.GetBool().NativeValue());
 }
 
 TEST_F(DirectSelectStepTest, SelectFromStruct) {
@@ -1416,9 +1408,9 @@ TEST_F(DirectSelectStepTest, SelectFromStruct) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<IntValue>(result));
+  ASSERT_TRUE(result.IsInt());
 
-  EXPECT_EQ(Cast<IntValue>(result).NativeValue(), 1);
+  EXPECT_EQ(result.GetInt().NativeValue(), 1);
 }
 
 TEST_F(DirectSelectStepTest, HasStruct) {
@@ -1444,8 +1436,8 @@ TEST_F(DirectSelectStepTest, HasStruct) {
   // has(test_all_types.single_string)
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<BoolValue>(result));
-  EXPECT_FALSE(Cast<BoolValue>(result).NativeValue());
+  ASSERT_TRUE(result.IsBool());
+  EXPECT_FALSE(result.GetBool().NativeValue());
 }
 
 TEST_F(DirectSelectStepTest, SelectFromUnsupportedType) {
@@ -1467,9 +1459,9 @@ TEST_F(DirectSelectStepTest, SelectFromUnsupportedType) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
+  ASSERT_TRUE(result.IsError());
 
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("Applying SELECT to non-message type")));
 }
@@ -1496,8 +1488,8 @@ TEST_F(DirectSelectStepTest, AttributeUpdatedIfRequested) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<IntValue>(result));
-  EXPECT_EQ(Cast<IntValue>(result).NativeValue(), 1);
+  ASSERT_TRUE(result.IsInt());
+  EXPECT_EQ(result.GetInt().NativeValue(), 1);
 
   ASSERT_OK_AND_ASSIGN(std::string attr_str, attr.attribute().AsString());
   EXPECT_EQ(attr_str, "test_all_types.single_int64");
@@ -1528,8 +1520,8 @@ TEST_F(DirectSelectStepTest, MissingAttributesToErrors) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("test_all_types.single_int64")));
 }
@@ -1559,9 +1551,9 @@ TEST_F(DirectSelectStepTest, IdentifiesUnknowns) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<UnknownValue>(result));
+  ASSERT_TRUE(result.IsUnknown());
 
-  EXPECT_THAT(AttributeStrings(Cast<UnknownValue>(result)),
+  EXPECT_THAT(AttributeStrings(result.GetUnknown()),
               UnorderedElementsAre("test_all_types.single_int64"));
 }
 
@@ -1585,8 +1577,8 @@ TEST_F(DirectSelectStepTest, ForwardErrorValue) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kInternal, HasSubstr("test1")));
 }
 
@@ -1616,8 +1608,8 @@ TEST_F(DirectSelectStepTest, ForwardUnknownOperand) {
   AttributeTrail attr;
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<UnknownValue>(result));
-  EXPECT_THAT(AttributeStrings(Cast<UnknownValue>(result)),
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(AttributeStrings(result.GetUnknown()),
               UnorderedElementsAre("attr[0]"));
 }
 

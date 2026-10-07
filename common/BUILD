@@ -143,7 +143,6 @@ cc_test(
         "//internal:testing_descriptor_pool",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
@@ -464,15 +463,6 @@ cc_test(
 )
 
 cc_library(
-    name = "casting",
-    hdrs = ["casting.h"],
-    deps = [
-        "//common/internal:casting",
-        "@com_google_absl//absl/base:core_headers",
-    ],
-)
-
-cc_library(
     name = "json",
     hdrs = ["json.h"],
 )
@@ -757,7 +747,6 @@ cc_library(
         ":allocator",
         ":any",
         ":arena",
-        ":casting",
         ":kind",
         ":memory",
         ":native_type",
@@ -833,7 +822,6 @@ cc_test(
         "value_test.cc",
     ],
     deps = [
-        ":casting",
         ":memory",
         ":native_type",
         ":type",

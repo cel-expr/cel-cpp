@@ -27,7 +27,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "base/function_adapter.h"
-#include "common/casting.h"
 #include "common/type.h"
 #include "common/value.h"
 #include "internal/casts.h"
@@ -148,7 +147,7 @@ absl::StatusOr<Value> MapOptIndexOptionalValue(
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     google::protobuf::Arena* absl_nonnull arena) {
   absl::optional<Value> value;
-  if (auto double_key = cel::As<DoubleValue>(key); double_key) {
+  if (auto double_key = key.AsDouble(); double_key) {
     // Try int/uint.
     auto number = internal::Number::FromDouble(double_key->NativeValue());
     if (number.LosslessConvertibleToInt()) {
@@ -217,17 +216,17 @@ absl::StatusOr<Value> OptionalOptIndexOptionalValue(
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     google::protobuf::Arena* absl_nonnull arena) {
-  if (auto optional_value = As<OptionalValue>(opaque_value); optional_value) {
+  if (auto optional_value = opaque_value.AsOptional(); optional_value) {
     if (!optional_value->HasValue()) {
       return OptionalValue::None();
     }
     auto container = optional_value->Value();
-    if (auto map_value = cel::As<MapValue>(container); map_value) {
+    if (auto map_value = container.AsMap(); map_value) {
       return MapOptIndexOptionalValue(*map_value, key, descriptor_pool,
                                       message_factory, arena);
     }
-    if (auto list_value = cel::As<ListValue>(container); list_value) {
-      if (auto int_value = cel::As<IntValue>(key); int_value) {
+    if (auto list_value = container.AsList(); list_value) {
+      if (auto int_value = key.AsInt(); int_value) {
         return ListOptIndexOptionalInt(*list_value, int_value->NativeValue(),
                                        descriptor_pool, message_factory, arena);
       }

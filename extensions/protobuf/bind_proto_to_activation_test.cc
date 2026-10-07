@@ -17,8 +17,6 @@
 #include "google/protobuf/wrappers.pb.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
-#include "absl/types/optional.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_testing.h"
 #include "internal/testing.h"
@@ -123,7 +121,7 @@ TEST_F(BindProtoToActivationTest, BindProtoToActivationDefaultAny) {
 MATCHER_P(IsListValueOfSize, size, "") {
   const Value& v = arg;
 
-  auto value = As<ListValue>(v);
+  auto value = v.AsList();
   if (!value) {
     return false;
   }
@@ -185,7 +183,7 @@ TEST_F(BindProtoToActivationTest, BindProtoToActivationRepeatedComplex) {
 MATCHER_P(IsMapValueOfSize, size, "") {
   const Value& v = arg;
 
-  auto value = As<MapValue>(v);
+  auto value = v.AsMap();
   if (!value) {
     return false;
   }

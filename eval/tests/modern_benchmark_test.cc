@@ -37,8 +37,6 @@
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "checker/validation_result.h"
-#include "common/allocator.h"
-#include "common/casting.h"
 #include "common/decl.h"
 #include "common/native_type.h"
 #include "common/type.h"
@@ -164,8 +162,8 @@ static void BM_Eval(benchmark::State& state) {
     Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<IntValue>(result));
-    ASSERT_TRUE(Cast<IntValue>(result) == len + 1);
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_TRUE(result.Get<IntValue>() == len + 1);
   }
 }
 
@@ -210,8 +208,8 @@ static void BM_Eval_Trace(benchmark::State& state) {
     Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Trace(&arena, activation, EmptyCallback));
-    ASSERT_TRUE(InstanceOf<IntValue>(result));
-    ASSERT_TRUE(Cast<IntValue>(result) == len + 1);
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_TRUE(result.Get<IntValue>() == len + 1);
   }
 }
 
@@ -250,8 +248,8 @@ static void BM_EvalString(benchmark::State& state) {
     Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<StringValue>(result));
-    ASSERT_TRUE(Cast<StringValue>(result).Size() == len + 1);
+    ASSERT_TRUE(result.Is<StringValue>());
+    ASSERT_TRUE(result.Get<StringValue>().Size() == len + 1);
   }
 }
 
@@ -291,8 +289,8 @@ static void BM_EvalString_Trace(benchmark::State& state) {
     Activation activation;
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Trace(&arena, activation, EmptyCallback));
-    ASSERT_TRUE(InstanceOf<StringValue>(result));
-    ASSERT_TRUE(Cast<StringValue>(result).Size() == len + 1);
+    ASSERT_TRUE(result.Is<StringValue>());
+    ASSERT_TRUE(result.Get<StringValue>().Size() == len + 1);
   }
 }
 
@@ -390,7 +388,7 @@ void BM_PolicySymbolic(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    auto result_bool = As<BoolValue>(result);
+    auto result_bool = result.As<BoolValue>();
     ASSERT_TRUE(result_bool && result_bool->NativeValue());
   }
 }
@@ -434,7 +432,7 @@ class RequestMapImpl : public CustomMapValueInterface {
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena,
       Value* absl_nonnull result) const override {
-    auto string_value = As<StringValue>(key);
+    auto string_value = key.As<StringValue>();
     if (!string_value) {
       return false;
     }
@@ -503,8 +501,8 @@ void BM_PolicySymbolicMap(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -630,8 +628,8 @@ void BM_Comprehension(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<IntValue>(result));
-    ASSERT_EQ(Cast<IntValue>(result), len);
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>(), len);
   }
 }
 
@@ -663,8 +661,8 @@ void BM_Comprehension_Trace(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Trace(&arena, activation, EmptyCallback));
-    ASSERT_TRUE(InstanceOf<IntValue>(result));
-    ASSERT_EQ(Cast<IntValue>(result), len);
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>(), len);
   }
 }
 
@@ -693,8 +691,8 @@ void BM_HasMap(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -733,8 +731,8 @@ void BM_HasProto(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -772,8 +770,8 @@ void BM_HasProtoMap(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -812,8 +810,8 @@ void BM_ReadProtoMap(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -852,8 +850,8 @@ void BM_NestedProtoFieldRead(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -891,8 +889,8 @@ void BM_NestedProtoFieldReadDefaults(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -934,8 +932,8 @@ void BM_ProtoStructAccess(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -980,8 +978,8 @@ void BM_ProtoListAccess(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<BoolValue>(result) &&
-                Cast<BoolValue>(result).NativeValue());
+    ASSERT_TRUE(result.Is<BoolValue>() &&
+                result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -1108,8 +1106,8 @@ void BM_NestedComprehension(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<IntValue>(result));
-    ASSERT_EQ(Cast<IntValue>(result), len * len);
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>(), len * len);
   }
 }
 
@@ -1145,8 +1143,8 @@ void BM_NestedComprehension_Trace(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Trace(&arena, activation, &EmptyCallback));
-    ASSERT_TRUE(InstanceOf<IntValue>(result));
-    ASSERT_EQ(Cast<IntValue>(result), len * len);
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>(), len * len);
   }
 }
 
@@ -1179,8 +1177,8 @@ void BM_ListComprehension(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<ListValue>(result));
-    ASSERT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(len));
+    ASSERT_TRUE(result.Is<ListValue>());
+    ASSERT_THAT(result.Get<ListValue>().Size(), IsOkAndHolds(len));
   }
 }
 
@@ -1214,8 +1212,8 @@ void BM_ListComprehension_Trace(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Trace(&arena, activation, EmptyCallback));
-    ASSERT_TRUE(InstanceOf<ListValue>(result));
-    ASSERT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(len));
+    ASSERT_TRUE(result.Is<ListValue>());
+    ASSERT_THAT(result.Get<ListValue>().Size(), IsOkAndHolds(len));
   }
 }
 
@@ -1378,8 +1376,8 @@ void BM_ListComprehension_Opt(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<ListValue>(result));
-    ASSERT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(len));
+    ASSERT_TRUE(result.Is<ListValue>());
+    ASSERT_THAT(result.Get<ListValue>().Size(), IsOkAndHolds(len));
   }
 }
 
@@ -1399,7 +1397,7 @@ void BM_ComprehensionCpp(benchmark::State& state) {
   auto op = [&list]() {
     int sum = 0;
     for (const auto& value : list) {
-      sum += Cast<IntValue>(value).NativeValue();
+      sum += value.Get<IntValue>().NativeValue();
     }
     return sum;
   };
@@ -1460,8 +1458,8 @@ void BM_MapTransformComprehension(benchmark::State& state) {
   for (auto _ : state) {
     ASSERT_OK_AND_ASSIGN(cel::Value result,
                          cel_expr->Evaluate(&arena, activation));
-    ASSERT_TRUE(InstanceOf<MapValue>(result));
-    ASSERT_THAT(Cast<MapValue>(result).Size(), IsOkAndHolds(len));
+    ASSERT_TRUE(result.Is<MapValue>());
+    ASSERT_THAT(result.Get<MapValue>().Size(), IsOkAndHolds(len));
   }
 }
 

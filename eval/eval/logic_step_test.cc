@@ -14,7 +14,6 @@
 #include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/type_provider.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/unknown.h"
 #include "common/value.h"
@@ -48,9 +47,7 @@ using ::absl_testing::IsOk;
 using ::cel::Attribute;
 using ::cel::AttributeSet;
 using ::cel::BoolValue;
-using ::cel::Cast;
 using ::cel::Expr;
-using ::cel::InstanceOf;
 using ::cel::IntValue;
 using ::cel::TypeProvider;
 using ::cel::UnknownValue;

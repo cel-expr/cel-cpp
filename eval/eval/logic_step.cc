@@ -10,7 +10,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "base/builtins.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
@@ -25,9 +24,7 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::cel::BoolValue;
-using ::cel::Cast;
 using ::cel::ErrorValue;
-using ::cel::InstanceOf;
 using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::ValueKind;
@@ -45,7 +42,7 @@ absl::Status ReturnLogicResult(ExecutionFrameBase& frame, BoolLogicKind op_type,
   if (frame.unknown_processing_enabled()) {
     if (lhs_kind == ValueKind::kUnknown && rhs_kind == ValueKind::kUnknown) {
       lhs_result = frame.attribute_utility().MergeUnknownValues(
-          Cast<UnknownValue>(lhs_result), Cast<UnknownValue>(rhs_result));
+          lhs_result.GetUnknown(), rhs_result.GetUnknown());
       // Clear attribute trail so this doesn't get re-identified as a new
       // unknown and reset the accumulated attributes.
       attribute_trail = AttributeTrail();
@@ -112,7 +109,7 @@ absl::Status ExhaustiveDirectLogicStep::Evaluate(
 
   ValueKind rhs_kind = rhs_result.kind();
   if (lhs_kind == ValueKind::kBool) {
-    bool lhs_bool = Cast<BoolValue>(result).NativeValue();
+    bool lhs_bool = result.GetBool().NativeValue();
     if ((op_type_ == BoolLogicKind::kOr && lhs_bool) ||
         (op_type_ == BoolLogicKind::kAnd && !lhs_bool)) {
       return absl::OkStatus();
@@ -120,7 +117,7 @@ absl::Status ExhaustiveDirectLogicStep::Evaluate(
   }
 
   if (rhs_kind == ValueKind::kBool) {
-    bool rhs_bool = Cast<BoolValue>(rhs_result).NativeValue();
+    bool rhs_bool = rhs_result.GetBool().NativeValue();
     if ((op_type_ == BoolLogicKind::kOr && rhs_bool) ||
         (op_type_ == BoolLogicKind::kAnd && !rhs_bool)) {
       result = std::move(rhs_result);
@@ -157,7 +154,7 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
   CEL_RETURN_IF_ERROR(lhs_->Evaluate(frame, result, attribute_trail));
   ValueKind lhs_kind = result.kind();
   if (lhs_kind == ValueKind::kBool) {
-    bool lhs_bool = Cast<BoolValue>(result).NativeValue();
+    bool lhs_bool = result.GetBool().NativeValue();
     if ((op_type_ == BoolLogicKind::kOr && lhs_bool) ||
         (op_type_ == BoolLogicKind::kAnd && !lhs_bool)) {
       return absl::OkStatus();
@@ -172,7 +169,7 @@ absl::Status DirectLogicStep::Evaluate(ExecutionFrameBase& frame, Value& result,
   ValueKind rhs_kind = rhs_result.kind();
 
   if (rhs_kind == ValueKind::kBool) {
-    bool rhs_bool = Cast<BoolValue>(rhs_result).NativeValue();
+    bool rhs_bool = rhs_result.GetBool().NativeValue();
     if ((op_type_ == BoolLogicKind::kOr && rhs_bool) ||
         (op_type_ == BoolLogicKind::kAnd && !rhs_bool)) {
       result = std::move(rhs_result);

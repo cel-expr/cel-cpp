@@ -16,7 +16,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
@@ -179,7 +178,7 @@ Value NoOverloadResult(absl::string_view name,
   // should be propagated along execution path.
   for (size_t i = 0; i < args.size(); i++) {
     const auto& arg = args[i];
-    if (cel::InstanceOf<cel::ErrorValue>(arg)) {
+    if (arg.IsError()) {
       return arg;
     }
   }

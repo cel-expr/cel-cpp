@@ -20,7 +20,6 @@
 #include "absl/status/status_matchers.h"
 #include "absl/time/time.h"
 #include "absl/types/optional.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_testing.h"
 #include "common/values/list_value.h"
@@ -227,8 +226,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_BoolValue) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<BoolValue>(value));
-  EXPECT_EQ(Cast<BoolValue>(value).NativeValue(), true);
+  EXPECT_TRUE(value.Is<BoolValue>());
+  EXPECT_EQ(value.Get<BoolValue>().NativeValue(), true);
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_Int32Value) {
@@ -261,8 +260,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_Int32Value) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kOutOfRange)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<IntValue>(value));
-  EXPECT_EQ(Cast<IntValue>(value).NativeValue(), 1);
+  EXPECT_TRUE(value.Is<IntValue>());
+  EXPECT_EQ(value.Get<IntValue>().NativeValue(), 1);
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_Int64Value) {
@@ -287,8 +286,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_Int64Value) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<IntValue>(value));
-  EXPECT_EQ(Cast<IntValue>(value).NativeValue(), 1);
+  EXPECT_TRUE(value.Is<IntValue>());
+  EXPECT_EQ(value.Get<IntValue>().NativeValue(), 1);
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_UInt32Value) {
@@ -321,8 +320,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_UInt32Value) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kOutOfRange)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<UintValue>(value));
-  EXPECT_EQ(Cast<UintValue>(value).NativeValue(), 1);
+  EXPECT_TRUE(value.Is<UintValue>());
+  EXPECT_EQ(value.Get<UintValue>().NativeValue(), 1);
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_UInt64Value) {
@@ -347,8 +346,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_UInt64Value) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<UintValue>(value));
-  EXPECT_EQ(Cast<UintValue>(value).NativeValue(), 1);
+  EXPECT_TRUE(value.Is<UintValue>());
+  EXPECT_EQ(value.Get<UintValue>().NativeValue(), 1);
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_FloatValue) {
@@ -373,8 +372,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_FloatValue) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<DoubleValue>(value));
-  EXPECT_EQ(Cast<DoubleValue>(value).NativeValue(), 1);
+  EXPECT_TRUE(value.Is<DoubleValue>());
+  EXPECT_EQ(value.Get<DoubleValue>().NativeValue(), 1);
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_DoubleValue) {
@@ -399,8 +398,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_DoubleValue) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<DoubleValue>(value));
-  EXPECT_EQ(Cast<DoubleValue>(value).NativeValue(), 1);
+  EXPECT_TRUE(value.Is<DoubleValue>());
+  EXPECT_EQ(value.Get<DoubleValue>().NativeValue(), 1);
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_StringValue) {
@@ -426,8 +425,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_StringValue) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<StringValue>(value));
-  EXPECT_EQ(Cast<StringValue>(value).NativeString(), "foo");
+  EXPECT_TRUE(value.Is<StringValue>());
+  EXPECT_EQ(value.Get<StringValue>().NativeString(), "foo");
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_BytesValue) {
@@ -453,8 +452,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_BytesValue) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<BytesValue>(value));
-  EXPECT_EQ(Cast<BytesValue>(value).NativeString(), "foo");
+  EXPECT_TRUE(value.Is<BytesValue>());
+  EXPECT_EQ(value.Get<BytesValue>().NativeString(), "foo");
 }
 
 TEST_F(TypeReflectorTest, NewValueBuilder_Duration) {
@@ -497,8 +496,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_Duration) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<DurationValue>(value));
-  EXPECT_EQ(Cast<DurationValue>(value).NativeValue(),
+  EXPECT_TRUE(value.Is<DurationValue>());
+  EXPECT_EQ(value.Get<DurationValue>().NativeValue(),
             absl::Seconds(1) + absl::Nanoseconds(1));
 }
 
@@ -542,8 +541,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_Timestamp) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<TimestampValue>(value));
-  EXPECT_EQ(Cast<TimestampValue>(value).NativeValue(),
+  EXPECT_TRUE(value.Is<TimestampValue>());
+  EXPECT_EQ(value.Get<TimestampValue>().NativeValue(),
             absl::UnixEpoch() + absl::Seconds(1) + absl::Nanoseconds(1));
 }
 
@@ -584,8 +583,8 @@ TEST_F(TypeReflectorTest, NewValueBuilder_Any) {
               IsOkAndHolds(Optional(
                   ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument)))));
   ASSERT_OK_AND_ASSIGN(auto value, std::move(*builder).Build());
-  EXPECT_TRUE(InstanceOf<BoolValue>(value));
-  EXPECT_EQ(Cast<BoolValue>(value).NativeValue(), false);
+  EXPECT_TRUE(value.Is<BoolValue>());
+  EXPECT_EQ(value.Get<BoolValue>().NativeValue(), false);
 }
 
 }  // namespace

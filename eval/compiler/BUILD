@@ -543,7 +543,6 @@ cc_library(
         ":flat_expr_builder_extensions",
         "//base:builtins",
         "//common:ast",
-        "//common:casting",
         "//common:expr",
         "//common:native_type",
         "//common:value",
@@ -551,7 +550,6 @@ cc_library(
         "//eval/eval:direct_expression_step",
         "//eval/eval:evaluator_core",
         "//eval/eval:regex_match_step",
-        "//internal:casts",
         "//internal:re2_options",
         "//internal:status_macros",
         "@com_google_absl//absl/base:nullability",
@@ -559,7 +557,6 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/types:optional",
         "@com_googlesource_code_re2//:re2",
     ],
 )

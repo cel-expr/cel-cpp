@@ -22,8 +22,6 @@
 #include "absl/base/optimization.h"
 #include "absl/status/status.h"
 #include "absl/types/span.h"
-#include "common/casting.h"
-#include "common/optional_ref.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
@@ -38,11 +36,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
-using ::cel::As;
 using ::cel::ErrorValue;
-using ::cel::InstanceOf;
-using ::cel::OptionalValue;
-using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::runtime_internal::CreateNoMatchingOverloadError;
 
@@ -78,13 +72,13 @@ absl::Status EvalOptionalOr(OptionalOrKind kind, const Value& lhs,
                             const Value& rhs, const AttributeTrail& lhs_attr,
                             const AttributeTrail& rhs_attr, Value& result,
                             AttributeTrail& result_attr, google::protobuf::Arena* arena) {
-  if (InstanceOf<ErrorValue>(lhs) || InstanceOf<UnknownValue>(lhs)) {
+  if (lhs.IsError() || lhs.IsUnknown()) {
     result = lhs;
     result_attr = lhs_attr;
     return absl::OkStatus();
   }
 
-  auto lhs_optional_value = As<OptionalValue>(lhs);
+  auto lhs_optional_value = lhs.AsOptional();
   if (!lhs_optional_value.has_value()) {
     result = MakeNoOverloadError(kind, arena);
     result_attr = AttributeTrail();
@@ -101,8 +95,8 @@ absl::Status EvalOptionalOr(OptionalOrKind kind, const Value& lhs,
     return absl::OkStatus();
   }
 
-  if (kind == OptionalOrKind::kOrOptional && !InstanceOf<ErrorValue>(rhs) &&
-      !InstanceOf<UnknownValue>(rhs) && !InstanceOf<OptionalValue>(rhs)) {
+  if (kind == OptionalOrKind::kOrOptional && !rhs.IsError() &&
+      !rhs.IsUnknown() && !rhs.IsOptional()) {
     result = MakeNoOverloadError(kind, arena);
     result_attr = AttributeTrail();
     return absl::OkStatus();
@@ -193,13 +187,13 @@ absl::Status DirectOptionalOrStep::Evaluate(ExecutionFrameBase& frame,
                                             AttributeTrail& attribute) const {
   CEL_RETURN_IF_ERROR(optional_->Evaluate(frame, result, attribute));
 
-  if (InstanceOf<UnknownValue>(result) || InstanceOf<ErrorValue>(result)) {
+  if (result.IsUnknown() || result.IsError()) {
     // Forward the lhs error instead of attempting to evaluate the alternative
     // (unlike CEL's commutative logic operators).
     return absl::OkStatus();
   }
 
-  auto optional_value = As<OptionalValue>(static_cast<const Value&>(result));
+  auto optional_value = result.AsOptional();
   if (!optional_value.has_value()) {
     result = MakeNoOverloadError(kind_, frame.arena());
     return absl::OkStatus();
@@ -218,8 +212,7 @@ absl::Status DirectOptionalOrStep::Evaluate(ExecutionFrameBase& frame,
   //
   // Otherwise, we don't know what type to expect so can't check anything.
   if (kind_ == OptionalOrKind::kOrOptional) {
-    if (!InstanceOf<OptionalValue>(result) && !InstanceOf<ErrorValue>(result) &&
-        !InstanceOf<UnknownValue>(result)) {
+    if (!result.IsOptional() && !result.IsError() && !result.IsUnknown()) {
       result = MakeNoOverloadError(kind_, frame.arena());
     }
   }
@@ -235,15 +228,13 @@ void OptionalHasValueJumpStep::Evaluate(ExecutionFrame* frame) const {
     return;
   }
   const Value& value = frame->value_stack().Peek();
-  cel::optional_ref<const OptionalValue> optional_value =
-      As<OptionalValue>(value);
+  auto optional_value = value.AsOptional();
   // We jump if the receiver is `optional_type` which has a value or the
   // receiver is an error/unknown. Unlike `_||_` we are not commutative. If
   // we run into an error/unknown, we skip the `else` branch.
   const bool should_jump =
       (optional_value.has_value() && optional_value->HasValue()) ||
-      (!optional_value.has_value() && (cel::InstanceOf<ErrorValue>(value) ||
-                                       cel::InstanceOf<UnknownValue>(value)));
+      (!optional_value.has_value() && (value.IsError() || value.IsUnknown()));
   if (should_jump) {
     if (is_or_value_ && optional_value.has_value()) {
       frame->value_stack().PopAndPush(optional_value->Value());

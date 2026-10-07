@@ -11,7 +11,6 @@
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "base/attribute.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/kind.h"
 #include "common/value.h"
@@ -31,9 +30,7 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::cel::AttributeQualifier;
-using ::cel::Cast;
 using ::cel::ErrorValue;
-using ::cel::InstanceOf;
 using ::cel::IntValue;
 using ::cel::ListValue;
 using ::cel::MapValue;
@@ -170,7 +167,7 @@ void LookupInList(const ListValue& cel_list, const Value& key,
     if (number.has_value() && number->LosslessConvertibleToInt()) {
       maybe_idx = number->AsInt();
     }
-  } else if (InstanceOf<IntValue>(key)) {
+  } else if (key.IsInt()) {
     maybe_idx = key.GetInt().NativeValue();
   }
 
@@ -212,11 +209,11 @@ void LookupInContainer(const Value& container, const Value& key,
   // Select steps can be applied to either maps or messages
   switch (container.kind()) {
     case ValueKind::kMap: {
-      LookupInMap(Cast<MapValue>(container), key, frame, result);
+      LookupInMap(container.GetMap(), key, frame, result);
       return;
     }
     case ValueKind::kList: {
-      LookupInList(Cast<ListValue>(container), key, frame, result);
+      LookupInList(container.GetList(), key, frame, result);
       return;
     }
     default:
@@ -252,11 +249,11 @@ void PerformLookup(ExecutionFrameBase& frame, const Value& container,
     }
   }
 
-  if (InstanceOf<ErrorValue>(container)) {
+  if (container.IsError()) {
     result = container;
     return;
   }
-  if (InstanceOf<ErrorValue>(key)) {
+  if (key.IsError()) {
     result = key;
     return;
   }
@@ -270,7 +267,7 @@ void PerformLookup(ExecutionFrameBase& frame, const Value& container,
     Value value;
     optional_value.Value(&value);
     LookupInContainer(value, key, frame, result);
-    if (auto error_value = cel::As<cel::ErrorValue>(result);
+    if (auto error_value = result.AsError();
         error_value && cel::IsNoSuchKey(*error_value)) {
       result = cel::OptionalValue::None();
       return;

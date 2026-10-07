@@ -18,7 +18,6 @@
 
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/value_testing.h"
@@ -40,9 +39,7 @@ namespace {
 
 using ::absl_testing::StatusIs;
 using ::cel::Activation;
-using ::cel::As;
 using ::cel::ErrorValue;
-using ::cel::InstanceOf;
 using ::cel::IntValue;
 using ::cel::OptionalValue;
 using ::cel::RuntimeOptions;

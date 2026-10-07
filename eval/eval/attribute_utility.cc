@@ -1,6 +1,7 @@
 #include "eval/eval/attribute_utility.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -12,7 +13,6 @@
 #include "base/function_result.h"
 #include "base/function_result_set.h"
 #include "base/internal/unknown_set.h"
-#include "common/casting.h"
 #include "common/function_descriptor.h"
 #include "common/unknown.h"
 #include "common/value.h"
@@ -27,11 +27,9 @@ namespace google::api::expr::runtime {
 using ::cel::Attribute;
 using ::cel::AttributePattern;
 using ::cel::AttributeSet;
-using ::cel::Cast;
 using ::cel::ErrorValue;
 using ::cel::FunctionResult;
 using ::cel::FunctionResultSet;
-using ::cel::InstanceOf;
 using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::base_internal::UnknownSet;

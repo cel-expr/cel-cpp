@@ -25,7 +25,6 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_number.h"
@@ -62,13 +61,13 @@ Value NumberToValue(CelNumber number) {
 
 absl::StatusOr<CelNumber> ValueToNumber(const Value& value,
                                         absl::string_view function) {
-  if (auto int_value = As<IntValue>(value); int_value) {
+  if (auto int_value = value.AsInt(); int_value) {
     return CelNumber::FromInt64(int_value->NativeValue());
   }
-  if (auto uint_value = As<UintValue>(value); uint_value) {
+  if (auto uint_value = value.AsUint(); uint_value) {
     return CelNumber::FromUint64(uint_value->NativeValue());
   }
-  if (auto double_value = As<DoubleValue>(value); double_value) {
+  if (auto double_value = value.AsDouble(); double_value) {
     return CelNumber::FromDouble(double_value->NativeValue());
   }
   return absl::InvalidArgumentError(

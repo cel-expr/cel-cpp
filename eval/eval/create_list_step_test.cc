@@ -14,7 +14,6 @@
 #include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/type_provider.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/value.h"
 #include "common/value_testing.h"
@@ -51,12 +50,9 @@ using ::absl_testing::StatusIs;
 using ::cel::Attribute;
 using ::cel::AttributeQualifier;
 using ::cel::AttributeSet;
-using ::cel::Cast;
 using ::cel::ErrorValue;
 using ::cel::Expr;
-using ::cel::InstanceOf;
 using ::cel::IntValue;
-using ::cel::ListValue;
 using ::cel::TypeProvider;
 using ::cel::UnknownValue;
 using ::cel::Value;
@@ -289,8 +285,8 @@ TEST(CreateDirectListStep, Basic) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ListValue>(result));
-  EXPECT_THAT(Cast<ListValue>(result).Size(), IsOkAndHolds(2));
+  ASSERT_TRUE(result.IsList());
+  EXPECT_THAT(result.GetList().Size(), IsOkAndHolds(2));
 }
 
 TEST(CreateDirectListStep, ForwardFirstError) {
@@ -317,8 +313,8 @@ TEST(CreateDirectListStep, ForwardFirstError) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kInternal, "test1"));
 }
 
@@ -366,8 +362,8 @@ TEST(CreateDirectListStep, MergeUnknowns) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<UnknownValue>(result));
-  EXPECT_THAT(UnknownAttrNames(Cast<UnknownValue>(result)),
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(UnknownAttrNames(result.GetUnknown()),
               UnorderedElementsAre("var1", "var2"));
 }
 
@@ -397,8 +393,8 @@ TEST(CreateDirectListStep, ErrorBeforeUnknown) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kInternal, "test1"));
 }
 
@@ -445,9 +441,9 @@ TEST(CreateDirectListStep, MissingAttribute) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
+  ASSERT_TRUE(result.IsError());
   EXPECT_THAT(
-      Cast<ErrorValue>(result).NativeValue(),
+      result.GetError().NativeValue(),
       StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("var1.field1")));
 }
 
@@ -474,8 +470,8 @@ TEST(CreateDirectListStep, OptionalPresentSet) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ListValue>(result));
-  auto list = Cast<ListValue>(result);
+  ASSERT_TRUE(result.IsList());
+  auto list = result.GetList();
   EXPECT_THAT(list.Size(), IsOkAndHolds(2));
   EXPECT_THAT(list.Get(0, cel::internal::GetTestingDescriptorPool(),
                        cel::internal::GetTestingMessageFactory(), &arena),
@@ -507,8 +503,8 @@ TEST(CreateDirectListStep, OptionalAbsentNotSet) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ListValue>(result));
-  auto list = Cast<ListValue>(result);
+  ASSERT_TRUE(result.IsList());
+  auto list = result.GetList();
   EXPECT_THAT(list.Size(), IsOkAndHolds(1));
   EXPECT_THAT(list.Get(0, cel::internal::GetTestingDescriptorPool(),
                        cel::internal::GetTestingMessageFactory(), &arena),
@@ -540,8 +536,8 @@ TEST(CreateDirectListStep, PartialUnknown) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
 
-  ASSERT_TRUE(InstanceOf<UnknownValue>(result));
-  EXPECT_THAT(UnknownAttrNames(Cast<UnknownValue>(result)),
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(UnknownAttrNames(result.GetUnknown()),
               UnorderedElementsAre("var1"));
 }
 

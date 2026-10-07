@@ -76,7 +76,6 @@ cc_library(
     hdrs = ["math_ext.h"],
     deps = [
         ":math_ext_decls",
-        "//common:casting",
         "//common:value",
         "//eval/public:cel_function_registry",
         "//eval/public:cel_number",
@@ -327,7 +326,6 @@ cc_library(
         "//base:builtins",
         "//common:ast",
         "//common:ast_rewrite",
-        "//common:casting",
         "//common:constant",
         "//common:expr",
         "//common:function_descriptor",

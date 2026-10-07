@@ -25,7 +25,6 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/values/map_value_builder.h"
 #include "eval/eval/attribute_trail.h"
@@ -38,11 +37,9 @@ namespace google::api::expr::runtime {
 
 namespace {
 
-using ::cel::Cast;
 using ::cel::ErrorValue;
 using ::cel::ErrorValueAssign;
 using ::cel::ErrorValueReturn;
-using ::cel::InstanceOf;
 using ::cel::MapValueBuilderPtr;
 using ::cel::UnknownValue;
 using ::cel::Value;

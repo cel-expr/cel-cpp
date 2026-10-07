@@ -16,8 +16,6 @@
 
 #include "absl/status/status_matchers.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
-#include "common/casting.h"
 #include "common/native_type.h"
 #include "common/value.h"
 #include "common/value_testing.h"
@@ -27,8 +25,6 @@ namespace cel {
 namespace {
 
 using ::absl_testing::IsOk;
-using ::testing::An;
-using ::testing::Ne;
 
 using NullValueTest = common_internal::ValueTest<>;
 
@@ -62,20 +58,6 @@ TEST_F(NullValueTest, NativeTypeId) {
   EXPECT_EQ(NativeTypeId::Of(NullValue()), NativeTypeId::For<NullValue>());
   EXPECT_EQ(NativeTypeId::Of(Value(NullValue())),
             NativeTypeId::For<NullValue>());
-}
-
-TEST_F(NullValueTest, InstanceOf) {
-  EXPECT_TRUE(InstanceOf<NullValue>(NullValue()));
-  EXPECT_TRUE(InstanceOf<NullValue>(Value(NullValue())));
-}
-
-TEST_F(NullValueTest, Cast) {
-  EXPECT_THAT(Cast<NullValue>(NullValue()), An<NullValue>());
-  EXPECT_THAT(Cast<NullValue>(Value(NullValue())), An<NullValue>());
-}
-
-TEST_F(NullValueTest, As) {
-  EXPECT_THAT(As<NullValue>(Value(NullValue())), Ne(std::nullopt));
 }
 
 }  // namespace

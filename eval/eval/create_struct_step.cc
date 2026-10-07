@@ -26,7 +26,6 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/direct_expression_step.h"
@@ -38,9 +37,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
-using ::cel::Cast;
 using ::cel::ErrorValue;
-using ::cel::InstanceOf;
 using ::cel::StructValueBuilderInterface;
 using ::cel::UnknownValue;
 using ::cel::Value;

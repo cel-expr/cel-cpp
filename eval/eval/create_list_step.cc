@@ -10,7 +10,6 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/optional.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/value.h"
 #include "common/values/list_value_builder.h"
@@ -25,9 +24,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
-using ::cel::Cast;
 using ::cel::ErrorValue;
-using ::cel::InstanceOf;
 using ::cel::ListValueBuilderPtr;
 using ::cel::UnknownValue;
 using ::cel::Value;

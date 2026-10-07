@@ -16,7 +16,6 @@
 
 #include <array>
 #include <cstdint>
-#include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
@@ -50,7 +49,7 @@ bool ValueEquals(const Value& value, T other);
 
 template <>
 bool ValueEquals(const Value& value, bool other) {
-  if (auto bool_value = As<BoolValue>(value); bool_value) {
+  if (auto bool_value = value.As<BoolValue>(); bool_value) {
     return bool_value->NativeValue() == other;
   }
   return false;
@@ -58,7 +57,7 @@ bool ValueEquals(const Value& value, bool other) {
 
 template <>
 bool ValueEquals(const Value& value, int64_t other) {
-  if (auto int_value = As<IntValue>(value); int_value) {
+  if (auto int_value = value.As<IntValue>(); int_value) {
     return int_value->NativeValue() == other;
   }
   return false;
@@ -66,7 +65,7 @@ bool ValueEquals(const Value& value, int64_t other) {
 
 template <>
 bool ValueEquals(const Value& value, uint64_t other) {
-  if (auto uint_value = As<UintValue>(value); uint_value) {
+  if (auto uint_value = value.As<UintValue>(); uint_value) {
     return uint_value->NativeValue() == other;
   }
   return false;
@@ -74,7 +73,7 @@ bool ValueEquals(const Value& value, uint64_t other) {
 
 template <>
 bool ValueEquals(const Value& value, double other) {
-  if (auto double_value = As<DoubleValue>(value); double_value) {
+  if (auto double_value = value.As<DoubleValue>(); double_value) {
     return double_value->NativeValue() == other;
   }
   return false;
@@ -82,7 +81,7 @@ bool ValueEquals(const Value& value, double other) {
 
 template <>
 bool ValueEquals(const Value& value, const StringValue& other) {
-  if (auto string_value = As<StringValue>(value); string_value) {
+  if (auto string_value = value.As<StringValue>(); string_value) {
     return string_value->Equals(other);
   }
   return false;
@@ -90,7 +89,7 @@ bool ValueEquals(const Value& value, const StringValue& other) {
 
 template <>
 bool ValueEquals(const Value& value, const BytesValue& other) {
-  if (auto bytes_value = As<BytesValue>(value); bytes_value) {
+  if (auto bytes_value = value.As<BytesValue>(); bytes_value) {
     return bytes_value->Equals(other);
   }
   return false;

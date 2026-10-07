@@ -21,7 +21,6 @@
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_testing.h"
 #include "internal/testing.h"
@@ -91,16 +90,16 @@ TEST_F(ListValueTest, Get) {
                        NewIntListValue(IntValue(0), IntValue(1), IntValue(2)));
   ASSERT_OK_AND_ASSIGN(auto element, value.Get(0, descriptor_pool(),
                                                message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<IntValue>(element));
-  ASSERT_EQ(Cast<IntValue>(element).NativeValue(), 0);
+  ASSERT_TRUE(element.Is<IntValue>());
+  ASSERT_EQ(element.Get<IntValue>().NativeValue(), 0);
   ASSERT_OK_AND_ASSIGN(
       element, value.Get(1, descriptor_pool(), message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<IntValue>(element));
-  ASSERT_EQ(Cast<IntValue>(element).NativeValue(), 1);
+  ASSERT_TRUE(element.Is<IntValue>());
+  ASSERT_EQ(element.Get<IntValue>().NativeValue(), 1);
   ASSERT_OK_AND_ASSIGN(
       element, value.Get(2, descriptor_pool(), message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<IntValue>(element));
-  ASSERT_EQ(Cast<IntValue>(element).NativeValue(), 2);
+  ASSERT_TRUE(element.Is<IntValue>());
+  ASSERT_EQ(element.Get<IntValue>().NativeValue(), 2);
   EXPECT_THAT(
       value.Get(3, descriptor_pool(), message_factory(), arena()),
       IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kInvalidArgument))));
@@ -112,7 +111,7 @@ TEST_F(ListValueTest, ForEach) {
   std::vector<int64_t> elements;
   EXPECT_THAT(value.ForEach(
                   [&elements](const Value& element) {
-                    elements.push_back(Cast<IntValue>(element).NativeValue());
+                    elements.push_back(element.Get<IntValue>().NativeValue());
                     return true;
                   },
                   descriptor_pool(), message_factory(), arena()),
@@ -126,12 +125,12 @@ TEST_F(ListValueTest, Contains) {
   ASSERT_OK_AND_ASSIGN(auto contained,
                        value.Contains(IntValue(2), descriptor_pool(),
                                       message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<BoolValue>(contained));
-  EXPECT_TRUE(Cast<BoolValue>(contained).NativeValue());
+  ASSERT_TRUE(contained.Is<BoolValue>());
+  EXPECT_TRUE(contained.Get<BoolValue>().NativeValue());
   ASSERT_OK_AND_ASSIGN(contained, value.Contains(IntValue(3), descriptor_pool(),
                                                  message_factory(), arena()));
-  ASSERT_TRUE(InstanceOf<BoolValue>(contained));
-  EXPECT_FALSE(Cast<BoolValue>(contained).NativeValue());
+  ASSERT_TRUE(contained.Is<BoolValue>());
+  EXPECT_FALSE(contained.Get<BoolValue>().NativeValue());
 }
 
 TEST_F(ListValueTest, NewIterator) {
@@ -143,8 +142,8 @@ TEST_F(ListValueTest, NewIterator) {
     ASSERT_OK_AND_ASSIGN(
         auto element,
         iterator->Next(descriptor_pool(), message_factory(), arena()));
-    ASSERT_TRUE(InstanceOf<IntValue>(element));
-    elements.push_back(Cast<IntValue>(element).NativeValue());
+    ASSERT_TRUE(element.Is<IntValue>());
+    elements.push_back(element.Get<IntValue>().NativeValue());
   }
   EXPECT_EQ(iterator->HasNext(), false);
   EXPECT_THAT(iterator->Next(descriptor_pool(), message_factory(), arena()),

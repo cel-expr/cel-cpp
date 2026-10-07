@@ -24,7 +24,6 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/time/time.h"
-#include "common/casting.h"
 #include "common/kind.h"
 #include "common/value.h"
 
@@ -162,24 +161,24 @@ struct ValueToAdaptedVisitor {
 
   template <typename T>
   absl::Status operator()(T* out) const {
-    if (!InstanceOf<std::remove_const_t<T>>(input)) {
+    if (!input.Is<std::remove_const_t<T>>()) {
       return absl::InvalidArgumentError(
           absl::StrCat("expected ", ValueKindToString(T::kKind), " value"));
     }
-    *out = Cast<std::remove_const_t<T>>(input);
+    *out = input.Get<std::remove_const_t<T>>();
     return absl::OkStatus();
   }
 
   template <typename T>
   absl::Status operator()(T** out) const {
-    if (!InstanceOf<std::remove_const_t<T>>(input)) {
+    if (!input.Is<std::remove_const_t<T>>()) {
       return absl::InvalidArgumentError(
           absl::StrCat("expected ", ValueKindToString(T::kKind), " value"));
     }
     static_assert(std::is_lvalue_reference_v<
-                      decltype(Cast<std::remove_const_t<T>>(input))>,
+                      decltype(input.Get<std::remove_const_t<T>>())>,
                   "expected l-value reference return type for Cast.");
-    *out = &Cast<std::remove_const_t<T>>(input);
+    *out = &input.Get<std::remove_const_t<T>>();
     return absl::OkStatus();
   }
 

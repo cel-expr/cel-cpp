@@ -39,7 +39,6 @@
 #include "base/builtins.h"
 #include "common/ast.h"
 #include "common/ast_rewrite.h"
-#include "common/casting.h"
 #include "common/constant.h"
 #include "common/expr.h"
 #include "common/function_descriptor.h"
@@ -853,7 +852,7 @@ absl::Status RecursiveImpl::Evaluate(ExecutionFrameBase& frame, Value& result,
                                      AttributeTrail& attribute) const {
   CEL_RETURN_IF_ERROR(operand_->Evaluate(frame, result, attribute));
 
-  if (InstanceOf<ErrorValue>(result) || InstanceOf<UnknownValue>(result)) {
+  if (result.IsError() || result.IsUnknown()) {
     // Just forward.
     return absl::OkStatus();
   }
@@ -868,12 +867,11 @@ absl::Status RecursiveImpl::Evaluate(ExecutionFrameBase& frame, Value& result,
     }
   }
 
-  if (!InstanceOf<StructValue>(result)) {
+  if (!result.IsStruct()) {
     return absl::InvalidArgumentError(
         "Expected struct type for select optimization");
   }
-  CEL_ASSIGN_OR_RETURN(result,
-                       impl_.ApplySelect(frame, Cast<StructValue>(result)));
+  CEL_ASSIGN_OR_RETURN(result, impl_.ApplySelect(frame, result.GetStruct()));
   return absl::OkStatus();
 }
 

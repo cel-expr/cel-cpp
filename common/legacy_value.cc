@@ -36,7 +36,6 @@
 #include "absl/types/span.h"
 #include "absl/types/variant.h"
 #include "base/attribute.h"
-#include "common/casting.h"
 #include "common/kind.h"
 #include "common/memory.h"
 #include "common/type.h"
@@ -1103,15 +1102,15 @@ absl::StatusOr<google::api::expr::runtime::CelValue> LegacyValue(
     case ValueKind::kNull:
       return CelValue::CreateNull();
     case ValueKind::kBool:
-      return CelValue::CreateBool(Cast<BoolValue>(modern_value).NativeValue());
+      return CelValue::CreateBool(modern_value.Get<BoolValue>().NativeValue());
     case ValueKind::kInt:
-      return CelValue::CreateInt64(Cast<IntValue>(modern_value).NativeValue());
+      return CelValue::CreateInt64(modern_value.Get<IntValue>().NativeValue());
     case ValueKind::kUint:
       return CelValue::CreateUint64(
-          Cast<UintValue>(modern_value).NativeValue());
+          modern_value.Get<UintValue>().NativeValue());
     case ValueKind::kDouble:
       return CelValue::CreateDouble(
-          Cast<DoubleValue>(modern_value).NativeValue());
+          modern_value.Get<DoubleValue>().NativeValue());
     case ValueKind::kString:
       return CelValue::CreateStringView(common_internal::LegacyStringValue(
           modern_value.GetString(), /*stable=*/false, arena));
@@ -1133,14 +1132,14 @@ absl::StatusOr<google::api::expr::runtime::CelValue> LegacyValue(
     case ValueKind::kUnknown:
       return CelValue::CreateUnknownSet(google::protobuf::Arena::Create<Unknown>(
           arena,
-          common_internal::GetUnknown(Cast<UnknownValue>(modern_value))));
+          common_internal::GetUnknown(modern_value.Get<UnknownValue>())));
     case ValueKind::kType:
       return CelValue::CreateCelType(
           CelValue::CelTypeHolder(google::protobuf::Arena::Create<std::string>(
-              arena, Cast<TypeValue>(modern_value).NativeValue().name())));
+              arena, modern_value.Get<TypeValue>().NativeValue().name())));
     case ValueKind::kError:
       return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
-          arena, Cast<ErrorValue>(modern_value).NativeValue()));
+          arena, modern_value.Get<ErrorValue>().NativeValue()));
     default:
       return absl::InvalidArgumentError(
           absl::StrCat("google::api::expr::runtime::CelValue does not support ",
@@ -1208,13 +1207,13 @@ absl::StatusOr<google::api::expr::runtime::CelValue> ToLegacyValue(
     case ValueKind::kNull:
       return CelValue::CreateNull();
     case ValueKind::kBool:
-      return CelValue::CreateBool(Cast<BoolValue>(value).NativeValue());
+      return CelValue::CreateBool(value.Get<BoolValue>().NativeValue());
     case ValueKind::kInt:
-      return CelValue::CreateInt64(Cast<IntValue>(value).NativeValue());
+      return CelValue::CreateInt64(value.Get<IntValue>().NativeValue());
     case ValueKind::kUint:
-      return CelValue::CreateUint64(Cast<UintValue>(value).NativeValue());
+      return CelValue::CreateUint64(value.Get<UintValue>().NativeValue());
     case ValueKind::kDouble:
-      return CelValue::CreateDouble(Cast<DoubleValue>(value).NativeValue());
+      return CelValue::CreateDouble(value.Get<DoubleValue>().NativeValue());
     case ValueKind::kString:
       return CelValue::CreateStringView(common_internal::LegacyStringValue(
           value.GetString(), /*stable=*/false, arena));
@@ -1225,24 +1224,24 @@ absl::StatusOr<google::api::expr::runtime::CelValue> ToLegacyValue(
       return common_internal::LegacyTrivialStructValue(arena, value);
     case ValueKind::kDuration:
       return CelValue::CreateUncheckedDuration(
-          Cast<DurationValue>(value).NativeValue());
+          value.Get<DurationValue>().NativeValue());
     case ValueKind::kTimestamp:
       return CelValue::CreateTimestamp(
-          Cast<TimestampValue>(value).NativeValue());
+          value.Get<TimestampValue>().NativeValue());
     case ValueKind::kList:
       return common_internal::LegacyTrivialListValue(arena, value);
     case ValueKind::kMap:
       return common_internal::LegacyTrivialMapValue(arena, value);
     case ValueKind::kUnknown:
       return CelValue::CreateUnknownSet(google::protobuf::Arena::Create<Unknown>(
-          arena, common_internal::GetUnknown(Cast<UnknownValue>(value))));
+          arena, common_internal::GetUnknown(value.Get<UnknownValue>())));
     case ValueKind::kType:
       return CelValue::CreateCelType(
           CelValue::CelTypeHolder(google::protobuf::Arena::Create<std::string>(
-              arena, Cast<TypeValue>(value).NativeValue().name())));
+              arena, value.Get<TypeValue>().NativeValue().name())));
     case ValueKind::kError:
       return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
-          arena, Cast<ErrorValue>(value).NativeValue()));
+          arena, value.Get<ErrorValue>().NativeValue()));
     default:
       return absl::InvalidArgumentError(
           absl::StrCat("google::api::expr::runtime::CelValue does not support ",

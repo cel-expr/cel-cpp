@@ -32,7 +32,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "base/attribute.h"
-#include "common/casting.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/value_testing.h"
@@ -267,7 +266,7 @@ TEST_F(ProtoValueWrapTest, GetFieldNoSuchField) {
                       descriptor_pool(), message_factory(), arena()));
   ASSERT_THAT(value, StructValueIs(_));
 
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
   EXPECT_THAT(struct_value.GetFieldByName("does_not_exist", descriptor_pool(),
                                           message_factory(), arena()),
               IsOkAndHolds(ErrorValueIs(StatusIs(absl::StatusCode::kNotFound,
@@ -289,7 +288,7 @@ TEST_F(ProtoValueWrapTest, GetFieldByNumber) {
                                    single_bytes: "foo")pb"),
                           descriptor_pool(), message_factory(), arena()));
   EXPECT_THAT(value, StructValueIs(_));
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
 
   EXPECT_THAT(struct_value.GetFieldByNumber(
                   TestAllTypes::kSingleInt32FieldNumber, descriptor_pool(),
@@ -349,7 +348,7 @@ TEST_F(ProtoValueWrapTest, GetFieldByNumberNoSuchField) {
                                    single_bytes: "foo")pb"),
                           descriptor_pool(), message_factory(), arena()));
   EXPECT_THAT(value, StructValueIs(_));
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
 
   EXPECT_THAT(struct_value.GetFieldByNumber(999, descriptor_pool(),
                                             message_factory(), arena()),
@@ -370,7 +369,7 @@ TEST_F(ProtoValueWrapTest, HasFieldByNumber) {
                                                         single_int64: 2)pb"),
                       descriptor_pool(), message_factory(), arena()));
   EXPECT_THAT(value, StructValueIs(_));
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
 
   EXPECT_THAT(
       struct_value.HasFieldByNumber(TestAllTypes::kSingleInt32FieldNumber),
@@ -393,7 +392,7 @@ TEST_F(ProtoValueWrapTest, HasFieldByNumberNoSuchField) {
                                                         single_int64: 2)pb"),
                       descriptor_pool(), message_factory(), arena()));
   EXPECT_THAT(value, StructValueIs(_));
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
 
   // Has returns a status directly instead of a CEL error as in Get.
   EXPECT_THAT(
@@ -450,7 +449,7 @@ TEST_F(ProtoValueWrapTest, ProtoMessageForEachField) {
                               )pb"),
                           descriptor_pool(), message_factory(), arena()));
   EXPECT_THAT(value, StructValueIs(_));
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
 
   std::vector<std::string> fields;
   auto cb = [&fields](absl::string_view field,
@@ -473,7 +472,7 @@ TEST_F(ProtoValueWrapTest, ProtoMessageQualify) {
                               )pb"),
                           descriptor_pool(), message_factory(), arena()));
   EXPECT_THAT(value, StructValueIs(_));
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
 
   std::vector<SelectQualifier> qualifiers{
       FieldSpecifier{TestAllTypes::kStandaloneMessageFieldNumber,
@@ -500,7 +499,7 @@ TEST_F(ProtoValueWrapTest, ProtoMessageQualifyHas) {
                               )pb"),
                           descriptor_pool(), message_factory(), arena()));
   EXPECT_THAT(value, StructValueIs(_));
-  StructValue struct_value = Cast<StructValue>(value);
+  StructValue struct_value = value.GetStruct();
 
   std::vector<SelectQualifier> qualifiers{
       FieldSpecifier{TestAllTypes::kStandaloneMessageFieldNumber,
@@ -525,15 +524,15 @@ TEST_F(ProtoValueWrapTest, ProtoInt64MapListKeys) {
                               R"pb(
                                 map_int64_int64 { key: 10 value: 20 })pb"),
                           descriptor_pool(), message_factory(), arena()));
-  ASSERT_OK_AND_ASSIGN(auto map_value, Cast<StructValue>(value).GetFieldByName(
+  ASSERT_OK_AND_ASSIGN(auto map_value, value.GetStruct().GetFieldByName(
                                            "map_int64_int64", descriptor_pool(),
                                            message_factory(), arena()));
 
   ASSERT_THAT(map_value, MapValueIs(_));
 
   ASSERT_OK_AND_ASSIGN(ListValue key_set,
-                       Cast<MapValue>(map_value).ListKeys(
-                           descriptor_pool(), message_factory(), arena()));
+                       map_value.GetMap().ListKeys(descriptor_pool(),
+                                                   message_factory(), arena()));
 
   EXPECT_THAT(key_set.Size(), IsOkAndHolds(1));
 
@@ -550,15 +549,15 @@ TEST_F(ProtoValueWrapTest, ProtoInt32MapListKeys) {
                               R"pb(
                                 map_int32_int64 { key: 10 value: 20 })pb"),
                           descriptor_pool(), message_factory(), arena()));
-  ASSERT_OK_AND_ASSIGN(auto map_value, Cast<StructValue>(value).GetFieldByName(
+  ASSERT_OK_AND_ASSIGN(auto map_value, value.GetStruct().GetFieldByName(
                                            "map_int32_int64", descriptor_pool(),
                                            message_factory(), arena()));
 
   ASSERT_THAT(map_value, MapValueIs(_));
 
   ASSERT_OK_AND_ASSIGN(ListValue key_set,
-                       Cast<MapValue>(map_value).ListKeys(
-                           descriptor_pool(), message_factory(), arena()));
+                       map_value.GetMap().ListKeys(descriptor_pool(),
+                                                   message_factory(), arena()));
 
   EXPECT_THAT(key_set.Size(), IsOkAndHolds(1));
 
@@ -575,15 +574,15 @@ TEST_F(ProtoValueWrapTest, ProtoBoolMapListKeys) {
                               R"pb(
                                 map_bool_int64 { key: false value: 20 })pb"),
                           descriptor_pool(), message_factory(), arena()));
-  ASSERT_OK_AND_ASSIGN(auto map_value, Cast<StructValue>(value).GetFieldByName(
+  ASSERT_OK_AND_ASSIGN(auto map_value, value.GetStruct().GetFieldByName(
                                            "map_bool_int64", descriptor_pool(),
                                            message_factory(), arena()));
 
   ASSERT_THAT(map_value, MapValueIs(_));
 
   ASSERT_OK_AND_ASSIGN(ListValue key_set,
-                       Cast<MapValue>(map_value).ListKeys(
-                           descriptor_pool(), message_factory(), arena()));
+                       map_value.GetMap().ListKeys(descriptor_pool(),
+                                                   message_factory(), arena()));
 
   EXPECT_THAT(key_set.Size(), IsOkAndHolds(1));
 
@@ -602,14 +601,14 @@ TEST_F(ProtoValueWrapTest, ProtoUint32MapListKeys) {
                           descriptor_pool(), message_factory(), arena()));
   ASSERT_OK_AND_ASSIGN(
       auto map_value,
-      Cast<StructValue>(value).GetFieldByName(
-          "map_uint32_int64", descriptor_pool(), message_factory(), arena()));
+      value.GetStruct().GetFieldByName("map_uint32_int64", descriptor_pool(),
+                                       message_factory(), arena()));
 
   ASSERT_THAT(map_value, MapValueIs(_));
 
   ASSERT_OK_AND_ASSIGN(ListValue key_set,
-                       Cast<MapValue>(map_value).ListKeys(
-                           descriptor_pool(), message_factory(), arena()));
+                       map_value.GetMap().ListKeys(descriptor_pool(),
+                                                   message_factory(), arena()));
 
   EXPECT_THAT(key_set.Size(), IsOkAndHolds(1));
 
@@ -628,14 +627,14 @@ TEST_F(ProtoValueWrapTest, ProtoUint64MapListKeys) {
                           descriptor_pool(), message_factory(), arena()));
   ASSERT_OK_AND_ASSIGN(
       auto map_value,
-      Cast<StructValue>(value).GetFieldByName(
-          "map_uint64_int64", descriptor_pool(), message_factory(), arena()));
+      value.GetStruct().GetFieldByName("map_uint64_int64", descriptor_pool(),
+                                       message_factory(), arena()));
 
   ASSERT_THAT(map_value, MapValueIs(_));
 
   ASSERT_OK_AND_ASSIGN(ListValue key_set,
-                       Cast<MapValue>(map_value).ListKeys(
-                           descriptor_pool(), message_factory(), arena()));
+                       map_value.GetMap().ListKeys(descriptor_pool(),
+                                                   message_factory(), arena()));
 
   EXPECT_THAT(key_set.Size(), IsOkAndHolds(1));
 
@@ -655,14 +654,14 @@ TEST_F(ProtoValueWrapTest, ProtoStringMapListKeys) {
                       descriptor_pool(), message_factory(), arena()));
   ASSERT_OK_AND_ASSIGN(
       auto map_value,
-      Cast<StructValue>(value).GetFieldByName(
-          "map_string_int64", descriptor_pool(), message_factory(), arena()));
+      value.GetStruct().GetFieldByName("map_string_int64", descriptor_pool(),
+                                       message_factory(), arena()));
 
   ASSERT_THAT(map_value, MapValueIs(_));
 
   ASSERT_OK_AND_ASSIGN(ListValue key_set,
-                       Cast<MapValue>(map_value).ListKeys(
-                           descriptor_pool(), message_factory(), arena()));
+                       map_value.GetMap().ListKeys(descriptor_pool(),
+                                                   message_factory(), arena()));
 
   EXPECT_THAT(key_set.Size(), IsOkAndHolds(1));
 
@@ -683,12 +682,12 @@ TEST_F(ProtoValueWrapTest, ProtoMapIterator) {
                           descriptor_pool(), message_factory(), arena()));
   ASSERT_OK_AND_ASSIGN(
       auto field_value,
-      Cast<StructValue>(value).GetFieldByName(
-          "map_int64_int64", descriptor_pool(), message_factory(), arena()));
+      value.GetStruct().GetFieldByName("map_int64_int64", descriptor_pool(),
+                                       message_factory(), arena()));
 
   ASSERT_THAT(field_value, MapValueIs(_));
 
-  MapValue map_value = Cast<MapValue>(field_value);
+  MapValue map_value = field_value.GetMap();
 
   std::vector<Value> keys;
 
@@ -714,12 +713,12 @@ TEST_F(ProtoValueWrapTest, ProtoMapForEach) {
                           descriptor_pool(), message_factory(), arena()));
   ASSERT_OK_AND_ASSIGN(
       auto field_value,
-      Cast<StructValue>(value).GetFieldByName(
-          "map_int64_int64", descriptor_pool(), message_factory(), arena()));
+      value.GetStruct().GetFieldByName("map_int64_int64", descriptor_pool(),
+                                       message_factory(), arena()));
 
   ASSERT_THAT(field_value, MapValueIs(_));
 
-  MapValue map_value = Cast<MapValue>(field_value);
+  MapValue map_value = field_value.GetMap();
 
   std::vector<std::pair<Value, Value>> pairs;
 
@@ -747,12 +746,12 @@ TEST_F(ProtoValueWrapTest, ProtoListIterator) {
                           descriptor_pool(), message_factory(), arena()));
   ASSERT_OK_AND_ASSIGN(
       auto field_value,
-      Cast<StructValue>(value).GetFieldByName(
-          "repeated_int64", descriptor_pool(), message_factory(), arena()));
+      value.GetStruct().GetFieldByName("repeated_int64", descriptor_pool(),
+                                       message_factory(), arena()));
 
   ASSERT_THAT(field_value, ListValueIs(_));
 
-  ListValue list_value = Cast<ListValue>(field_value);
+  ListValue list_value = field_value.GetList();
 
   std::vector<Value> elements;
 
@@ -777,12 +776,12 @@ TEST_F(ProtoValueWrapTest, ProtoListForEachWithIndex) {
                           descriptor_pool(), message_factory(), arena()));
   ASSERT_OK_AND_ASSIGN(
       auto field_value,
-      Cast<StructValue>(value).GetFieldByName(
-          "repeated_int64", descriptor_pool(), message_factory(), arena()));
+      value.GetStruct().GetFieldByName("repeated_int64", descriptor_pool(),
+                                       message_factory(), arena()));
 
   ASSERT_THAT(field_value, ListValueIs(_));
 
-  ListValue list_value = Cast<ListValue>(field_value);
+  ListValue list_value = field_value.GetList();
 
   std::vector<std::pair<size_t, Value>> elements;
 

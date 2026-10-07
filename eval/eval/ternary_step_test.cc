@@ -10,7 +10,6 @@
 #include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/type_provider.h"
-#include "common/casting.h"
 #include "common/expr.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
@@ -18,12 +17,10 @@
 #include "eval/eval/const_value_step.h"
 #include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/unknown_attribute_set.h"
 #include "eval/public/unknown_set.h"
-#include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
 #include "internal/testing_message_factory.h"
@@ -41,10 +38,8 @@ namespace {
 using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::BoolValue;
-using ::cel::Cast;
 using ::cel::ErrorValue;
 using ::cel::Expr;
-using ::cel::InstanceOf;
 using ::cel::IntValue;
 using ::cel::RuntimeOptions;
 using ::cel::TypeProvider;
@@ -227,8 +222,8 @@ TEST_P(TernaryStepDirectTest, ReturnLhs) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
-  ASSERT_TRUE(InstanceOf<IntValue>(result));
-  EXPECT_EQ(Cast<IntValue>(result).NativeValue(), 1);
+  ASSERT_TRUE(result.IsInt());
+  EXPECT_EQ(result.GetInt().NativeValue(), 1);
 }
 
 TEST_P(TernaryStepDirectTest, ReturnRhs) {
@@ -248,8 +243,8 @@ TEST_P(TernaryStepDirectTest, ReturnRhs) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
-  ASSERT_TRUE(InstanceOf<IntValue>(result));
-  EXPECT_EQ(Cast<IntValue>(result).NativeValue(), 2);
+  ASSERT_TRUE(result.IsInt());
+  EXPECT_EQ(result.GetInt().NativeValue(), 2);
 }
 
 TEST_P(TernaryStepDirectTest, ForwardError) {
@@ -272,8 +267,8 @@ TEST_P(TernaryStepDirectTest, ForwardError) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kInternal, "test error"));
 }
 
@@ -299,8 +294,8 @@ TEST_P(TernaryStepDirectTest, ForwardUnknown) {
   AttributeTrail attr_unused;
 
   ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
-  ASSERT_TRUE(InstanceOf<UnknownValue>(result));
-  EXPECT_THAT(Cast<UnknownValue>(result).ToAttributeSet(),
+  ASSERT_TRUE(result.IsUnknown());
+  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
               ElementsAre(Truly([](const cel::Attribute& attr) {
                 return attr.variable_name() == "var";
               })));
@@ -323,8 +318,8 @@ TEST_P(TernaryStepDirectTest, UnexpectedCondtionKind) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
-  ASSERT_TRUE(InstanceOf<ErrorValue>(result));
-  EXPECT_THAT(Cast<ErrorValue>(result).NativeValue(),
+  ASSERT_TRUE(result.IsError());
+  EXPECT_THAT(result.GetError().NativeValue(),
               StatusIs(absl::StatusCode::kUnknown,
                        HasSubstr("No matching overloads found")));
 }
@@ -364,8 +359,8 @@ TEST_P(TernaryStepDirectTest, Shortcircuiting) {
 
   ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
 
-  ASSERT_TRUE(InstanceOf<IntValue>(result));
-  EXPECT_THAT(Cast<IntValue>(result).NativeValue(), Eq(1));
+  ASSERT_TRUE(result.IsInt());
+  EXPECT_THAT(result.GetInt().NativeValue(), Eq(1));
   bool expect_eager_eval = !Shortcircuiting();
   EXPECT_EQ(lhs_was_called, expect_eager_eval);
   EXPECT_TRUE(rhs_was_called);
