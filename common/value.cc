@@ -43,6 +43,7 @@
 #include "absl/types/source_location.h"
 #include "absl/types/variant.h"
 #include "common/allocator.h"
+#include "common/memory.h"
 #include "common/optional_ref.h"
 #include "common/type.h"
 #include "common/value_kind.h"
@@ -1243,8 +1244,7 @@ struct OwningWellKnownTypesValueVisitor {
                 cloned->CopyFrom(*value);
                 return ParsedJsonListValue(cloned, arena);
               }
-              return ParsedJsonListValue(value.try_as_arena_ptr()->get(),
-                                         arena);
+              return ParsedJsonListValue(value.release(), arena);
             }),
         well_known_types::AsVariant(std::move(value)));
   }
@@ -1258,23 +1258,23 @@ struct OwningWellKnownTypesValueVisitor {
               return ParsedJsonMapValue(cloned, arena);
             },
             [&](well_known_types::StructPtr value) -> MapValue {
-              if (value.GetOwningArena() != arena) {
+              if (value.arena() != arena) {
                 auto* cloned = value->New(arena);
                 cloned->CopyFrom(*value);
                 return ParsedJsonMapValue(cloned, arena);
               }
-              return ParsedJsonMapValue(value.try_as_arena_ptr()->get(), arena);
+              return ParsedJsonMapValue(value.release(), arena);
             }),
         well_known_types::AsVariant(std::move(value)));
   }
 
-  Value operator()(google::protobuf::Arena::UniquePtr<google::protobuf::Message> value) const {
+  Value operator()(Unique<google::protobuf::Message> value) const {
     if (value->GetArena() != arena) {
       auto* cloned = value->New(arena);
       cloned->CopyFrom(*value);
       return ParsedMessageValue(cloned, arena);
     }
-    return ParsedMessageValue(value.try_as_arena_ptr()->get(), arena);
+    return ParsedMessageValue(value.release(), arena);
   }
 
   template <typename T>
@@ -1344,8 +1344,7 @@ struct BorrowingWellKnownTypesValueVisitor {
                 cloned->CopyFrom(*value);
                 return ParsedJsonListValue(cloned, arena);
               }
-              return ParsedJsonListValue(value.try_as_arena_ptr()->get(),
-                                         arena);
+              return ParsedJsonListValue(value.release(), arena);
             }),
         well_known_types::AsVariant(std::move(value)));
   }
@@ -1363,18 +1362,18 @@ struct BorrowingWellKnownTypesValueVisitor {
                 cloned->CopyFrom(*value);
                 return ParsedJsonMapValue(cloned, arena);
               }
-              return ParsedJsonMapValue(value.try_as_arena_ptr()->get(), arena);
+              return ParsedJsonMapValue(value.release(), arena);
             }),
         well_known_types::AsVariant(std::move(value)));
   }
 
-  Value operator()(google::protobuf::Arena::UniquePtr<google::protobuf::Message>&& value) const {
+  Value operator()(Unique<google::protobuf::Message>&& value) const {
     if (value->GetArena() != arena) {
       auto* cloned = value->New(arena);
       cloned->CopyFrom(*value);
       return ParsedMessageValue(cloned, arena);
     }
-    return ParsedMessageValue(value.try_as_arena_ptr()->get(), arena);
+    return ParsedMessageValue(value.release(), arena);
   }
 
   template <typename T>

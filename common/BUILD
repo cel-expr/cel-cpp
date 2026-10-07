@@ -494,12 +494,33 @@ cc_library(
     hdrs = ["memory.h"],
     deps = [
         ":allocator",
+        ":arena",
+        ":data",
+        ":reference_count",
+        "//common/internal:metadata",
+        "//common/internal:reference_count",
+        "//internal:exceptions",
         "//internal:to_address",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/numeric:bits",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_test(
+    name = "memory_test",
+    srcs = ["memory_test.cc"],
+    deps = [
+        ":allocator",
+        ":data",
+        ":memory",
+        "//common/internal:reference_count",
+        "//internal:testing",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_protobuf//:protobuf",
+        "@com_google_protobuf//:struct_cc_proto",
     ],
 )
 
