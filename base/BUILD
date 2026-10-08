@@ -34,6 +34,8 @@ cc_library(
     deps = [
         ":kind",
         "//internal:status_macros",
+        "//internal:strings",
+        "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/base:nullability",
@@ -56,6 +58,37 @@ cc_test(
         ":attributes",
         "//internal:testing",
         "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_library(
+    name = "attribute_matcher",
+    srcs = ["attribute_matcher.cc"],
+    hdrs = ["attribute_matcher.h"],
+    deps = [
+        ":attributes",
+        "//internal:status_macros",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/functional:function_ref",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:source_location",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "attribute_matcher_test",
+    srcs = ["attribute_matcher_test.cc"],
+    deps = [
+        ":attribute_matcher",
+        ":attributes",
+        "//internal:testing",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
     ],
 )
 
