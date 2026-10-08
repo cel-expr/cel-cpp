@@ -1,0 +1,281 @@
+YAML SOURCE: typedefs.yaml
+--------------------------------------------------------------------
+TYPEDEF PROTO:
+types {
+  object_type {
+    name: "com.example.Order"
+    doc: "Customer order entity."
+    fields {
+      name: "order_id"
+      type {
+        primitive: STRING
+      }
+      doc: "Unique order ID."
+      default_value {
+        string_value: "ord-001"
+      }
+      [cel.types.json_field_schema] {
+        name: "orderId"
+      }
+      [cel.types.proto2_field_schema] {
+        name: "order_id_v2"
+        id: 1
+        json_name: "orderId"
+      }
+      [cel.types.proto3_field_schema] {
+        id: 1
+        json_name: "orderId"
+      }
+    }
+    fields {
+      name: "is_active"
+      type {
+        primitive: BOOL
+      }
+      default_value {
+        bool_value: true
+      }
+    }
+    fields {
+      name: "item_count"
+      type {
+        primitive: INT64
+      }
+      default_value {
+        int64_value: -1
+      }
+    }
+    fields {
+      name: "total_cents"
+      type {
+        primitive: UINT64
+      }
+      default_value {
+        uint64_value: 500
+      }
+    }
+    fields {
+      name: "discount_rate"
+      type {
+        primitive: DOUBLE
+      }
+      default_value {
+        double_value: 0.25
+      }
+    }
+    fields {
+      name: "raw_token"
+      type {
+        primitive: BYTES
+      }
+      default_value {
+        bytes_value: "\001\002a"
+      }
+    }
+    fields {
+      name: "created_at"
+      type {
+        well_known: TIMESTAMP
+      }
+      default_value {
+        timestamp_value {
+          seconds: 1767225600
+        }
+      }
+    }
+    fields {
+      name: "ttl"
+      type {
+        well_known: DURATION
+      }
+      default_value {
+        duration_value {
+          seconds: 90
+        }
+      }
+    }
+    fields {
+      name: "nothing"
+      type {
+        null: NULL_VALUE
+      }
+    }
+    fields {
+      name: "anything"
+      type {
+        dyn {
+        }
+      }
+    }
+    fields {
+      name: "payload"
+      type {
+        well_known: ANY
+      }
+    }
+    fields {
+      name: "opt_bool"
+      type {
+        wrapper: BOOL
+      }
+    }
+    fields {
+      name: "opt_int"
+      type {
+        wrapper: INT64
+      }
+    }
+    fields {
+      name: "opt_uint"
+      type {
+        wrapper: UINT64
+      }
+    }
+    fields {
+      name: "opt_double"
+      type {
+        wrapper: DOUBLE
+      }
+    }
+    fields {
+      name: "opt_string"
+      type {
+        wrapper: STRING
+      }
+    }
+    fields {
+      name: "opt_bytes"
+      type {
+        wrapper: BYTES
+      }
+    }
+    fields {
+      name: "tags"
+      type {
+        list_type {
+          elem_type {
+            primitive: STRING
+          }
+        }
+      }
+    }
+    fields {
+      name: "metadata"
+      type {
+        map_type {
+          key_type {
+            primitive: STRING
+          }
+          value_type {
+            primitive: INT64
+          }
+        }
+      }
+    }
+    fields {
+      name: "predicate"
+      type {
+        function {
+          result_type {
+            primitive: BOOL
+          }
+          arg_types {
+            primitive: INT64
+          }
+          arg_types {
+            primitive: STRING
+          }
+        }
+      }
+    }
+    fields {
+      name: "meta_type"
+      type {
+        type {
+          primitive: STRING
+        }
+      }
+    }
+    fields {
+      name: "param_val"
+      type {
+        type_param: "T"
+      }
+    }
+    fields {
+      name: "maybe_note"
+      type {
+        abstract_type {
+          name: "optional"
+          parameter_types {
+            primitive: STRING
+          }
+        }
+      }
+    }
+    fields {
+      name: "empty_schema_field"
+      type {
+        primitive: STRING
+      }
+      [cel.types.json_field_schema] {
+      }
+      [cel.types.proto2_field_schema] {
+      }
+      [cel.types.proto3_field_schema] {
+      }
+    }
+    [cel.types.json_object_schema] {
+      name: "Order"
+    }
+    [cel.types.proto2_object_schema] {
+      name: "com.example.proto2.Order"
+    }
+    [cel.types.proto3_object_schema] {
+      name: "com.example.proto3.Order"
+    }
+  }
+}
+types {
+  enum_type {
+    name: "com.example.OrderStatus"
+    doc: "Lifecycle status of an order."
+    constants {
+      name: "ORDER_STATUS_UNSPECIFIED"
+      id: 0
+      doc: "Unspecified status."
+    }
+    constants {
+      name: "ORDER_STATUS_ACTIVE"
+      id: 1
+      doc: "Active status."
+      [cel.types.json_enum_constant_schema] {
+        name: "active"
+      }
+      [cel.types.proto2_enum_constant_schema] {
+        name: "STATUS_ACTIVE_V2"
+      }
+      [cel.types.proto3_enum_constant_schema] {
+        name: "STATUS_ACTIVE_V3"
+      }
+    }
+    constants {
+      name: "ORDER_STATUS_LEGACY"
+      id: -1
+      [cel.types.json_enum_constant_schema] {
+      }
+    }
+    [cel.types.json_enum_schema] {
+      style: "string"
+      omit_unspecified: true
+    }
+    [cel.types.proto2_enum_schema] {
+      name: "com.example.proto2.OrderStatus"
+      allow_alias: true
+    }
+    [cel.types.proto3_enum_schema] {
+      name: "com.example.proto3.OrderStatus"
+      allow_alias: false
+    }
+  }
+}

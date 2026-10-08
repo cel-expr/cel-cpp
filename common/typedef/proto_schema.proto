@@ -1,0 +1,64 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package cel.types;
+
+import "common/typedef/typedef.proto";
+
+option cc_enable_arenas = true;
+
+// Protocol Buffers schema properties attached to an Object.
+message ProtoObjectProperties {
+  string name = 1;
+}
+
+// Protocol Buffers schema properties attached to an Object.Field.
+message ProtoFieldProperties {
+  string name = 1;
+  int32 id = 2;
+  string json_name = 3;
+}
+
+// Protocol Buffers schema properties attached to an Enum.
+message ProtoEnumProperties {
+  string name = 1;
+  bool allow_alias = 2;
+}
+
+// Protocol Buffers schema properties attached to an Enum.EnumConstant.
+message ProtoEnumConstantProperties {
+  string name = 1;
+}
+
+extend Object {
+  ProtoObjectProperties proto2_object_schema = 1001;
+  ProtoObjectProperties proto3_object_schema = 1002;
+}
+
+extend Object.Field {
+  ProtoFieldProperties proto2_field_schema = 1001;
+  ProtoFieldProperties proto3_field_schema = 1002;
+}
+
+extend Enum {
+  ProtoEnumProperties proto2_enum_schema = 1001;
+  ProtoEnumProperties proto3_enum_schema = 1002;
+}
+
+extend Enum.EnumConstant {
+  ProtoEnumConstantProperties proto2_enum_constant_schema = 1001;
+  ProtoEnumConstantProperties proto3_enum_constant_schema = 1002;
+}
