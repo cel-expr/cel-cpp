@@ -40,6 +40,7 @@ namespace {
 using ::testing::_;
 using ::testing::Eq;
 using ::testing::IsEmpty;
+using ::testing::IsNull;
 using ::testing::Not;
 using ::testing::Optional;
 using ::testing::SizeIs;
@@ -114,7 +115,7 @@ TEST_F(ByteStringTest, Default) {
 TEST_F(ByteStringTest, ConstructNullDataStringView) {
   ByteString byte_string = ByteString::From(absl::string_view(), GetArena());
   EXPECT_THAT(byte_string, IsEmpty());
-  EXPECT_EQ(byte_string.GetArena(), GetArena());
+  EXPECT_THAT(byte_string.GetArena(), IsNull());
 }
 
 TEST_F(ByteStringTest, ConstructSmallCString) {
@@ -124,7 +125,7 @@ TEST_F(ByteStringTest, ConstructSmallCString) {
   EXPECT_THAT(byte_string, Not(IsEmpty()));
   EXPECT_EQ(byte_string, GetSmallStringView());
   EXPECT_EQ(GetKind(byte_string), ByteStringKind::kSmall);
-  EXPECT_EQ(byte_string.GetArena(), GetArena());
+  EXPECT_THAT(byte_string.GetArena(), IsNull());
 }
 
 TEST_F(ByteStringTest, ConstructMediumCString) {
@@ -143,7 +144,7 @@ TEST_F(ByteStringTest, ConstructSmallRValueString) {
   EXPECT_THAT(byte_string, Not(IsEmpty()));
   EXPECT_EQ(byte_string, GetSmallStringView());
   EXPECT_EQ(GetKind(byte_string), ByteStringKind::kSmall);
-  EXPECT_EQ(byte_string.GetArena(), GetArena());
+  EXPECT_THAT(byte_string.GetArena(), IsNull());
 }
 
 TEST_F(ByteStringTest, ConstructSmallLValueString) {
@@ -153,7 +154,7 @@ TEST_F(ByteStringTest, ConstructSmallLValueString) {
   EXPECT_THAT(byte_string, Not(IsEmpty()));
   EXPECT_EQ(byte_string, GetSmallStringView());
   EXPECT_EQ(GetKind(byte_string), ByteStringKind::kSmall);
-  EXPECT_EQ(byte_string.GetArena(), GetArena());
+  EXPECT_THAT(byte_string.GetArena(), IsNull());
 }
 
 TEST_F(ByteStringTest, ConstructMediumRValueString) {
@@ -181,7 +182,7 @@ TEST_F(ByteStringTest, ConstructSmallCord) {
   EXPECT_THAT(byte_string, Not(IsEmpty()));
   EXPECT_EQ(byte_string, GetSmallStringView());
   EXPECT_EQ(GetKind(byte_string), ByteStringKind::kSmall);
-  EXPECT_EQ(byte_string.GetArena(), GetArena());
+  EXPECT_THAT(byte_string.GetArena(), IsNull());
 }
 
 TEST_F(ByteStringTest, ConstructMediumOrLargeCord) {

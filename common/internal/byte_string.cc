@@ -37,7 +37,7 @@ ByteString ByteString::From(absl::string_view value,
   ABSL_DCHECK(arena != nullptr);
   ByteString result(UninitializedTag{});
   if (value.size() <= kSmallByteStringCapacity) {
-    result.SetSmall(arena, value);
+    result.SetSmall(value);
   } else {
     char* arena_value =
         reinterpret_cast<char*>(arena->AllocateAligned(value.size()));
@@ -52,7 +52,7 @@ ByteString ByteString::From(absl::Cord value,
   ABSL_DCHECK(arena != nullptr);
   ByteString result(UninitializedTag{});
   if (value.size() <= kSmallByteStringCapacity) {
-    result.SetSmall(arena, value);
+    result.SetSmall(value);
   } else {
     result.SetLarge(arena,
                     google::protobuf::Arena::Create<absl::Cord>(arena, std::move(value)));
@@ -65,7 +65,7 @@ ByteString ByteString::From(std::string&& value,
   ABSL_DCHECK(arena != nullptr);
   ByteString result(UninitializedTag{});
   if (value.size() <= kSmallByteStringCapacity) {
-    result.SetSmall(arena, value);
+    result.SetSmall(value);
   } else if (value.size() > sizeof(std::string)) {
     value.shrink_to_fit();
     result.SetMedium(
@@ -107,7 +107,6 @@ ByteString ByteString::Concat(const ByteString& lhs, const ByteString& rhs,
     // If the resulting string fits in inline storage, do it.
     result.rep_.header.kind = ByteStringKind::kSmall;
     result.rep_.small.size = result_size;
-    result.rep_.small.arena = arena;
     lhs.CopyToArray(result.rep_.small.data);
     rhs.CopyToArray(result.rep_.small.data + lhs_size);
   } else {
@@ -221,7 +220,7 @@ ByteString ByteString::Substring(size_t pos, size_t npos) const {
   switch (GetKind()) {
     case ByteStringKind::kSmall: {
       ByteString result(UninitializedTag{});
-      result.SetSmall(GetSmallArena(), GetSmall().substr(pos, npos - pos));
+      result.SetSmall(GetSmall().substr(pos, npos - pos));
       return result;
     }
     case ByteStringKind::kMedium: {
@@ -420,7 +419,7 @@ ByteString ByteString::Clone(google::protobuf::Arena* absl_nonnull arena) const 
   switch (GetKind()) {
     case ByteStringKind::kSmall: {
       ByteString result(UninitializedTag{});
-      result.SetSmall(arena, GetSmall());
+      result.SetSmall(GetSmall());
       return result;
     }
     case ByteStringKind::kMedium: {

@@ -616,7 +616,6 @@ Value StringValue::Substring(int64_t start,
       std::memcpy(result.value_.rep_.small.data,
                   value_.rep_.small.data + *status_or_index,
                   result.value_.rep_.small.size);
-      result.value_.rep_.small.arena = value_.rep_.small.arena;
       return result;
     }
     case common_internal::ByteStringKind::kMedium: {
@@ -744,7 +743,6 @@ Value StringValue::Substring(int64_t start, int64_t end,
       std::memcpy(result.value_.rep_.small.data,
                   value_.rep_.small.data + status_or_indices->first,
                   result.value_.rep_.small.size);
-      result.value_.rep_.small.arena = value_.rep_.small.arena;
       return result;
     }
     case common_internal::ByteStringKind::kMedium: {
@@ -1430,7 +1428,6 @@ Value StringValue::CharAt(int64_t pos,
                 common_internal::ByteStringKind::kSmall;
             result.value_.rep_.small.size = cel::internal::Utf8Encode(
                 code_point, result.value_.rep_.small.data);
-            result.value_.rep_.small.arena = value_.GetArena();
             return result;
           }
           rep.remove_prefix(code_units);
@@ -1460,7 +1457,6 @@ Value StringValue::CharAt(int64_t pos,
                 common_internal::ByteStringKind::kSmall;
             result.value_.rep_.small.size = cel::internal::Utf8Encode(
                 code_point, result.value_.rep_.small.data);
-            result.value_.rep_.small.arena = nullptr;
             return result;
           }
           absl::Cord::Advance(&begin, code_units);

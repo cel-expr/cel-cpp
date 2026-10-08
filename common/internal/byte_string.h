@@ -74,8 +74,7 @@ struct SmallByteStringRep final {
 #ifdef _MSC_VER
 #pragma pack(pop)
 #endif
-  char data[23 - sizeof(google::protobuf::Arena*)];
-  google::protobuf::Arena* absl_nullable arena;
+  char data[23];
 };
 
 inline constexpr size_t kSmallByteStringCapacity =
@@ -215,7 +214,7 @@ class [[nodiscard]] ByteString final {
   static ByteString Concat(const ByteString& lhs, const ByteString& rhs,
                            google::protobuf::Arena* absl_nonnull arena);
 
-  ByteString() noexcept { SetSmallEmpty(nullptr); }
+  ByteString() noexcept { SetSmallEmpty(); }
 
   ByteString(const ByteString&) = default;
   ByteString(ByteString&&) = default;
@@ -303,10 +302,12 @@ class [[nodiscard]] ByteString final {
       std::string* absl_nonnull scratch
           ABSL_ATTRIBUTE_LIFETIME_BOUND) const ABSL_ATTRIBUTE_LIFETIME_BOUND;
 
+  // Returns the arena which owns the underling data for this byte string.
+  // Returns null when the data is not owned by an arena.
   google::protobuf::Arena* absl_nullable GetArena() const {
     switch (GetKind()) {
       case ByteStringKind::kSmall:
-        return GetSmallArena();
+        return nullptr;
       case ByteStringKind::kMedium:
         return GetMediumArena();
       case ByteStringKind::kLarge:
@@ -373,16 +374,6 @@ class [[nodiscard]] ByteString final {
     return absl::string_view(rep.data, rep.size);
   }
 
-  google::protobuf::Arena* absl_nullable GetSmallArena() const {
-    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kSmall);
-    return GetSmallArena(rep_.small);
-  }
-
-  static google::protobuf::Arena* absl_nullable GetSmallArena(
-      const SmallByteStringRep& rep) {
-    return rep.arena;
-  }
-
   google::protobuf::Arena* absl_nullable GetMediumArena() const {
     ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kMedium);
     return GetMediumArena(rep_.medium);
@@ -413,27 +404,24 @@ class [[nodiscard]] ByteString final {
     return rep.arena;
   }
 
-  void SetSmallEmpty(google::protobuf::Arena* absl_nullable arena) {
+  void SetSmallEmpty() {
     rep_.header.kind = ByteStringKind::kSmall;
     rep_.small.size = 0;
-    rep_.small.arena = arena;
   }
 
-  void SetSmall(google::protobuf::Arena* absl_nullable arena, absl::string_view string) {
+  void SetSmall(absl::string_view string) {
     ABSL_DCHECK_LE(string.size(), kSmallByteStringCapacity);
     rep_.header.kind = ByteStringKind::kSmall;
     rep_.small.size = string.size();
-    rep_.small.arena = arena;
     if (!string.empty()) {
       std::memcpy(rep_.small.data, string.data(), rep_.small.size);
     }
   }
 
-  void SetSmall(google::protobuf::Arena* absl_nullable arena, const absl::Cord& cord) {
+  void SetSmall(const absl::Cord& cord) {
     ABSL_DCHECK_LE(cord.size(), kSmallByteStringCapacity);
     rep_.header.kind = ByteStringKind::kSmall;
     rep_.small.size = cord.size();
-    rep_.small.arena = arena;
     CopyCordToArray(cord, rep_.small.data);
   }
 
