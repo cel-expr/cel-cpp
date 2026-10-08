@@ -1,0 +1,58 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package cel.types;
+
+import "common/typedef/typedef.proto";
+
+option cc_enable_arenas = true;
+
+// JSON Schema properties attached to an Object.
+message JsonSchemaObjectProperties {
+  string name = 1;
+}
+
+// JSON Schema properties attached to an Object.Field.
+message JsonSchemaFieldProperties {
+  string name = 1;
+}
+
+// JSON Schema properties attached to an Enum.
+message JsonSchemaEnumProperties {
+  string style = 1;
+  bool omit_unspecified = 2;
+}
+
+// JSON Schema properties attached to an Enum.EnumConstant.
+message JsonSchemaEnumConstantProperties {
+  string name = 1;
+}
+
+extend Object {
+  JsonSchemaObjectProperties json_object_schema = 1000;
+}
+
+extend Object.Field {
+  JsonSchemaFieldProperties json_field_schema = 1000;
+}
+
+extend Enum {
+  JsonSchemaEnumProperties json_enum_schema = 1000;
+}
+
+extend Enum.EnumConstant {
+  JsonSchemaEnumConstantProperties json_enum_constant_schema = 1000;
+}

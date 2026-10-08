@@ -1,0 +1,122 @@
+PROTO SOURCE: typedefs.txtproto
+--------------------------------------------------------------------
+TYPEDEF YAML:
+- object:
+    name: "com.example.Order"
+    doc: "Customer order entity."
+    schemas:
+      json:
+        name: "Order"
+      proto2:
+        name: "com.example.proto2.Order"
+      proto3:
+        name: "com.example.proto3.Order"
+    fields:
+      - name: "order_id"
+        type: "string"
+        doc: "Unique order ID."
+        default: "ord-001"
+        schemas:
+          json:
+            name: "orderId"
+          proto2:
+            name: "order_id_v2"
+            id: 1
+            json_name: "orderId"
+          proto3:
+            id: 1
+            json_name: "orderId"
+      - name: "is_active"
+        type: "bool"
+        default: true
+      - name: "item_count"
+        type: "int"
+        default: -1
+      - name: "total_cents"
+        type: "uint"
+        default: 500
+      - name: "discount_rate"
+        type: "double"
+        default: 0.25
+      - name: "raw_token"
+        type: "bytes"
+        default: b"\x01\x02\x61"
+      - name: "created_at"
+        type: "timestamp"
+        default: 2026-01-01T00:00:00Z
+      - name: "ttl"
+        type: "duration"
+        default: 1m30s
+      - name: "nothing"
+        type: "null"
+      - name: "anything"
+        type: "dyn"
+      - name: "payload"
+        type: "any"
+      - name: "opt_bool"
+        type: "bool_wrapper"
+      - name: "opt_int"
+        type: "int_wrapper"
+      - name: "opt_uint"
+        type: "uint_wrapper"
+      - name: "opt_double"
+        type: "double_wrapper"
+      - name: "opt_string"
+        type: "string_wrapper"
+      - name: "opt_bytes"
+        type: "bytes_wrapper"
+      - name: "tags"
+        type: "list<string>"
+      - name: "metadata"
+        type: "map<string,int>"
+      - name: "predicate"
+        type: "function<bool,int,string>"
+      - name: "meta_type"
+        type: "type<string>"
+      - name: "param_val"
+        type: "~T"
+      - name: "maybe_note"
+        type: "optional<string>"
+      - name: "shipping_addr"
+        type: "com.example.Address"
+      - name: "empty_schema_field"
+        type: "string"
+        schemas:
+          json:
+            {}
+          proto2:
+            {}
+          proto3:
+            {}
+- enum:
+    name: "com.example.OrderStatus"
+    doc: "Lifecycle status of an order."
+    schemas:
+      json:
+        style: "string"
+        omit_unspecified: true
+      proto2:
+        name: "com.example.proto2.OrderStatus"
+        allow_alias: true
+      proto3:
+        name: "com.example.proto3.OrderStatus"
+        allow_alias: false
+    constants:
+      - name: "ORDER_STATUS_UNSPECIFIED"
+        id: 0
+        doc: "Unspecified status."
+      - name: "ORDER_STATUS_ACTIVE"
+        id: 1
+        doc: "Active status."
+        schemas:
+          json:
+            name: "active"
+          proto2:
+            name: "STATUS_ACTIVE_V2"
+          proto3:
+            name: "STATUS_ACTIVE_V3"
+      - name: "ORDER_STATUS_LEGACY"
+        id: -1
+        schemas:
+          json:
+            {}

@@ -1,0 +1,1516 @@
+PROTO DESCRIPTOR: cel.expr.conformance.proto2.TestAllTypes
+--------------------------------------------------------------------
+TYPEDEF YAML:
+- enum:
+    name: "cel.expr.conformance.proto2.GlobalEnum"
+    schemas:
+      proto2:
+        file_name: "third_party/cel/spec/proto/cel/expr/conformance/proto2/test_all_types.proto"
+    constants:
+      - name: "GOO"
+        id: 0
+      - name: "GAR"
+        id: 1
+      - name: "GAZ"
+        id: 2
+- object:
+    name: "cel.expr.conformance.proto2.NestedTestAllTypes"
+    schemas:
+      proto2:
+        file_name: "third_party/cel/spec/proto/cel/expr/conformance/proto2/test_all_types.proto"
+    fields:
+      - name: "child"
+        type: "cel.expr.conformance.proto2.NestedTestAllTypes"
+        schemas:
+          proto2:
+            id: 1
+      - name: "payload"
+        type: "cel.expr.conformance.proto2.TestAllTypes"
+        schemas:
+          proto2:
+            id: 2
+- object:
+    name: "cel.expr.conformance.proto2.TestAllTypes"
+    schemas:
+      proto2:
+        file_name: "third_party/cel/spec/proto/cel/expr/conformance/proto2/test_all_types.proto"
+        extension_ranges:
+          - start: 1000
+            end: 536870912
+    fields:
+      - name: "single_int32"
+        type: "int"
+        default: -32
+        schemas:
+          proto2:
+            id: 1
+            type: "int32"
+      - name: "single_int64"
+        type: "int"
+        default: -64
+        schemas:
+          proto2:
+            id: 2
+      - name: "single_uint32"
+        type: "uint"
+        default: 32
+        schemas:
+          proto2:
+            id: 3
+            type: "uint32"
+      - name: "single_uint64"
+        type: "uint"
+        default: 64
+        schemas:
+          proto2:
+            id: 4
+      - name: "single_sint32"
+        type: "int"
+        schemas:
+          proto2:
+            id: 5
+            type: "sint32"
+      - name: "single_sint64"
+        type: "int"
+        schemas:
+          proto2:
+            id: 6
+            type: "sint64"
+      - name: "single_fixed32"
+        type: "uint"
+        schemas:
+          proto2:
+            id: 7
+            type: "fixed32"
+      - name: "single_fixed64"
+        type: "uint"
+        schemas:
+          proto2:
+            id: 8
+            type: "fixed64"
+      - name: "single_sfixed32"
+        type: "int"
+        schemas:
+          proto2:
+            id: 9
+            type: "sfixed32"
+      - name: "single_sfixed64"
+        type: "int"
+        schemas:
+          proto2:
+            id: 10
+            type: "sfixed64"
+      - name: "single_float"
+        type: "double"
+        default: 3
+        schemas:
+          proto2:
+            id: 11
+            type: "float"
+      - name: "single_double"
+        type: "double"
+        default: 6.4000000000000004
+        schemas:
+          proto2:
+            id: 12
+      - name: "single_bool"
+        type: "bool"
+        default: true
+        schemas:
+          proto2:
+            id: 13
+      - name: "single_string"
+        type: "string"
+        default: "empty"
+        schemas:
+          proto2:
+            id: 14
+      - name: "single_bytes"
+        type: "bytes"
+        default: b"\x6e\x6f\x6e\x65"
+        schemas:
+          proto2:
+            id: 15
+      - name: "in"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 18
+      - name: "single_any"
+        type: "any"
+        schemas:
+          proto2:
+            id: 100
+      - name: "single_duration"
+        type: "duration"
+        schemas:
+          proto2:
+            id: 101
+      - name: "single_timestamp"
+        type: "timestamp"
+        schemas:
+          proto2:
+            id: 102
+      - name: "single_struct"
+        type: "map<string,dyn>"
+        schemas:
+          proto2:
+            id: 103
+            type: "google.protobuf.Struct"
+      - name: "single_value"
+        type: "dyn"
+        schemas:
+          proto2:
+            id: 104
+      - name: "single_int64_wrapper"
+        type: "int_wrapper"
+        schemas:
+          proto2:
+            id: 105
+      - name: "single_int32_wrapper"
+        type: "int_wrapper"
+        schemas:
+          proto2:
+            id: 106
+            type: "google.protobuf.Int32Value"
+      - name: "single_double_wrapper"
+        type: "double_wrapper"
+        schemas:
+          proto2:
+            id: 107
+      - name: "single_float_wrapper"
+        type: "double_wrapper"
+        schemas:
+          proto2:
+            id: 108
+            type: "google.protobuf.FloatValue"
+      - name: "single_uint64_wrapper"
+        type: "uint_wrapper"
+        schemas:
+          proto2:
+            id: 109
+      - name: "single_uint32_wrapper"
+        type: "uint_wrapper"
+        schemas:
+          proto2:
+            id: 110
+            type: "google.protobuf.UInt32Value"
+      - name: "single_string_wrapper"
+        type: "string_wrapper"
+        schemas:
+          proto2:
+            id: 111
+      - name: "single_bool_wrapper"
+        type: "bool_wrapper"
+        schemas:
+          proto2:
+            id: 112
+      - name: "single_bytes_wrapper"
+        type: "bytes_wrapper"
+        schemas:
+          proto2:
+            id: 113
+      - name: "list_value"
+        type: "list<dyn>"
+        schemas:
+          proto2:
+            id: 114
+            type: "google.protobuf.ListValue"
+      - name: "null_value"
+        type: "null"
+        schemas:
+          proto2:
+            id: 115
+      - name: "optional_null_value"
+        type: "null"
+        schemas:
+          proto2:
+            id: 116
+      - name: "field_mask"
+        type: "google.protobuf.FieldMask"
+        schemas:
+          proto2:
+            id: 117
+      - name: "empty"
+        type: "google.protobuf.Empty"
+        schemas:
+          proto2:
+            id: 118
+      - name: "single_nested_message"
+        type: "cel.expr.conformance.proto2.TestAllTypes.NestedMessage"
+        schemas:
+          proto2:
+            id: 21
+            oneof: "nested_type"
+      - name: "single_nested_enum"
+        type: "cel.expr.conformance.proto2.TestAllTypes.NestedEnum"
+        schemas:
+          proto2:
+            id: 22
+            oneof: "nested_type"
+            default_value: "BAR"
+      - name: "standalone_message"
+        type: "cel.expr.conformance.proto2.TestAllTypes.NestedMessage"
+        schemas:
+          proto2:
+            id: 23
+      - name: "standalone_enum"
+        type: "cel.expr.conformance.proto2.TestAllTypes.NestedEnum"
+        schemas:
+          proto2:
+            id: 24
+      - name: "repeated_int32"
+        type: "list<int>"
+        schemas:
+          proto2:
+            id: 31
+            type: "int32"
+      - name: "repeated_int64"
+        type: "list<int>"
+        schemas:
+          proto2:
+            id: 32
+      - name: "repeated_uint32"
+        type: "list<uint>"
+        schemas:
+          proto2:
+            id: 33
+            type: "uint32"
+      - name: "repeated_uint64"
+        type: "list<uint>"
+        schemas:
+          proto2:
+            id: 34
+      - name: "repeated_sint32"
+        type: "list<int>"
+        schemas:
+          proto2:
+            id: 35
+            type: "sint32"
+      - name: "repeated_sint64"
+        type: "list<int>"
+        schemas:
+          proto2:
+            id: 36
+            type: "sint64"
+      - name: "repeated_fixed32"
+        type: "list<uint>"
+        schemas:
+          proto2:
+            id: 37
+            type: "fixed32"
+      - name: "repeated_fixed64"
+        type: "list<uint>"
+        schemas:
+          proto2:
+            id: 38
+            type: "fixed64"
+      - name: "repeated_sfixed32"
+        type: "list<int>"
+        schemas:
+          proto2:
+            id: 39
+            type: "sfixed32"
+      - name: "repeated_sfixed64"
+        type: "list<int>"
+        schemas:
+          proto2:
+            id: 40
+            type: "sfixed64"
+      - name: "repeated_float"
+        type: "list<double>"
+        schemas:
+          proto2:
+            id: 41
+            type: "float"
+      - name: "repeated_double"
+        type: "list<double>"
+        schemas:
+          proto2:
+            id: 42
+      - name: "repeated_bool"
+        type: "list<bool>"
+        schemas:
+          proto2:
+            id: 43
+      - name: "repeated_string"
+        type: "list<string>"
+        schemas:
+          proto2:
+            id: 44
+      - name: "repeated_bytes"
+        type: "list<bytes>"
+        schemas:
+          proto2:
+            id: 45
+      - name: "repeated_nested_message"
+        type: "list<cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 51
+      - name: "repeated_nested_enum"
+        type: "list<cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+        schemas:
+          proto2:
+            id: 52
+      - name: "repeated_string_piece"
+        type: "list<string>"
+        schemas:
+          proto2:
+            id: 53
+      - name: "repeated_cord"
+        type: "list<string>"
+        schemas:
+          proto2:
+            id: 54
+      - name: "repeated_lazy_message"
+        type: "list<cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 55
+      - name: "repeated_any"
+        type: "list<any>"
+        schemas:
+          proto2:
+            id: 120
+      - name: "repeated_duration"
+        type: "list<duration>"
+        schemas:
+          proto2:
+            id: 121
+      - name: "repeated_timestamp"
+        type: "list<timestamp>"
+        schemas:
+          proto2:
+            id: 122
+      - name: "repeated_struct"
+        type: "list<map<string,dyn>>"
+        schemas:
+          proto2:
+            id: 123
+      - name: "repeated_value"
+        type: "list<dyn>"
+        schemas:
+          proto2:
+            id: 124
+      - name: "repeated_int64_wrapper"
+        type: "list<int_wrapper>"
+        schemas:
+          proto2:
+            id: 125
+      - name: "repeated_int32_wrapper"
+        type: "list<int_wrapper>"
+        schemas:
+          proto2:
+            id: 126
+            type: "google.protobuf.Int32Value"
+      - name: "repeated_double_wrapper"
+        type: "list<double_wrapper>"
+        schemas:
+          proto2:
+            id: 127
+      - name: "repeated_float_wrapper"
+        type: "list<double_wrapper>"
+        schemas:
+          proto2:
+            id: 128
+            type: "google.protobuf.FloatValue"
+      - name: "repeated_uint64_wrapper"
+        type: "list<uint_wrapper>"
+        schemas:
+          proto2:
+            id: 129
+      - name: "repeated_uint32_wrapper"
+        type: "list<uint_wrapper>"
+        schemas:
+          proto2:
+            id: 130
+            type: "google.protobuf.UInt32Value"
+      - name: "repeated_string_wrapper"
+        type: "list<string_wrapper>"
+        schemas:
+          proto2:
+            id: 131
+      - name: "repeated_bool_wrapper"
+        type: "list<bool_wrapper>"
+        schemas:
+          proto2:
+            id: 132
+      - name: "repeated_bytes_wrapper"
+        type: "list<bytes_wrapper>"
+        schemas:
+          proto2:
+            id: 133
+      - name: "repeated_list_value"
+        type: "list<list<dyn>>"
+        schemas:
+          proto2:
+            id: 134
+      - name: "repeated_null_value"
+        type: "list<null>"
+        schemas:
+          proto2:
+            id: 135
+      - name: "map_int64_nested_type"
+        type: "map<int,cel.expr.conformance.proto2.NestedTestAllTypes>"
+        schemas:
+          proto2:
+            id: 62
+      - name: "map_bool_bool"
+        type: "map<bool,bool>"
+        schemas:
+          proto2:
+            id: 63
+      - name: "map_bool_string"
+        type: "map<bool,string>"
+        schemas:
+          proto2:
+            id: 64
+      - name: "map_bool_bytes"
+        type: "map<bool,bytes>"
+        schemas:
+          proto2:
+            id: 65
+      - name: "map_bool_int32"
+        type: "map<bool,int>"
+        schemas:
+          proto2:
+            id: 66
+            type: "map<bool, int32>"
+      - name: "map_bool_int64"
+        type: "map<bool,int>"
+        schemas:
+          proto2:
+            id: 67
+      - name: "map_bool_uint32"
+        type: "map<bool,uint>"
+        schemas:
+          proto2:
+            id: 68
+            type: "map<bool, uint32>"
+      - name: "map_bool_uint64"
+        type: "map<bool,uint>"
+        schemas:
+          proto2:
+            id: 69
+      - name: "map_bool_float"
+        type: "map<bool,double>"
+        schemas:
+          proto2:
+            id: 70
+            type: "map<bool, float>"
+      - name: "map_bool_double"
+        type: "map<bool,double>"
+        schemas:
+          proto2:
+            id: 71
+      - name: "map_bool_enum"
+        type: "map<bool,cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+        schemas:
+          proto2:
+            id: 72
+      - name: "map_bool_message"
+        type: "map<bool,cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 73
+      - name: "map_bool_duration"
+        type: "map<bool,duration>"
+        schemas:
+          proto2:
+            id: 228
+      - name: "map_bool_timestamp"
+        type: "map<bool,timestamp>"
+        schemas:
+          proto2:
+            id: 229
+      - name: "map_bool_null_value"
+        type: "map<bool,null>"
+        schemas:
+          proto2:
+            id: 230
+      - name: "map_bool_any"
+        type: "map<bool,any>"
+        schemas:
+          proto2:
+            id: 246
+      - name: "map_bool_struct"
+        type: "map<bool,map<string,dyn>>"
+        schemas:
+          proto2:
+            id: 247
+      - name: "map_bool_value"
+        type: "map<bool,dyn>"
+        schemas:
+          proto2:
+            id: 248
+      - name: "map_bool_list_value"
+        type: "map<bool,list<dyn>>"
+        schemas:
+          proto2:
+            id: 249
+      - name: "map_bool_int64_wrapper"
+        type: "map<bool,int_wrapper>"
+        schemas:
+          proto2:
+            id: 250
+      - name: "map_bool_int32_wrapper"
+        type: "map<bool,int_wrapper>"
+        schemas:
+          proto2:
+            id: 251
+            type: "map<bool, google.protobuf.Int32Value>"
+      - name: "map_bool_double_wrapper"
+        type: "map<bool,double_wrapper>"
+        schemas:
+          proto2:
+            id: 252
+      - name: "map_bool_float_wrapper"
+        type: "map<bool,double_wrapper>"
+        schemas:
+          proto2:
+            id: 253
+            type: "map<bool, google.protobuf.FloatValue>"
+      - name: "map_bool_uint64_wrapper"
+        type: "map<bool,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 254
+      - name: "map_bool_uint32_wrapper"
+        type: "map<bool,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 255
+            type: "map<bool, google.protobuf.UInt32Value>"
+      - name: "map_bool_string_wrapper"
+        type: "map<bool,string_wrapper>"
+        schemas:
+          proto2:
+            id: 256
+      - name: "map_bool_bool_wrapper"
+        type: "map<bool,bool_wrapper>"
+        schemas:
+          proto2:
+            id: 257
+      - name: "map_bool_bytes_wrapper"
+        type: "map<bool,bytes_wrapper>"
+        schemas:
+          proto2:
+            id: 258
+      - name: "map_int32_bool"
+        type: "map<int,bool>"
+        schemas:
+          proto2:
+            id: 74
+            type: "map<int32, bool>"
+      - name: "map_int32_string"
+        type: "map<int,string>"
+        schemas:
+          proto2:
+            id: 75
+            type: "map<int32, string>"
+      - name: "map_int32_bytes"
+        type: "map<int,bytes>"
+        schemas:
+          proto2:
+            id: 76
+            type: "map<int32, bytes>"
+      - name: "map_int32_int32"
+        type: "map<int,int>"
+        schemas:
+          proto2:
+            id: 77
+            type: "map<int32, int32>"
+      - name: "map_int32_int64"
+        type: "map<int,int>"
+        schemas:
+          proto2:
+            id: 78
+            type: "map<int32, int64>"
+      - name: "map_int32_uint32"
+        type: "map<int,uint>"
+        schemas:
+          proto2:
+            id: 79
+            type: "map<int32, uint32>"
+      - name: "map_int32_uint64"
+        type: "map<int,uint>"
+        schemas:
+          proto2:
+            id: 80
+            type: "map<int32, uint64>"
+      - name: "map_int32_float"
+        type: "map<int,double>"
+        schemas:
+          proto2:
+            id: 81
+            type: "map<int32, float>"
+      - name: "map_int32_double"
+        type: "map<int,double>"
+        schemas:
+          proto2:
+            id: 82
+            type: "map<int32, double>"
+      - name: "map_int32_enum"
+        type: "map<int,cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+        schemas:
+          proto2:
+            id: 83
+            type: "map<int32, cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+      - name: "map_int32_message"
+        type: "map<int,cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 84
+            type: "map<int32, cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+      - name: "map_int32_duration"
+        type: "map<int,duration>"
+        schemas:
+          proto2:
+            id: 231
+            type: "map<int32, google.protobuf.Duration>"
+      - name: "map_int32_timestamp"
+        type: "map<int,timestamp>"
+        schemas:
+          proto2:
+            id: 232
+            type: "map<int32, google.protobuf.Timestamp>"
+      - name: "map_int32_null_value"
+        type: "map<int,null>"
+        schemas:
+          proto2:
+            id: 233
+            type: "map<int32, google.protobuf.NullValue>"
+      - name: "map_int32_any"
+        type: "map<int,any>"
+        schemas:
+          proto2:
+            id: 259
+            type: "map<int32, google.protobuf.Any>"
+      - name: "map_int32_struct"
+        type: "map<int,map<string,dyn>>"
+        schemas:
+          proto2:
+            id: 260
+            type: "map<int32, google.protobuf.Struct>"
+      - name: "map_int32_value"
+        type: "map<int,dyn>"
+        schemas:
+          proto2:
+            id: 261
+            type: "map<int32, google.protobuf.Value>"
+      - name: "map_int32_list_value"
+        type: "map<int,list<dyn>>"
+        schemas:
+          proto2:
+            id: 262
+            type: "map<int32, google.protobuf.ListValue>"
+      - name: "map_int32_int64_wrapper"
+        type: "map<int,int_wrapper>"
+        schemas:
+          proto2:
+            id: 263
+            type: "map<int32, google.protobuf.Int64Value>"
+      - name: "map_int32_int32_wrapper"
+        type: "map<int,int_wrapper>"
+        schemas:
+          proto2:
+            id: 264
+            type: "map<int32, google.protobuf.Int32Value>"
+      - name: "map_int32_double_wrapper"
+        type: "map<int,double_wrapper>"
+        schemas:
+          proto2:
+            id: 265
+            type: "map<int32, google.protobuf.DoubleValue>"
+      - name: "map_int32_float_wrapper"
+        type: "map<int,double_wrapper>"
+        schemas:
+          proto2:
+            id: 266
+            type: "map<int32, google.protobuf.FloatValue>"
+      - name: "map_int32_uint64_wrapper"
+        type: "map<int,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 267
+            type: "map<int32, google.protobuf.UInt64Value>"
+      - name: "map_int32_uint32_wrapper"
+        type: "map<int,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 268
+            type: "map<int32, google.protobuf.UInt32Value>"
+      - name: "map_int32_string_wrapper"
+        type: "map<int,string_wrapper>"
+        schemas:
+          proto2:
+            id: 269
+            type: "map<int32, google.protobuf.StringValue>"
+      - name: "map_int32_bool_wrapper"
+        type: "map<int,bool_wrapper>"
+        schemas:
+          proto2:
+            id: 270
+            type: "map<int32, google.protobuf.BoolValue>"
+      - name: "map_int32_bytes_wrapper"
+        type: "map<int,bytes_wrapper>"
+        schemas:
+          proto2:
+            id: 271
+            type: "map<int32, google.protobuf.BytesValue>"
+      - name: "map_int64_bool"
+        type: "map<int,bool>"
+        schemas:
+          proto2:
+            id: 85
+      - name: "map_int64_string"
+        type: "map<int,string>"
+        schemas:
+          proto2:
+            id: 86
+      - name: "map_int64_bytes"
+        type: "map<int,bytes>"
+        schemas:
+          proto2:
+            id: 87
+      - name: "map_int64_int32"
+        type: "map<int,int>"
+        schemas:
+          proto2:
+            id: 88
+            type: "map<int64, int32>"
+      - name: "map_int64_int64"
+        type: "map<int,int>"
+        schemas:
+          proto2:
+            id: 89
+      - name: "map_int64_uint32"
+        type: "map<int,uint>"
+        schemas:
+          proto2:
+            id: 90
+            type: "map<int64, uint32>"
+      - name: "map_int64_uint64"
+        type: "map<int,uint>"
+        schemas:
+          proto2:
+            id: 91
+      - name: "map_int64_float"
+        type: "map<int,double>"
+        schemas:
+          proto2:
+            id: 92
+            type: "map<int64, float>"
+      - name: "map_int64_double"
+        type: "map<int,double>"
+        schemas:
+          proto2:
+            id: 93
+      - name: "map_int64_enum"
+        type: "map<int,cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+        schemas:
+          proto2:
+            id: 94
+      - name: "map_int64_message"
+        type: "map<int,cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 95
+      - name: "map_int64_duration"
+        type: "map<int,duration>"
+        schemas:
+          proto2:
+            id: 234
+      - name: "map_int64_timestamp"
+        type: "map<int,timestamp>"
+        schemas:
+          proto2:
+            id: 235
+      - name: "map_int64_null_value"
+        type: "map<int,null>"
+        schemas:
+          proto2:
+            id: 236
+      - name: "map_int64_any"
+        type: "map<int,any>"
+        schemas:
+          proto2:
+            id: 272
+      - name: "map_int64_struct"
+        type: "map<int,map<string,dyn>>"
+        schemas:
+          proto2:
+            id: 273
+      - name: "map_int64_value"
+        type: "map<int,dyn>"
+        schemas:
+          proto2:
+            id: 274
+      - name: "map_int64_list_value"
+        type: "map<int,list<dyn>>"
+        schemas:
+          proto2:
+            id: 275
+      - name: "map_int64_int64_wrapper"
+        type: "map<int,int_wrapper>"
+        schemas:
+          proto2:
+            id: 276
+      - name: "map_int64_int32_wrapper"
+        type: "map<int,int_wrapper>"
+        schemas:
+          proto2:
+            id: 277
+            type: "map<int64, google.protobuf.Int32Value>"
+      - name: "map_int64_double_wrapper"
+        type: "map<int,double_wrapper>"
+        schemas:
+          proto2:
+            id: 278
+      - name: "map_int64_float_wrapper"
+        type: "map<int,double_wrapper>"
+        schemas:
+          proto2:
+            id: 279
+            type: "map<int64, google.protobuf.FloatValue>"
+      - name: "map_int64_uint64_wrapper"
+        type: "map<int,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 280
+      - name: "map_int64_uint32_wrapper"
+        type: "map<int,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 281
+            type: "map<int64, google.protobuf.UInt32Value>"
+      - name: "map_int64_string_wrapper"
+        type: "map<int,string_wrapper>"
+        schemas:
+          proto2:
+            id: 282
+      - name: "map_int64_bool_wrapper"
+        type: "map<int,bool_wrapper>"
+        schemas:
+          proto2:
+            id: 283
+      - name: "map_int64_bytes_wrapper"
+        type: "map<int,bytes_wrapper>"
+        schemas:
+          proto2:
+            id: 284
+      - name: "map_uint32_bool"
+        type: "map<uint,bool>"
+        schemas:
+          proto2:
+            id: 96
+            type: "map<uint32, bool>"
+      - name: "map_uint32_string"
+        type: "map<uint,string>"
+        schemas:
+          proto2:
+            id: 97
+            type: "map<uint32, string>"
+      - name: "map_uint32_bytes"
+        type: "map<uint,bytes>"
+        schemas:
+          proto2:
+            id: 98
+            type: "map<uint32, bytes>"
+      - name: "map_uint32_int32"
+        type: "map<uint,int>"
+        schemas:
+          proto2:
+            id: 99
+            type: "map<uint32, int32>"
+      - name: "map_uint32_int64"
+        type: "map<uint,int>"
+        schemas:
+          proto2:
+            id: 200
+            type: "map<uint32, int64>"
+      - name: "map_uint32_uint32"
+        type: "map<uint,uint>"
+        schemas:
+          proto2:
+            id: 201
+            type: "map<uint32, uint32>"
+      - name: "map_uint32_uint64"
+        type: "map<uint,uint>"
+        schemas:
+          proto2:
+            id: 202
+            type: "map<uint32, uint64>"
+      - name: "map_uint32_float"
+        type: "map<uint,double>"
+        schemas:
+          proto2:
+            id: 203
+            type: "map<uint32, float>"
+      - name: "map_uint32_double"
+        type: "map<uint,double>"
+        schemas:
+          proto2:
+            id: 204
+            type: "map<uint32, double>"
+      - name: "map_uint32_enum"
+        type: "map<uint,cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+        schemas:
+          proto2:
+            id: 205
+            type: "map<uint32, cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+      - name: "map_uint32_message"
+        type: "map<uint,cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 206
+            type: "map<uint32, cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+      - name: "map_uint32_duration"
+        type: "map<uint,duration>"
+        schemas:
+          proto2:
+            id: 237
+            type: "map<uint32, google.protobuf.Duration>"
+      - name: "map_uint32_timestamp"
+        type: "map<uint,timestamp>"
+        schemas:
+          proto2:
+            id: 238
+            type: "map<uint32, google.protobuf.Timestamp>"
+      - name: "map_uint32_null_value"
+        type: "map<uint,null>"
+        schemas:
+          proto2:
+            id: 239
+            type: "map<uint32, google.protobuf.NullValue>"
+      - name: "map_uint32_any"
+        type: "map<uint,any>"
+        schemas:
+          proto2:
+            id: 285
+            type: "map<uint32, google.protobuf.Any>"
+      - name: "map_uint32_struct"
+        type: "map<uint,map<string,dyn>>"
+        schemas:
+          proto2:
+            id: 286
+            type: "map<uint32, google.protobuf.Struct>"
+      - name: "map_uint32_value"
+        type: "map<uint,dyn>"
+        schemas:
+          proto2:
+            id: 287
+            type: "map<uint32, google.protobuf.Value>"
+      - name: "map_uint32_list_value"
+        type: "map<uint,list<dyn>>"
+        schemas:
+          proto2:
+            id: 288
+            type: "map<uint32, google.protobuf.ListValue>"
+      - name: "map_uint32_int64_wrapper"
+        type: "map<uint,int_wrapper>"
+        schemas:
+          proto2:
+            id: 289
+            type: "map<uint32, google.protobuf.Int64Value>"
+      - name: "map_uint32_int32_wrapper"
+        type: "map<uint,int_wrapper>"
+        schemas:
+          proto2:
+            id: 290
+            type: "map<uint32, google.protobuf.Int32Value>"
+      - name: "map_uint32_double_wrapper"
+        type: "map<uint,double_wrapper>"
+        schemas:
+          proto2:
+            id: 291
+            type: "map<uint32, google.protobuf.DoubleValue>"
+      - name: "map_uint32_float_wrapper"
+        type: "map<uint,double_wrapper>"
+        schemas:
+          proto2:
+            id: 292
+            type: "map<uint32, google.protobuf.FloatValue>"
+      - name: "map_uint32_uint64_wrapper"
+        type: "map<uint,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 293
+            type: "map<uint32, google.protobuf.UInt64Value>"
+      - name: "map_uint32_uint32_wrapper"
+        type: "map<uint,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 294
+            type: "map<uint32, google.protobuf.UInt32Value>"
+      - name: "map_uint32_string_wrapper"
+        type: "map<uint,string_wrapper>"
+        schemas:
+          proto2:
+            id: 295
+            type: "map<uint32, google.protobuf.StringValue>"
+      - name: "map_uint32_bool_wrapper"
+        type: "map<uint,bool_wrapper>"
+        schemas:
+          proto2:
+            id: 296
+            type: "map<uint32, google.protobuf.BoolValue>"
+      - name: "map_uint32_bytes_wrapper"
+        type: "map<uint,bytes_wrapper>"
+        schemas:
+          proto2:
+            id: 297
+            type: "map<uint32, google.protobuf.BytesValue>"
+      - name: "map_uint64_bool"
+        type: "map<uint,bool>"
+        schemas:
+          proto2:
+            id: 207
+      - name: "map_uint64_string"
+        type: "map<uint,string>"
+        schemas:
+          proto2:
+            id: 208
+      - name: "map_uint64_bytes"
+        type: "map<uint,bytes>"
+        schemas:
+          proto2:
+            id: 209
+      - name: "map_uint64_int32"
+        type: "map<uint,int>"
+        schemas:
+          proto2:
+            id: 210
+            type: "map<uint64, int32>"
+      - name: "map_uint64_int64"
+        type: "map<uint,int>"
+        schemas:
+          proto2:
+            id: 211
+      - name: "map_uint64_uint32"
+        type: "map<uint,uint>"
+        schemas:
+          proto2:
+            id: 212
+            type: "map<uint64, uint32>"
+      - name: "map_uint64_uint64"
+        type: "map<uint,uint>"
+        schemas:
+          proto2:
+            id: 213
+      - name: "map_uint64_float"
+        type: "map<uint,double>"
+        schemas:
+          proto2:
+            id: 214
+            type: "map<uint64, float>"
+      - name: "map_uint64_double"
+        type: "map<uint,double>"
+        schemas:
+          proto2:
+            id: 215
+      - name: "map_uint64_enum"
+        type: "map<uint,cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+        schemas:
+          proto2:
+            id: 216
+      - name: "map_uint64_message"
+        type: "map<uint,cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 217
+      - name: "map_uint64_duration"
+        type: "map<uint,duration>"
+        schemas:
+          proto2:
+            id: 240
+      - name: "map_uint64_timestamp"
+        type: "map<uint,timestamp>"
+        schemas:
+          proto2:
+            id: 241
+      - name: "map_uint64_null_value"
+        type: "map<uint,null>"
+        schemas:
+          proto2:
+            id: 242
+      - name: "map_uint64_any"
+        type: "map<uint,any>"
+        schemas:
+          proto2:
+            id: 298
+      - name: "map_uint64_struct"
+        type: "map<uint,map<string,dyn>>"
+        schemas:
+          proto2:
+            id: 299
+      - name: "map_uint64_value"
+        type: "map<uint,dyn>"
+        schemas:
+          proto2:
+            id: 300
+      - name: "map_uint64_list_value"
+        type: "map<uint,list<dyn>>"
+        schemas:
+          proto2:
+            id: 301
+      - name: "map_uint64_int64_wrapper"
+        type: "map<uint,int_wrapper>"
+        schemas:
+          proto2:
+            id: 302
+      - name: "map_uint64_int32_wrapper"
+        type: "map<uint,int_wrapper>"
+        schemas:
+          proto2:
+            id: 303
+            type: "map<uint64, google.protobuf.Int32Value>"
+      - name: "map_uint64_double_wrapper"
+        type: "map<uint,double_wrapper>"
+        schemas:
+          proto2:
+            id: 304
+      - name: "map_uint64_float_wrapper"
+        type: "map<uint,double_wrapper>"
+        schemas:
+          proto2:
+            id: 305
+            type: "map<uint64, google.protobuf.FloatValue>"
+      - name: "map_uint64_uint64_wrapper"
+        type: "map<uint,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 306
+      - name: "map_uint64_uint32_wrapper"
+        type: "map<uint,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 307
+            type: "map<uint64, google.protobuf.UInt32Value>"
+      - name: "map_uint64_string_wrapper"
+        type: "map<uint,string_wrapper>"
+        schemas:
+          proto2:
+            id: 308
+      - name: "map_uint64_bool_wrapper"
+        type: "map<uint,bool_wrapper>"
+        schemas:
+          proto2:
+            id: 309
+      - name: "map_uint64_bytes_wrapper"
+        type: "map<uint,bytes_wrapper>"
+        schemas:
+          proto2:
+            id: 310
+      - name: "map_string_bool"
+        type: "map<string,bool>"
+        schemas:
+          proto2:
+            id: 218
+      - name: "map_string_string"
+        type: "map<string,string>"
+        schemas:
+          proto2:
+            id: 61
+      - name: "map_string_bytes"
+        type: "map<string,bytes>"
+        schemas:
+          proto2:
+            id: 219
+      - name: "map_string_int32"
+        type: "map<string,int>"
+        schemas:
+          proto2:
+            id: 220
+            type: "map<string, int32>"
+      - name: "map_string_int64"
+        type: "map<string,int>"
+        schemas:
+          proto2:
+            id: 221
+      - name: "map_string_uint32"
+        type: "map<string,uint>"
+        schemas:
+          proto2:
+            id: 222
+            type: "map<string, uint32>"
+      - name: "map_string_uint64"
+        type: "map<string,uint>"
+        schemas:
+          proto2:
+            id: 223
+      - name: "map_string_float"
+        type: "map<string,double>"
+        schemas:
+          proto2:
+            id: 224
+            type: "map<string, float>"
+      - name: "map_string_double"
+        type: "map<string,double>"
+        schemas:
+          proto2:
+            id: 225
+      - name: "map_string_enum"
+        type: "map<string,cel.expr.conformance.proto2.TestAllTypes.NestedEnum>"
+        schemas:
+          proto2:
+            id: 226
+      - name: "map_string_message"
+        type: "map<string,cel.expr.conformance.proto2.TestAllTypes.NestedMessage>"
+        schemas:
+          proto2:
+            id: 227
+      - name: "map_string_duration"
+        type: "map<string,duration>"
+        schemas:
+          proto2:
+            id: 243
+      - name: "map_string_timestamp"
+        type: "map<string,timestamp>"
+        schemas:
+          proto2:
+            id: 244
+      - name: "map_string_null_value"
+        type: "map<string,null>"
+        schemas:
+          proto2:
+            id: 245
+      - name: "map_string_any"
+        type: "map<string,any>"
+        schemas:
+          proto2:
+            id: 311
+      - name: "map_string_struct"
+        type: "map<string,map<string,dyn>>"
+        schemas:
+          proto2:
+            id: 312
+      - name: "map_string_value"
+        type: "map<string,dyn>"
+        schemas:
+          proto2:
+            id: 313
+      - name: "map_string_list_value"
+        type: "map<string,list<dyn>>"
+        schemas:
+          proto2:
+            id: 314
+      - name: "map_string_int64_wrapper"
+        type: "map<string,int_wrapper>"
+        schemas:
+          proto2:
+            id: 315
+      - name: "map_string_int32_wrapper"
+        type: "map<string,int_wrapper>"
+        schemas:
+          proto2:
+            id: 316
+            type: "map<string, google.protobuf.Int32Value>"
+      - name: "map_string_double_wrapper"
+        type: "map<string,double_wrapper>"
+        schemas:
+          proto2:
+            id: 317
+      - name: "map_string_float_wrapper"
+        type: "map<string,double_wrapper>"
+        schemas:
+          proto2:
+            id: 318
+            type: "map<string, google.protobuf.FloatValue>"
+      - name: "map_string_uint64_wrapper"
+        type: "map<string,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 319
+      - name: "map_string_uint32_wrapper"
+        type: "map<string,uint_wrapper>"
+        schemas:
+          proto2:
+            id: 320
+            type: "map<string, google.protobuf.UInt32Value>"
+      - name: "map_string_string_wrapper"
+        type: "map<string,string_wrapper>"
+        schemas:
+          proto2:
+            id: 321
+      - name: "map_string_bool_wrapper"
+        type: "map<string,bool_wrapper>"
+        schemas:
+          proto2:
+            id: 322
+      - name: "map_string_bytes_wrapper"
+        type: "map<string,bytes_wrapper>"
+        schemas:
+          proto2:
+            id: 323
+      - name: "oneof_type"
+        type: "cel.expr.conformance.proto2.NestedTestAllTypes"
+        schemas:
+          proto2:
+            id: 400
+            oneof: "kind"
+      - name: "oneof_msg"
+        type: "cel.expr.conformance.proto2.TestAllTypes.NestedMessage"
+        schemas:
+          proto2:
+            id: 401
+            oneof: "kind"
+      - name: "oneof_bool"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 402
+            oneof: "kind"
+      - name: "nestedgroup"
+        type: "cel.expr.conformance.proto2.TestAllTypes.NestedGroup"
+        schemas:
+          proto2:
+            id: 403
+            type: "group"
+      - name: "as"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 500
+      - name: "break"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 501
+      - name: "const"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 502
+      - name: "continue"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 503
+      - name: "else"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 504
+      - name: "for"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 505
+      - name: "function"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 506
+      - name: "if"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 507
+      - name: "import"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 508
+      - name: "let"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 509
+      - name: "loop"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 510
+      - name: "package"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 511
+      - name: "namespace"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 512
+      - name: "return"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 513
+      - name: "var"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 514
+      - name: "void"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 515
+      - name: "while"
+        type: "bool"
+        schemas:
+          proto2:
+            id: 516
+- enum:
+    name: "cel.expr.conformance.proto2.TestAllTypes.NestedEnum"
+    constants:
+      - name: "FOO"
+        id: 0
+      - name: "BAR"
+        id: 1
+      - name: "BAZ"
+        id: 2
+- object:
+    name: "cel.expr.conformance.proto2.TestAllTypes.NestedGroup"
+    fields:
+      - name: "single_id"
+        type: "int"
+        schemas:
+          proto2:
+            id: 404
+            type: "int32"
+      - name: "single_name"
+        type: "string"
+        schemas:
+          proto2:
+            id: 405
+- object:
+    name: "cel.expr.conformance.proto2.TestAllTypes.NestedMessage"
+    fields:
+      - name: "bb"
+        type: "int"
+        schemas:
+          proto2:
+            id: 1
+            type: "int32"
+- object:
+    name: "cel.expr.conformance.proto2.TestRequired"
+    schemas:
+      proto2:
+        file_name: "third_party/cel/spec/proto/cel/expr/conformance/proto2/test_all_types.proto"
+    fields:
+      - name: "required_int32"
+        type: "int"
+        schemas:
+          proto2:
+            id: 1
+            type: "int32"
+            label: "required"
+- object:
+    name: "google.protobuf.Empty"
+    schemas:
+      proto3:
+        file_name: "google/protobuf/empty.proto"
+- object:
+    name: "google.protobuf.FieldMask"
+    schemas:
+      proto3:
+        file_name: "google/protobuf/field_mask.proto"
+    fields:
+      - name: "paths"
+        type: "list<string>"
+        schemas:
+          proto3:
+            id: 1
