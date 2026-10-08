@@ -39,6 +39,7 @@
 namespace cel {
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::IsOkAndHolds;
 using ::absl_testing::StatusIs;
 using testing::ElementsAre;
@@ -212,11 +213,13 @@ TEST_F(ActivationTest, ValuesAndProvidersShareNamespace) {
 TEST_F(ActivationTest, SetUnknownAttributes) {
   Activation activation;
 
-  activation.SetUnknownPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
+  ASSERT_THAT(
+      activation.SetUnknownPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
 
   EXPECT_THAT(
       activation.GetUnknownAttributes(),
@@ -229,12 +232,14 @@ TEST_F(ActivationTest, SetUnknownAttributes) {
 TEST_F(ActivationTest, ClearUnknownAttributes) {
   Activation activation;
 
-  activation.SetUnknownPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
-  activation.SetUnknownPatterns({});
+  ASSERT_THAT(
+      activation.SetUnknownPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
+  ASSERT_THAT(activation.SetUnknownPatterns({}), IsOk());
 
   EXPECT_THAT(activation.GetUnknownAttributes(), IsEmpty());
 }
@@ -242,11 +247,13 @@ TEST_F(ActivationTest, ClearUnknownAttributes) {
 TEST_F(ActivationTest, SetMissingAttributes) {
   Activation activation;
 
-  activation.SetMissingPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
+  ASSERT_THAT(
+      activation.SetMissingPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
 
   EXPECT_THAT(
       activation.GetMissingAttributes(),
@@ -259,12 +266,14 @@ TEST_F(ActivationTest, SetMissingAttributes) {
 TEST_F(ActivationTest, ClearMissingAttributes) {
   Activation activation;
 
-  activation.SetMissingPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
-  activation.SetMissingPatterns({});
+  ASSERT_THAT(
+      activation.SetMissingPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
+  ASSERT_THAT(activation.SetMissingPatterns({}), IsOk());
 
   EXPECT_THAT(activation.GetMissingAttributes(), IsEmpty());
 }
@@ -327,16 +336,20 @@ TEST_F(ActivationTest, MoveAssignment) {
       [](absl::string_view name, const google::protobuf::DescriptorPool* absl_nonnull,
          google::protobuf::MessageFactory* absl_nonnull, google::protobuf::Arena* absl_nonnull)
           -> absl::StatusOr<std::optional<Value>> { return IntValue(42); }));
-  moved_from.SetUnknownPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
-  moved_from.SetMissingPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
+  ASSERT_THAT(
+      moved_from.SetUnknownPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
+  ASSERT_THAT(
+      moved_from.SetMissingPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
 
   Activation moved_to;
   moved_to = std::move(moved_from);
@@ -378,16 +391,20 @@ TEST_F(ActivationTest, MoveCtor) {
       [](absl::string_view name, const google::protobuf::DescriptorPool* absl_nonnull,
          google::protobuf::MessageFactory* absl_nonnull, google::protobuf::Arena* absl_nonnull)
           -> absl::StatusOr<std::optional<Value>> { return IntValue(42); }));
-  moved_from.SetUnknownPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
-  moved_from.SetMissingPatterns(
-      {AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field1")}),
-       AttributePattern("var1",
-                        {AttributeQualifierPattern::OfString("field2")})});
+  ASSERT_THAT(
+      moved_from.SetUnknownPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
+  ASSERT_THAT(
+      moved_from.SetMissingPatterns(
+          {AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field1")}),
+           AttributePattern("var1",
+                            {AttributeQualifierPattern::OfString("field2")})}),
+      IsOk());
 
   Activation moved_to = std::move(moved_from);
 

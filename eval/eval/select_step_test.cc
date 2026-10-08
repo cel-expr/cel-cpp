@@ -807,7 +807,7 @@ TEST_F(SelectStepTest, DisableMissingAttributeOK) {
   EXPECT_EQ(result.BoolOrDie(), true);
 
   CelAttributePattern pattern("message", {});
-  activation.set_missing_attribute_patterns({pattern});
+  ASSERT_THAT(activation.SetMissingAttributePatterns({pattern}), IsOk());
 
   ASSERT_OK_AND_ASSIGN(result, cel_expr.Evaluate(activation, &arena_));
   EXPECT_EQ(result.BoolOrDie(), true);
@@ -853,7 +853,7 @@ TEST_F(SelectStepTest, UnrecoverableUnknownValueProducesError) {
   CelAttributePattern pattern("message",
                               {CreateCelAttributeQualifierPattern(
                                   CelValue::CreateStringView("bool_value"))});
-  activation.set_missing_attribute_patterns({pattern});
+  ASSERT_THAT(activation.SetMissingAttributePatterns({pattern}), IsOk());
 
   ASSERT_OK_AND_ASSIGN(result, cel_expr.Evaluate(activation, &arena_));
   EXPECT_THAT(*result.ErrorOrDie(),
@@ -897,7 +897,8 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
     Activation activation;
     activation.InsertValue("message",
                            CelProtoWrapper::CreateMessage(&message, &arena_));
-    activation.set_unknown_attribute_patterns(unknown_patterns);
+    ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns),
+                IsOk());
 
     ASSERT_OK_AND_ASSIGN(CelValue result,
                          cel_expr.Evaluate(activation, &arena_));
@@ -914,7 +915,8 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
     Activation activation;
     activation.InsertValue("message",
                            CelProtoWrapper::CreateMessage(&message, &arena_));
-    activation.set_unknown_attribute_patterns(unknown_patterns);
+    ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns),
+                IsOk());
 
     ASSERT_OK_AND_ASSIGN(CelValue result,
                          cel_expr.Evaluate(activation, &arena_));
@@ -929,7 +931,8 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
     Activation activation;
     activation.InsertValue("message",
                            CelProtoWrapper::CreateMessage(&message, &arena_));
-    activation.set_unknown_attribute_patterns(unknown_patterns);
+    ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns),
+                IsOk());
 
     ASSERT_OK_AND_ASSIGN(CelValue result,
                          cel_expr.Evaluate(activation, &arena_));
@@ -943,7 +946,8 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
     Activation activation;
     activation.InsertValue("message",
                            CelProtoWrapper::CreateMessage(&message, &arena_));
-    activation.set_unknown_attribute_patterns(unknown_patterns);
+    ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns),
+                IsOk());
 
     ASSERT_OK_AND_ASSIGN(CelValue result,
                          cel_expr.Evaluate(activation, &arena_));
@@ -958,7 +962,8 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
     Activation activation;
     activation.InsertValue("message",
                            CelProtoWrapper::CreateMessage(&message, &arena_));
-    activation.set_unknown_attribute_patterns(unknown_patterns);
+    ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns),
+                IsOk());
 
     ASSERT_OK_AND_ASSIGN(CelValue result,
                          cel_expr.Evaluate(activation, &arena_));
@@ -1075,7 +1080,7 @@ TEST_F(SelectStepTest, TypedSelectStepUnknownPatternResolvesToUnknown) {
   Activation activation;
   activation.InsertValue("message",
                          CelProtoWrapper::CreateMessage(&message, &arena_));
-  activation.set_unknown_attribute_patterns(unknown_patterns);
+  ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns), IsOk());
 
   ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr.Evaluate(activation, &arena_));
   ASSERT_TRUE(result.IsUnknownSet());
@@ -1508,9 +1513,10 @@ TEST_F(DirectSelectStepTest, MissingAttributesToErrors) {
   TestAllTypes message;
   message.set_single_int64(1);
   activation.InsertOrAssignValue("test_all_types", TestWrapMessage(&message));
-  activation.SetMissingPatterns({cel::AttributePattern(
-      "test_all_types",
-      {cel::AttributeQualifierPattern::OfString("single_int64")})});
+  ASSERT_THAT(activation.SetMissingPatterns({cel::AttributePattern(
+                  "test_all_types",
+                  {cel::AttributeQualifierPattern::OfString("single_int64")})}),
+              IsOk());
 
   ExecutionFrameBase frame(activation, options, type_provider_,
                            cel::internal::GetTestingDescriptorPool(),
@@ -1539,9 +1545,10 @@ TEST_F(DirectSelectStepTest, IdentifiesUnknowns) {
   TestAllTypes message;
   message.set_single_int64(1);
   activation.InsertOrAssignValue("test_all_types", TestWrapMessage(&message));
-  activation.SetUnknownPatterns({cel::AttributePattern(
-      "test_all_types",
-      {cel::AttributeQualifierPattern::OfString("single_int64")})});
+  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
+                  "test_all_types",
+                  {cel::AttributeQualifierPattern::OfString("single_int64")})}),
+              IsOk());
 
   ExecutionFrameBase frame(activation, options, type_provider_,
                            cel::internal::GetTestingDescriptorPool(),

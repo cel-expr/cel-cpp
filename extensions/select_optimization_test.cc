@@ -842,12 +842,13 @@ TEST_F(SelectOptimizationTest, MissingAttributeIndependentOfUnknown) {
   // activation only uses a ptr to the underlying message, persist them.
   NestedTestAllTypes var;
 
-  act.SetMissingPatterns(
-      {AttributePattern("nested_test_all_types",
-                        {
-                            AttributeQualifierPattern::OfString("child"),
-                            AttributeQualifierPattern::OfString("payload"),
-                        })});
+  ASSERT_THAT(act.SetMissingPatterns({AttributePattern(
+                  "nested_test_all_types",
+                  {
+                      AttributeQualifierPattern::OfString("child"),
+                      AttributeQualifierPattern::OfString("payload"),
+                  })}),
+              IsOk());
 
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
       R"pb(
@@ -1268,10 +1269,9 @@ INSTANTIATE_TEST_SUITE_P(
                 child { child { payload { single_int64: -42 } } }
               )pb"}},
             [](google::protobuf::Arena*, Activation& act) {
-              act.SetUnknownPatterns({AttributePattern(
+              return act.SetUnknownPatterns({AttributePattern(
                   "b", {AttributeQualifierPattern::OfString("child"),
                         AttributeQualifierPattern::OfString("child")})});
-              return absl::OkStatus();
             },
 
             [](const absl::StatusOr<Value>& got) {
@@ -1297,11 +1297,10 @@ INSTANTIATE_TEST_SUITE_P(
                 child { child { payload { single_int64: -42 } } }
               )pb"}},
             [](google::protobuf::Arena*, Activation& act) {
-              act.SetUnknownPatterns({AttributePattern(
+              return act.SetUnknownPatterns({AttributePattern(
                   "b", {AttributeQualifierPattern::OfString("child"),
                         AttributeQualifierPattern::OfString("child"),
                         AttributeQualifierPattern::OfString("child")})});
-              return absl::OkStatus();
             },
 
             [](const absl::StatusOr<Value>& got) {
@@ -1319,10 +1318,9 @@ INSTANTIATE_TEST_SUITE_P(
                 child { child { payload { single_int64: -42 } } }
               )pb"}},
             [](google::protobuf::Arena*, Activation& act) {
-              act.SetUnknownPatterns({
+              return act.SetUnknownPatterns({
                   AttributePattern("b", {}),
               });
-              return absl::OkStatus();
             },
 
             [](const absl::StatusOr<Value>& got) {
@@ -1343,10 +1341,9 @@ INSTANTIATE_TEST_SUITE_P(
                 child { child { payload { single_int64: -42 } } }
               )pb"}},
             [](google::protobuf::Arena*, Activation& act) {
-              act.SetUnknownPatterns({
+              return act.SetUnknownPatterns({
                   AttributePattern("a", {}),
               });
-              return absl::OkStatus();
             },
             [](const absl::StatusOr<Value>& got) {
               ASSERT_OK_AND_ASSIGN(Value result, got);
@@ -1363,12 +1360,11 @@ INSTANTIATE_TEST_SUITE_P(
                 child { payload { standalone_message { bb: 20 } } }
               )pb"}},
             [](google::protobuf::Arena*, Activation& act) {
-              act.SetMissingPatterns({AttributePattern(
+              return act.SetMissingPatterns({AttributePattern(
                   "nested_test_all_types",
                   {
                       AttributeQualifierPattern::OfString("child"),
                   })});
-              return absl::OkStatus();
             },
 
             [](const absl::StatusOr<Value>& got) {
@@ -1388,10 +1384,9 @@ INSTANTIATE_TEST_SUITE_P(
                 child { payload { standalone_message { bb: 20 } } }
               )pb"}},
             [](google::protobuf::Arena*, Activation& act) {
-              act.SetMissingPatterns({AttributePattern(
+              return act.SetMissingPatterns({AttributePattern(
                   "b", {AttributeQualifierPattern::OfString("child"),
                         AttributeQualifierPattern::OfString("child")})});
-              return absl::OkStatus();
             },
 
             [](const absl::StatusOr<Value>& got) {

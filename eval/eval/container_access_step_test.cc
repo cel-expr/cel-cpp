@@ -9,6 +9,7 @@
 #include "cel/expr/syntax.pb.h"
 #include "google/protobuf/struct.pb.h"
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "base/builtins.h"
 #include "base/type_provider.h"
@@ -101,7 +102,7 @@ CelValue EvaluateAttributeHelper(
   activation.InsertValue("container", container);
   activation.InsertValue("key", key);
 
-  activation.set_unknown_attribute_patterns(patterns);
+  ABSL_CHECK_OK(activation.SetUnknownAttributePatterns(patterns));  // Crash OK
   auto result = cel_expr.Evaluate(activation, arena);
   return *result;
 }

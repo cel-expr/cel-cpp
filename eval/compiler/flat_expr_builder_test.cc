@@ -2954,7 +2954,9 @@ TEST_P(FlatExprBuilderVariadicLogicalTest, Evaluate) {
   insert_value("c", test_case.c_val);
 
   if (!unknown_patterns.empty()) {
-    activation.set_unknown_attribute_patterns(std::move(unknown_patterns));
+    ASSERT_THAT(
+        activation.SetUnknownAttributePatterns(std::move(unknown_patterns)),
+        IsOk());
   }
 
   ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));

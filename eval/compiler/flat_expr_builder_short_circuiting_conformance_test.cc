@@ -6,6 +6,7 @@
 
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
@@ -26,6 +27,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
+using ::absl_testing::IsOk;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::expr::Expr;
 using ::google::api::expr::parser::Parse;
@@ -187,7 +189,9 @@ TEST_P(ShortCircuitingTest, UnknownAnd) {
   auto builder = GetBuilder(/* enable_unknowns=*/true);
   absl::Status error = absl::InternalError("error");
 
-  activation.set_unknown_attribute_patterns({CelAttributePattern("var1", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern("var1", {})}),
+      IsOk());
   activation.InsertValue("var2", CelValue::CreateError(&error));
   activation.InsertValue("var3", CelValue::CreateBool(false));
 
@@ -217,7 +221,9 @@ TEST_P(ShortCircuitingTest, UnknownOr) {
   auto builder = GetBuilder(/* enable_unknowns=*/true);
   absl::Status error = absl::InternalError("error");
 
-  activation.set_unknown_attribute_patterns({CelAttributePattern("var1", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern("var1", {})}),
+      IsOk());
   activation.InsertValue("var2", CelValue::CreateError(&error));
   activation.InsertValue("var3", CelValue::CreateBool(true));
 
@@ -307,7 +313,9 @@ TEST_P(ShortCircuitingTest, TernaryUnknownCondHandling) {
   activation.InsertValue("arg1", CelValue::CreateError(&error));
   activation.InsertValue("arg2", CelValue::CreateInt64(-1));
 
-  activation.set_unknown_attribute_patterns({CelAttributePattern("cond", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern("cond", {})}),
+      IsOk());
 
   CelValue result;
   ASSERT_NO_FATAL_FAILURE(
@@ -319,9 +327,11 @@ TEST_P(ShortCircuitingTest, TernaryUnknownCondHandling) {
   EXPECT_THAT(attrs.begin()->variable_name(), Eq("cond"));
 
   // Unknown branches are discarded if condition is unknown
-  activation.set_unknown_attribute_patterns({CelAttributePattern("cond", {}),
-                                             CelAttributePattern("arg1", {}),
-                                             CelAttributePattern("arg2", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern("cond", {}),
+                                              CelAttributePattern("arg1", {}),
+                                              CelAttributePattern("arg2", {})}),
+      IsOk());
 
   ASSERT_NO_FATAL_FAILURE(
       BuildAndEval(builder.get(), expr, activation, &arena, &result));
@@ -344,7 +354,9 @@ TEST_P(ShortCircuitingTest, TernaryUnknownArgsHandling) {
   activation.InsertValue("arg2", CelValue::CreateInt64(-1));
 
   // Unknown arg is discarded if condition chooses other branch.
-  activation.set_unknown_attribute_patterns({CelAttributePattern("arg1", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern("arg1", {})}),
+      IsOk());
 
   CelValue result;
 
@@ -354,8 +366,10 @@ TEST_P(ShortCircuitingTest, TernaryUnknownArgsHandling) {
   EXPECT_EQ(result.Int64OrDie(), -1);
 
   // Branches won't merge if both are unknown.
-  activation.set_unknown_attribute_patterns(
-      {CelAttributePattern("arg1", {}), CelAttributePattern("arg2", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns(
+          {CelAttributePattern("arg1", {}), CelAttributePattern("arg2", {})}),
+      IsOk());
 
   ASSERT_NO_FATAL_FAILURE(
       BuildAndEval(builder.get(), expr, activation, &arena, &result));
@@ -378,8 +392,10 @@ TEST_P(ShortCircuitingTest, TernaryUnknownAndErrorHandling) {
   activation.InsertValue("arg2", CelValue::CreateInt64(-1));
 
   // Error cond discards args
-  activation.set_unknown_attribute_patterns(
-      {CelAttributePattern("arg1", {}), CelAttributePattern("arg2", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns(
+          {CelAttributePattern("arg1", {}), CelAttributePattern("arg2", {})}),
+      IsOk());
 
   CelValue result;
 
@@ -389,7 +405,9 @@ TEST_P(ShortCircuitingTest, TernaryUnknownAndErrorHandling) {
   EXPECT_EQ(*result.ErrorOrDie(), error);
 
   // Error arg discarded if condition unknown
-  activation.set_unknown_attribute_patterns({CelAttributePattern("cond", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern("cond", {})}),
+      IsOk());
   ASSERT_TRUE(activation.RemoveValueEntry("arg1"));
   activation.InsertValue("arg1", CelValue::CreateError(&error));
 

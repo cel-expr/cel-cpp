@@ -43,6 +43,7 @@ namespace google::api::expr::runtime {
 
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::expr::CheckedExpr;
@@ -152,9 +153,11 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, ListCompWithUnknowns) {
                                                 &parsed_expr.source_info()));
 
   Activation activation;
-  activation.set_unknown_attribute_patterns({CelAttributePattern{
-      "items",
-      {CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1))}}});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern{
+          "items",
+          {CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1))}}}),
+      IsOk());
   ContainerBackedListImpl list_impl = ContainerBackedListImpl({
       CelValue::CreateInt64(1),
       // element items[1] is marked unknown, so the computation should produce

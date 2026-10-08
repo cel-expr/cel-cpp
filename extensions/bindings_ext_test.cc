@@ -624,9 +624,10 @@ TEST_P(BindingsExtInteractionsTest, UnknownAttributesSelectOptimization) {
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&expr));
   Arena arena;
   Activation activation;
-  activation.set_unknown_attribute_patterns({AttributePattern(
-      "msg", {AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("child")})});
+  ASSERT_THAT(activation.SetUnknownAttributePatterns({AttributePattern(
+                  "msg", {AttributeQualifierPattern::OfString("child"),
+                          AttributeQualifierPattern::OfString("child")})}),
+              IsOk());
 
   NestedTestAllTypes msg;
   msg.mutable_child()->mutable_child()->mutable_payload()->set_single_int64(42);
@@ -662,11 +663,13 @@ TEST_P(BindingsExtInteractionsTest,
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&expr));
   Arena arena;
   Activation activation;
-  activation.set_unknown_attribute_patterns({AttributePattern(
-      "msg", {AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("payload"),
-              AttributeQualifierPattern::OfString("single_int64")})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({AttributePattern(
+          "msg", {AttributeQualifierPattern::OfString("child"),
+                  AttributeQualifierPattern::OfString("child"),
+                  AttributeQualifierPattern::OfString("payload"),
+                  AttributeQualifierPattern::OfString("single_int64")})}),
+      IsOk());
 
   NestedTestAllTypes msg;
   msg.mutable_child()->mutable_child()->mutable_payload()->set_single_int64(42);
@@ -703,11 +706,13 @@ TEST_P(BindingsExtInteractionsTest, MissingAttributesSelectOptimization) {
   ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&expr));
   Arena arena;
   Activation activation;
-  activation.set_missing_attribute_patterns({AttributePattern(
-      "msg", {AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("payload"),
-              AttributeQualifierPattern::OfString("single_int64")})});
+  ASSERT_THAT(
+      activation.SetMissingAttributePatterns({AttributePattern(
+          "msg", {AttributeQualifierPattern::OfString("child"),
+                  AttributeQualifierPattern::OfString("child"),
+                  AttributeQualifierPattern::OfString("payload"),
+                  AttributeQualifierPattern::OfString("single_int64")})}),
+      IsOk());
 
   NestedTestAllTypes msg;
   msg.mutable_child()->mutable_child()->mutable_payload()->set_single_int64(42);
@@ -751,10 +756,12 @@ TEST_P(BindingsExtInteractionsTest, UnknownAttribute) {
                                           &expr.expr(), &expr.source_info()));
   Arena arena;
   Activation activation;
-  activation.set_unknown_attribute_patterns({AttributePattern(
-      "msg", {AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("payload"),
-              AttributeQualifierPattern::OfString("single_int64")})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({AttributePattern(
+          "msg", {AttributeQualifierPattern::OfString("child"),
+                  AttributeQualifierPattern::OfString("payload"),
+                  AttributeQualifierPattern::OfString("single_int64")})}),
+      IsOk());
 
   NestedTestAllTypes msg;
   msg.mutable_child()->mutable_child()->mutable_payload()->set_single_int64(42);
@@ -797,10 +804,12 @@ TEST_P(BindingsExtInteractionsTest, UnknownAttributeReturnValue) {
                                           &expr.expr(), &expr.source_info()));
   Arena arena;
   Activation activation;
-  activation.set_unknown_attribute_patterns({AttributePattern(
-      "msg", {AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("payload"),
-              AttributeQualifierPattern::OfString("single_int64")})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({AttributePattern(
+          "msg", {AttributeQualifierPattern::OfString("child"),
+                  AttributeQualifierPattern::OfString("payload"),
+                  AttributeQualifierPattern::OfString("single_int64")})}),
+      IsOk());
 
   NestedTestAllTypes msg;
   msg.mutable_child()->mutable_child()->mutable_payload()->set_single_int64(42);
@@ -847,10 +856,12 @@ TEST_P(BindingsExtInteractionsTest, MissingAttribute) {
                                           &expr.expr(), &expr.source_info()));
   Arena arena;
   Activation activation;
-  activation.set_missing_attribute_patterns({AttributePattern(
-      "msg", {AttributeQualifierPattern::OfString("child"),
-              AttributeQualifierPattern::OfString("payload"),
-              AttributeQualifierPattern::OfString("single_int64")})});
+  ASSERT_THAT(
+      activation.SetMissingAttributePatterns({AttributePattern(
+          "msg", {AttributeQualifierPattern::OfString("child"),
+                  AttributeQualifierPattern::OfString("payload"),
+                  AttributeQualifierPattern::OfString("single_int64")})}),
+      IsOk());
 
   NestedTestAllTypes msg;
   msg.mutable_child()->mutable_child()->mutable_payload()->set_single_int64(42);

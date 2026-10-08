@@ -23,6 +23,7 @@
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/functional/any_invocable.h"
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
@@ -97,20 +98,24 @@ class Activation final : public ActivationInterface {
   bool InsertOrAssignValueProvider(absl::string_view name,
                                    ValueProvider provider);
 
-  void AddUnknownPattern(cel::AttributePattern pattern) {
+  absl::Status AddUnknownPattern(cel::AttributePattern pattern) {
     unknown_patterns_.push_back(std::move(pattern));
+    return absl::OkStatus();
   }
 
-  void SetUnknownPatterns(std::vector<cel::AttributePattern> patterns) {
+  absl::Status SetUnknownPatterns(std::vector<cel::AttributePattern> patterns) {
     unknown_patterns_ = std::move(patterns);
+    return absl::OkStatus();
   }
 
-  void AddMissingPattern(cel::AttributePattern pattern) {
+  absl::Status AddMissingPattern(cel::AttributePattern pattern) {
     missing_patterns_.push_back(std::move(pattern));
+    return absl::OkStatus();
   }
 
-  void SetMissingPatterns(std::vector<cel::AttributePattern> patterns) {
+  absl::Status SetMissingPatterns(std::vector<cel::AttributePattern> patterns) {
     missing_patterns_ = std::move(patterns);
+    return absl::OkStatus();
   }
 
   // Returns true if the function was inserted (no other registered function has

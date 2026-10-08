@@ -20,6 +20,7 @@ namespace runtime {
 
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::extensions::ProtoMemoryManager;
 using ::cel::expr::Expr;
@@ -226,7 +227,8 @@ TEST(ActivationTest, ErrorPathTest) {
             CelAttributePattern::MatchType::FULL);
   EXPECT_TRUE(activation.missing_attribute_patterns().empty());
 
-  activation.set_missing_attribute_patterns({destination_ip_pattern});
+  ASSERT_THAT(activation.SetMissingAttributePatterns({destination_ip_pattern}),
+              IsOk());
   EXPECT_EQ(
       activation.missing_attribute_patterns()[0].IsMatch(trail.attribute()),
       CelAttributePattern::MatchType::FULL);

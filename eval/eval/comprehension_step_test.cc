@@ -113,11 +113,13 @@ TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
   (*value.mutable_fields())["key3"].set_number_value(3.0);
 
   activation.InsertValue("var", CelProtoWrapper::CreateMessage(&value, &arena));
-  activation.set_unknown_attribute_patterns({CelAttributePattern(
-      "var",
-      {CreateCelAttributeQualifierPattern(CelValue::CreateStringView("key2")),
-       CreateCelAttributeQualifierPattern(CelValue::CreateStringView("foo")),
-       CelAttributeQualifierPattern::CreateWildcard()})});
+  ASSERT_THAT(activation.SetUnknownAttributePatterns({CelAttributePattern(
+                  "var", {CreateCelAttributeQualifierPattern(
+                              CelValue::CreateStringView("key2")),
+                          CreateCelAttributeQualifierPattern(
+                              CelValue::CreateStringView("foo")),
+                          CelAttributeQualifierPattern::CreateWildcard()})}),
+              IsOk());
 
   auto eval_result = expression->Evaluate(activation, &arena);
 
@@ -171,7 +173,9 @@ TEST_F(ListKeysStepTest, UnknownSetPassedThrough) {
   Activation activation;
   Arena arena;
 
-  activation.set_unknown_attribute_patterns({CelAttributePattern("var", {})});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern("var", {})}),
+      IsOk());
 
   auto eval_result = expression->Evaluate(activation, &arena);
 

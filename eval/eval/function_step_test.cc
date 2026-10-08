@@ -693,7 +693,7 @@ TEST_P(FunctionStepTestUnknowns, PartialUnknownHandlingTest) {
   // Set attribute pattern that marks attribute "param[true]" as unknown.
   // It should result in "param" being handled as partially unknown, which is
   // is handled as fully unknown when used as function input argument.
-  activation.set_unknown_attribute_patterns({pattern});
+  ASSERT_THAT(activation.SetUnknownAttributePatterns({pattern}), IsOk());
 
   ASSERT_OK_AND_ASSIGN(CelValue value, impl->Evaluate(activation, &arena));
   ASSERT_TRUE(value.IsUnknownSet());

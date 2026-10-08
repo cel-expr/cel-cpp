@@ -94,8 +94,9 @@ TEST(RecursiveTest, PartialAttrUnknown) {
       std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo")),
       std::make_unique<ValueStep>(IntValue(2)), false, -1);
 
-  activation.SetUnknownPatterns({cel::AttributePattern(
-      "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
+  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
+                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
+              IsOk());
 
   ExecutionFrameBase frame(activation, opts, type_provider,
                            cel::internal::GetTestingDescriptorPool(),
@@ -120,8 +121,9 @@ TEST(RecursiveTest, PartialAttrUnknownDisabled) {
       std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo")),
       std::make_unique<ValueStep>(IntValue(2)), false, -1);
 
-  activation.SetUnknownPatterns({cel::AttributePattern(
-      "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
+  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
+                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
+              IsOk());
   ExecutionFrameBase frame(activation, opts, type_provider,
                            cel::internal::GetTestingDescriptorPool(),
                            cel::internal::GetTestingMessageFactory(), &arena);
@@ -154,8 +156,9 @@ TEST(IterativeTest, PartialAttrUnknown) {
       std::make_unique<ValueStep>(IntValue(2))));
   steps.push_back(ExpressionStep::MakeFastEqualStep());
 
-  activation.SetUnknownPatterns({cel::AttributePattern(
-      "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
+  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
+                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
+              IsOk());
 
   ExecutionFrame frame(steps, activation, opts, state);
 
@@ -185,8 +188,9 @@ TEST(IterativeTest, PartialAttrUnknownDisabled) {
       std::make_unique<ValueStep>(IntValue(2))));
   steps.push_back(ExpressionStep::MakeFastEqualStep());
 
-  activation.SetUnknownPatterns({cel::AttributePattern(
-      "foo", {cel::AttributeQualifierPattern::OfString("bar")})});
+  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
+                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
+              IsOk());
   ExecutionFrame frame(steps, activation, opts, state);
 
   ASSERT_OK_AND_ASSIGN(Value result, frame.Evaluate());

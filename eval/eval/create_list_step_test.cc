@@ -423,8 +423,10 @@ TEST(CreateDirectListStep, MissingAttribute) {
   cel::RuntimeOptions options;
   options.enable_missing_attribute_errors = true;
 
-  activation.SetMissingPatterns({cel::AttributePattern(
-      "var1", {cel::AttributeQualifierPattern::OfString("field1")})});
+  ASSERT_THAT(
+      activation.SetMissingPatterns({cel::AttributePattern(
+          "var1", {cel::AttributeQualifierPattern::OfString("field1")})}),
+      IsOk());
 
   ExecutionFrameBase frame(activation, options, type_provider,
                            cel::internal::GetTestingDescriptorPool(),
@@ -519,8 +521,10 @@ TEST(CreateDirectListStep, PartialUnknown) {
   cel::Activation activation;
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  activation.SetUnknownPatterns({cel::AttributePattern(
-      "var1", {cel::AttributeQualifierPattern::OfString("field1")})});
+  ASSERT_THAT(
+      activation.SetUnknownPatterns({cel::AttributePattern(
+          "var1", {cel::AttributeQualifierPattern::OfString("field1")})}),
+      IsOk());
 
   ExecutionFrameBase frame(activation, options, type_provider,
                            cel::internal::GetTestingDescriptorPool(),

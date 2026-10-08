@@ -168,7 +168,9 @@ TEST_F(UnknownsTest, NoUnknowns) {
 
 TEST_F(UnknownsTest, UnknownAttributes) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeOnly);
-  activation_.set_unknown_attribute_patterns({CelAttributePattern("var1", {})});
+  ASSERT_THAT(activation_.SetUnknownAttributePatterns(
+                  {CelAttributePattern("var1", {})}),
+              IsOk());
   activation_.InsertValue("var2", CelValue::CreateInt64(3));
   ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
                   "F1", FunctionResponse::kTrue)),
@@ -193,7 +195,9 @@ TEST_F(UnknownsTest, UnknownAttributes) {
 
 TEST_F(UnknownsTest, UnknownAttributesPruning) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeOnly);
-  activation_.set_unknown_attribute_patterns({CelAttributePattern("var1", {})});
+  ASSERT_THAT(activation_.SetUnknownAttributePatterns(
+                  {CelAttributePattern("var1", {})}),
+              IsOk());
   activation_.InsertValue("var2", CelValue::CreateInt64(5));
   ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
                   "F1", FunctionResponse::kTrue)),
@@ -310,7 +314,9 @@ TEST_F(UnknownsTest, UnknownFunctions) {
 TEST_F(UnknownsTest, UnknownsMerge) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeAndFunction);
   activation_.InsertValue("var1", CelValue::CreateInt64(5));
-  activation_.set_unknown_attribute_patterns({CelAttributePattern("var2", {})});
+  ASSERT_THAT(activation_.SetUnknownAttributePatterns(
+                  {CelAttributePattern("var2", {})}),
+              IsOk());
 
   ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
                   "F1", FunctionResponse::kUnknown)),
@@ -725,12 +731,15 @@ TEST(UnknownsIterAttrTest, IterAttributeTrail) {
   activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
 
   // var[1]['elem1'] is unknown
-  activation.set_unknown_attribute_patterns({CelAttributePattern(
-      "var", {
-                 CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-                 CreateCelAttributeQualifierPattern(
-                     CelValue::CreateStringView("elem1")),
-             })});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern(
+          "var",
+          {
+              CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
+              CreateCelAttributeQualifierPattern(
+                  CelValue::CreateStringView("elem1")),
+          })}),
+      IsOk());
 
   ASSERT_THAT(activation.InsertFunction(std::make_unique<FunctionImpl>(
                   "Fn", FunctionResponse::kFalse, CelValue::Type::kMap)),
@@ -920,12 +929,15 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailMap) {
   activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
 
   // var[1]['key'] is unknown
-  activation.set_unknown_attribute_patterns({CelAttributePattern(
-      "var",
-      {
-          CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-          CreateCelAttributeQualifierPattern(CelValue::CreateStringView("key")),
-      })});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern(
+          "var",
+          {
+              CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
+              CreateCelAttributeQualifierPattern(
+                  CelValue::CreateStringView("key")),
+          })}),
+      IsOk());
 
   ASSERT_THAT(activation.InsertFunction(std::make_unique<FunctionImpl>(
                   "Fn", FunctionResponse::kFalse, CelValue::Type::kDouble)),
@@ -1041,8 +1053,9 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailExact) {
   unknown_attribute_patterns.push_back(CelAttributePattern(
       "list_var",
       {CreateCelAttributeQualifierPattern(CelValue::CreateInt64(0))}));
-  activation.set_unknown_attribute_patterns(
-      std::move(unknown_attribute_patterns));
+  ASSERT_THAT(activation.SetUnknownAttributePatterns(
+                  std::move(unknown_attribute_patterns)),
+              IsOk());
 
   ASSERT_OK_AND_ASSIGN(
       auto plan, builder->CreateExpression(&expr.expr(), &expr.source_info()));
@@ -1087,12 +1100,15 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailFilterValues) {
   activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
 
   // var[1]['value_key'] is unknown
-  activation.set_unknown_attribute_patterns({CelAttributePattern(
-      "var", {
-                 CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-                 CreateCelAttributeQualifierPattern(
-                     CelValue::CreateStringView("value_key")),
-             })});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns({CelAttributePattern(
+          "var",
+          {
+              CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
+              CreateCelAttributeQualifierPattern(
+                  CelValue::CreateStringView("value_key")),
+          })}),
+      IsOk());
 
   auto plan = builder->CreateExpression(&expr, nullptr).value();
   CelValue response = plan->Evaluate(activation, &arena).value();
@@ -1136,21 +1152,23 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailFilterConditions) {
   activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
 
   // var[1]['value_key'] is unknown
-  activation.set_unknown_attribute_patterns(
-      {CelAttributePattern(
-           "var",
-           {
-               CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-               CreateCelAttributeQualifierPattern(
-                   CelValue::CreateStringView("filter_key")),
-           }),
-       CelAttributePattern(
-           "var",
-           {
-               CreateCelAttributeQualifierPattern(CelValue::CreateInt64(0)),
-               CreateCelAttributeQualifierPattern(
-                   CelValue::CreateStringView("filter_key")),
-           })});
+  ASSERT_THAT(
+      activation.SetUnknownAttributePatterns(
+          {CelAttributePattern(
+               "var",
+               {
+                   CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
+                   CreateCelAttributeQualifierPattern(
+                       CelValue::CreateStringView("filter_key")),
+               }),
+           CelAttributePattern(
+               "var",
+               {
+                   CreateCelAttributeQualifierPattern(CelValue::CreateInt64(0)),
+                   CreateCelAttributeQualifierPattern(
+                       CelValue::CreateStringView("filter_key")),
+               })}),
+      IsOk());
 
   auto plan = builder->CreateExpression(&expr, nullptr).value();
   CelValue response = plan->Evaluate(activation, &arena).value();

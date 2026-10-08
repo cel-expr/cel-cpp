@@ -6,8 +6,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "eval/public/base_activation.h"
@@ -77,9 +79,10 @@ class Activation : public BaseActivation {
   //
   // If a field access is found to match any of the provided patterns, the
   // result is treated as a missing attribute error.
-  void set_missing_attribute_patterns(
+  absl::Status SetMissingAttributePatterns(
       std::vector<CelAttributePattern> missing_attribute_patterns) {
     missing_attribute_patterns_ = std::move(missing_attribute_patterns);
+    return absl::OkStatus();
   }
 
   const std::vector<CelAttributePattern>& missing_attribute_patterns()
@@ -87,11 +90,19 @@ class Activation : public BaseActivation {
     return missing_attribute_patterns_;
   }
 
-  // Sets the collection of attribute patterns that will be recognized as
-  // "unknown" values during expression evaluation.
+  ABSL_DEPRECATED("Use SetUnknownAttributePatterns")
   void set_unknown_attribute_patterns(
       std::vector<CelAttributePattern> unknown_attribute_patterns) {
+    SetUnknownAttributePatterns(std::move(unknown_attribute_patterns))
+        .IgnoreError();
+  }
+
+  // Sets the collection of attribute patterns that will be recognized as
+  // "unknown" values during expression evaluation.
+  absl::Status SetUnknownAttributePatterns(
+      std::vector<CelAttributePattern> unknown_attribute_patterns) {
     unknown_attribute_patterns_ = std::move(unknown_attribute_patterns);
+    return absl::OkStatus();
   }
 
   // Return the collection of attribute patterns that determine "unknown"

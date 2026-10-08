@@ -114,7 +114,7 @@ TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
   EXPECT_THAT(result.StringOrDie().value(), Eq("test"));
 
   const CelAttributePattern pattern("name0", {});
-  activation.set_missing_attribute_patterns({pattern});
+  ASSERT_THAT(activation.SetMissingAttributePatterns({pattern}), IsOk());
 
   status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
@@ -151,7 +151,7 @@ TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
   EXPECT_THAT(result.StringOrDie().value(), Eq("test"));
 
   CelAttributePattern pattern("name0", {});
-  activation.set_missing_attribute_patterns({pattern});
+  ASSERT_THAT(activation.SetMissingAttributePatterns({pattern}), IsOk());
 
   status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
@@ -182,7 +182,7 @@ TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
   std::vector<CelAttributePattern> unknown_patterns;
   unknown_patterns.push_back(CelAttributePattern("name_bad", {}));
 
-  activation.set_unknown_attribute_patterns(unknown_patterns);
+  ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns), IsOk());
   auto status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
 
@@ -193,7 +193,7 @@ TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
 
   unknown_patterns.push_back(CelAttributePattern("name0", {}));
 
-  activation.set_unknown_attribute_patterns(unknown_patterns);
+  ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns), IsOk());
   status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
 
@@ -234,7 +234,9 @@ TEST(DirectIdentStepTest, UnknownAttribute) {
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
 
   activation.InsertOrAssignValue("var1", IntValue(42));
-  activation.SetUnknownPatterns({CreateCelAttributePattern("var1", {})});
+  ASSERT_THAT(
+      activation.SetUnknownPatterns({CreateCelAttributePattern("var1", {})}),
+      IsOk());
 
   ExecutionFrameBase frame(activation, options, type_provider,
                            cel::internal::GetTestingDescriptorPool(),
@@ -259,7 +261,9 @@ TEST(DirectIdentStepTest, MissingAttribute) {
   options.enable_missing_attribute_errors = true;
 
   activation.InsertOrAssignValue("var1", IntValue(42));
-  activation.SetMissingPatterns({CreateCelAttributePattern("var1", {})});
+  ASSERT_THAT(
+      activation.SetMissingPatterns({CreateCelAttributePattern("var1", {})}),
+      IsOk());
 
   ExecutionFrameBase frame(activation, options, type_provider,
                            cel::internal::GetTestingDescriptorPool(),
