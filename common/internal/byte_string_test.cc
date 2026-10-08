@@ -43,7 +43,6 @@ using ::testing::IsEmpty;
 using ::testing::Not;
 using ::testing::Optional;
 using ::testing::SizeIs;
-using ::testing::TestWithParam;
 
 TEST(ByteStringKind, Ostream) {
   {
@@ -494,21 +493,6 @@ TEST_F(ByteStringTest, ToStringViewLarge) {
   std::string scratch;
   ByteString byte_string = ByteString::WrapUnsafe(&GetMediumOrLargeCord());
   EXPECT_EQ(byte_string.ToStringView(&scratch), GetMediumOrLargeCord());
-}
-
-TEST_F(ByteStringTest, AsStringViewSmall) {
-  ByteString byte_string = ByteString::WrapUnsafe(GetSmallStringView());
-  EXPECT_EQ(byte_string.AsStringView(), GetSmallStringView());
-}
-
-TEST_F(ByteStringTest, AsStringViewMedium) {
-  ByteString byte_string = ByteString::WrapUnsafe(GetMediumStringView());
-  EXPECT_EQ(byte_string.AsStringView(), GetMediumStringView());
-}
-
-TEST_F(ByteStringTest, AsStringViewLarge) {
-  ByteString byte_string = ByteString::WrapUnsafe(&GetMediumOrLargeCord());
-  EXPECT_DEATH(byte_string.AsStringView(), _);
 }
 
 TEST_F(ByteStringTest, CopyToStringSmall) {

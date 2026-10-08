@@ -27,6 +27,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/cord.h"
@@ -174,11 +175,11 @@ class StringValue final : private common_internal::ValueMixin<StringValue> {
                      Value* absl_nonnull result) const;
   using ValueMixin::Equal;
 
-  StringValue Clone(google::protobuf::Arena* absl_nonnull arena) const;
-
-  bool IsZeroValue() const {
-    return NativeValue([](const auto& value) -> bool { return value.empty(); });
+  StringValue Clone(google::protobuf::Arena* absl_nonnull arena) const {
+    return StringValue(value_.Clone(arena));
   }
+
+  bool IsZeroValue() const { return value_.empty(); }
 
   ABSL_DEPRECATED("Use ToString()")
   std::string NativeString() const { return value_.ToString(); }
@@ -210,23 +211,39 @@ class StringValue final : private common_internal::ValueMixin<StringValue> {
 
   size_t Size() const;
 
-  bool IsEmpty() const;
+  bool IsEmpty() const { return value_.empty(); }
 
-  bool Equals(absl::string_view string) const;
-  bool Equals(const absl::Cord& string) const;
-  bool Equals(const StringValue& string) const;
+  bool Equals(absl::string_view string) const { return value_.Equals(string); }
+  bool Equals(const absl::Cord& string) const { return value_.Equals(string); }
+  bool Equals(const StringValue& string) const {
+    return value_.Equals(string.value_);
+  }
 
-  int Compare(absl::string_view string) const;
-  int Compare(const absl::Cord& string) const;
-  int Compare(const StringValue& string) const;
+  int Compare(absl::string_view string) const { return value_.Compare(string); }
+  int Compare(const absl::Cord& string) const { return value_.Compare(string); }
+  int Compare(const StringValue& string) const {
+    return value_.Compare(string.value_);
+  }
 
-  bool StartsWith(absl::string_view string) const;
-  bool StartsWith(const absl::Cord& string) const;
-  bool StartsWith(const StringValue& string) const;
+  bool StartsWith(absl::string_view string) const {
+    return value_.StartsWith(string);
+  }
+  bool StartsWith(const absl::Cord& string) const {
+    return value_.StartsWith(string);
+  }
+  bool StartsWith(const StringValue& string) const {
+    return value_.StartsWith(string.value_);
+  }
 
-  bool EndsWith(absl::string_view string) const;
-  bool EndsWith(const absl::Cord& string) const;
-  bool EndsWith(const StringValue& string) const;
+  bool EndsWith(absl::string_view string) const {
+    return value_.EndsWith(string);
+  }
+  bool EndsWith(const absl::Cord& string) const {
+    return value_.EndsWith(string);
+  }
+  bool EndsWith(const StringValue& string) const {
+    return value_.EndsWith(string.value_);
+  }
 
   bool Contains(absl::string_view string) const;
   bool Contains(const absl::Cord& string) const;

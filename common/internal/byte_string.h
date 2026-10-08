@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -25,9 +26,9 @@
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/functional/overload.h"
-#include "absl/hash/hash.h"
 #include "absl/log/absl_check.h"
 #include "absl/strings/cord.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "google/protobuf/arena.h"
@@ -161,20 +162,25 @@ class [[nodiscard]] ByteString final {
  public:
   static ByteString From(const char* absl_nullable value,
                          google::protobuf::Arena* absl_nonnull arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return From(absl::NullSafeStringView(value), arena);
+  }
   static ByteString From(absl::string_view value,
                          google::protobuf::Arena* absl_nonnull arena
                              ABSL_ATTRIBUTE_LIFETIME_BOUND);
-  static ByteString From(const absl::Cord& value,
-                         google::protobuf::Arena* absl_nonnull arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+  static ByteString From(absl::Cord value, google::protobuf::Arena* absl_nonnull arena
+                                               ABSL_ATTRIBUTE_LIFETIME_BOUND);
   static ByteString From(std::string&& value,
                          google::protobuf::Arena* absl_nonnull arena
                              ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
   static ByteString Wrap(absl::string_view value,
                          google::protobuf::Arena* absl_nullable arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND);
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    ByteString result(UninitializedTag{});
+    result.SetMedium(arena, value);
+    return result;
+  }
   static ByteString Wrap(
       const absl::Cord* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND,
       google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
@@ -183,18 +189,26 @@ class [[nodiscard]] ByteString final {
   static ByteString Wrap(
       const absl::Cord* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND,
       size_t offset, size_t size,
-      google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND);
+      google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    ByteString result(UninitializedTag{});
+    result.SetLarge(arena, value, offset, size);
+    return result;
+  }
   static ByteString Wrap(std::nullptr_t, google::protobuf::Arena*) = delete;
   static ByteString Wrap(std::nullptr_t, size_t, size_t,
                          google::protobuf::Arena*) = delete;
   static ByteString Wrap(std::string&& value, google::protobuf::Arena*) = delete;
 
-  static ByteString WrapUnsafe(absl::string_view value);
+  static ByteString WrapUnsafe(absl::string_view value) {
+    return Wrap(value, static_cast<google::protobuf::Arena*>(nullptr));
+  }
   static ByteString WrapUnsafe(const absl::Cord* absl_nonnull value) {
     return WrapUnsafe(value, 0, value->size());
   }
   static ByteString WrapUnsafe(const absl::Cord* absl_nonnull value,
-                               size_t offset, size_t size);
+                               size_t offset, size_t size) {
+    return Wrap(value, offset, size, static_cast<google::protobuf::Arena*>(nullptr));
+  }
   static ByteString WrapUnsafe(std::nullptr_t) = delete;
   static ByteString WrapUnsafe(std::nullptr_t, size_t, size_t) = delete;
 
@@ -208,9 +222,27 @@ class [[nodiscard]] ByteString final {
   ByteString& operator=(const ByteString&) = default;
   ByteString& operator=(ByteString&&) = default;
 
-  bool empty() const;
+  bool empty() const {
+    switch (GetKind()) {
+      case ByteStringKind::kSmall:
+        return rep_.small.size == 0;
+      case ByteStringKind::kMedium:
+        return rep_.medium.size == 0;
+      case ByteStringKind::kLarge:
+        return rep_.large.size == 0;
+    }
+  }
 
-  size_t size() const;
+  size_t size() const {
+    switch (GetKind()) {
+      case ByteStringKind::kSmall:
+        return rep_.small.size;
+      case ByteStringKind::kMedium:
+        return rep_.medium.size;
+      case ByteStringKind::kLarge:
+        return rep_.large.size;
+    }
+  }
 
   size_t max_size() const { return kByteStringViewMaxSize; }
 
@@ -261,9 +293,7 @@ class [[nodiscard]] ByteString final {
 
   void AppendToString(std::string* absl_nonnull out) const;
 
-  absl::Cord ToCord() const&;
-
-  absl::Cord ToCord() &&;
+  absl::Cord ToCord() const;
 
   void CopyToCord(absl::Cord* absl_nonnull out) const;
 
@@ -273,24 +303,25 @@ class [[nodiscard]] ByteString final {
       std::string* absl_nonnull scratch
           ABSL_ATTRIBUTE_LIFETIME_BOUND) const ABSL_ATTRIBUTE_LIFETIME_BOUND;
 
-  absl::string_view AsStringView() const ABSL_ATTRIBUTE_LIFETIME_BOUND;
-
-  google::protobuf::Arena* absl_nullable GetArena() const;
+  google::protobuf::Arena* absl_nullable GetArena() const {
+    switch (GetKind()) {
+      case ByteStringKind::kSmall:
+        return GetSmallArena();
+      case ByteStringKind::kMedium:
+        return GetMediumArena();
+      case ByteStringKind::kLarge:
+        return GetLargeArena();
+    }
+  }
 
   ByteString Clone(google::protobuf::Arena* absl_nonnull arena) const;
 
-  void HashValue(absl::HashState state) const;
-
   template <typename Visitor>
   decltype(auto) Visit(Visitor&& visitor) const {
-    switch (GetKind()) {
-      case ByteStringKind::kSmall:
-        return std::forward<Visitor>(visitor)(GetSmall());
-      case ByteStringKind::kMedium:
-        return std::forward<Visitor>(visitor)(GetMedium());
-      case ByteStringKind::kLarge:
-        return std::forward<Visitor>(visitor)(GetLarge());
+    if (auto string_view = AsStringView(); string_view) {
+      return std::forward<Visitor>(visitor)(*string_view);
     }
+    return std::forward<Visitor>(visitor)(GetLarge());
   }
 
   friend void swap(ByteString& lhs, ByteString& rhs) noexcept {
@@ -300,8 +331,10 @@ class [[nodiscard]] ByteString final {
 
   template <typename H>
   friend H AbslHashValue(H state, const ByteString& byte_string) {
-    byte_string.HashValue(absl::HashState::Create(&state));
-    return state;
+    if (auto string_view = byte_string.AsStringView(); string_view) {
+      return H::combine(std::move(state), *string_view);
+    }
+    return H::combine(std::move(state), byte_string.GetLarge());
   }
 
  private:
@@ -386,11 +419,30 @@ class [[nodiscard]] ByteString final {
     rep_.small.arena = arena;
   }
 
-  void SetSmall(google::protobuf::Arena* absl_nullable arena, absl::string_view string);
+  void SetSmall(google::protobuf::Arena* absl_nullable arena, absl::string_view string) {
+    ABSL_DCHECK_LE(string.size(), kSmallByteStringCapacity);
+    rep_.header.kind = ByteStringKind::kSmall;
+    rep_.small.size = string.size();
+    rep_.small.arena = arena;
+    if (!string.empty()) {
+      std::memcpy(rep_.small.data, string.data(), rep_.small.size);
+    }
+  }
 
-  void SetSmall(google::protobuf::Arena* absl_nullable arena, const absl::Cord& cord);
+  void SetSmall(google::protobuf::Arena* absl_nullable arena, const absl::Cord& cord) {
+    ABSL_DCHECK_LE(cord.size(), kSmallByteStringCapacity);
+    rep_.header.kind = ByteStringKind::kSmall;
+    rep_.small.size = cord.size();
+    rep_.small.arena = arena;
+    CopyCordToArray(cord, rep_.small.data);
+  }
 
-  void SetMedium(google::protobuf::Arena* absl_nullable arena, absl::string_view string);
+  void SetMedium(google::protobuf::Arena* absl_nullable arena, absl::string_view string) {
+    rep_.header.kind = ByteStringKind::kMedium;
+    rep_.medium.size = string.size();
+    rep_.medium.data = string.data();
+    rep_.medium.arena = arena;
+  }
 
   void SetMedium(google::protobuf::Arena* absl_nullable arena,
                  const std::string* absl_nonnull string) {
@@ -399,17 +451,78 @@ class [[nodiscard]] ByteString final {
 
   void SetLarge(google::protobuf::Arena* absl_nullable arena,
                 const absl::Cord* absl_nonnull cord, size_t offset = 0,
-                size_t size = static_cast<size_t>(-1));
+                size_t size = static_cast<size_t>(-1)) {
+    ABSL_DCHECK_LE(offset, cord->size());
+    ABSL_DCHECK_LE(offset, kLargeByteStringMaxSize);
+    rep_.header.kind = ByteStringKind::kLarge;
+    rep_.large.offset = offset;
+    if (size == static_cast<size_t>(-1)) {
+      size = cord->size() - offset;
+    }
+    ABSL_DCHECK_LE(size, cord->size() - offset);
+    ABSL_DCHECK_LE(size, kLargeByteStringMaxSize);
+    rep_.large.size = size;
+    rep_.large.data = cord;
+    rep_.large.arena = arena;
+  }
+
+  static void CopyCordToArray(const absl::Cord& cord, char* data) {
+    for (absl::string_view chunk : cord.Chunks()) {
+      std::memcpy(data, chunk.data(), chunk.size());
+      data += chunk.size();
+    }
+  }
+
+  static void CopyCordToArray(const absl::Cord& cord, size_t offset,
+                              size_t size, char* data);
+
+  static void AppendCordToString(const absl::Cord& cord, size_t offset,
+                                 size_t size, std::string& data);
 
   void CopyToArray(char* absl_nonnull out) const;
 
+  std::optional<absl::string_view> AsStringView() const {
+    switch (GetKind()) {
+      case ByteStringKind::kSmall:
+        return GetSmall();
+      case ByteStringKind::kMedium:
+        return GetMedium();
+      case ByteStringKind::kLarge:
+        return std::nullopt;
+    }
+  }
+
   ByteStringRep rep_;
 };
+
+inline bool ByteString::Equals(absl::string_view rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> bool { return lhs == rhs; },
+      [&rhs](const absl::Cord& lhs) -> bool { return lhs == rhs; }));
+}
+
+inline bool ByteString::Equals(const absl::Cord& rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> bool { return lhs == rhs; },
+      [&rhs](const absl::Cord& lhs) -> bool { return lhs == rhs; }));
+}
 
 inline bool ByteString::Equals(const ByteString& rhs) const {
   return rhs.Visit(absl::Overload(
       [this](absl::string_view rhs) -> bool { return Equals(rhs); },
       [this](const absl::Cord& rhs) -> bool { return Equals(rhs); }));
+}
+
+inline int ByteString::Compare(absl::string_view rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> int { return lhs.compare(rhs); },
+      [&rhs](const absl::Cord& lhs) -> int { return lhs.Compare(rhs); }));
+}
+
+inline int ByteString::Compare(const absl::Cord& rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> int { return -rhs.Compare(lhs); },
+      [&rhs](const absl::Cord& lhs) -> int { return lhs.Compare(rhs); }));
 }
 
 inline int ByteString::Compare(const ByteString& rhs) const {
@@ -418,10 +531,43 @@ inline int ByteString::Compare(const ByteString& rhs) const {
       [this](const absl::Cord& rhs) -> int { return Compare(rhs); }));
 }
 
+inline bool ByteString::StartsWith(absl::string_view rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> bool {
+        return absl::StartsWith(lhs, rhs);
+      },
+      [&rhs](const absl::Cord& lhs) -> bool { return lhs.StartsWith(rhs); }));
+}
+
+inline bool ByteString::StartsWith(const absl::Cord& rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> bool {
+        return lhs.size() >= rhs.size() && lhs.substr(0, rhs.size()) == rhs;
+      },
+      [&rhs](const absl::Cord& lhs) -> bool { return lhs.StartsWith(rhs); }));
+}
+
 inline bool ByteString::StartsWith(const ByteString& rhs) const {
   return rhs.Visit(absl::Overload(
       [this](absl::string_view rhs) -> bool { return StartsWith(rhs); },
       [this](const absl::Cord& rhs) -> bool { return StartsWith(rhs); }));
+}
+
+inline bool ByteString::EndsWith(absl::string_view rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> bool {
+        return absl::EndsWith(lhs, rhs);
+      },
+      [&rhs](const absl::Cord& lhs) -> bool { return lhs.EndsWith(rhs); }));
+}
+
+inline bool ByteString::EndsWith(const absl::Cord& rhs) const {
+  return Visit(absl::Overload(
+      [&rhs](absl::string_view lhs) -> bool {
+        return lhs.size() >= rhs.size() &&
+               lhs.substr(lhs.size() - rhs.size()) == rhs;
+      },
+      [&rhs](const absl::Cord& lhs) -> bool { return lhs.EndsWith(rhs); }));
 }
 
 inline bool ByteString::EndsWith(const ByteString& rhs) const {

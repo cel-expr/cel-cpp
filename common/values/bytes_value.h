@@ -138,11 +138,11 @@ class BytesValue final : private common_internal::ValueMixin<BytesValue> {
                      Value* absl_nonnull result) const;
   using ValueMixin::Equal;
 
-  bool IsZeroValue() const {
-    return NativeValue([](const auto& value) -> bool { return value.empty(); });
-  }
+  bool IsZeroValue() const { return value_.empty(); }
 
-  BytesValue Clone(google::protobuf::Arena* absl_nonnull arena) const;
+  BytesValue Clone(google::protobuf::Arena* absl_nonnull arena) const {
+    return BytesValue(value_.Clone(arena));
+  }
 
   ABSL_DEPRECATED("Use ToString()")
   std::string NativeString() const { return value_.ToString(); }
@@ -172,17 +172,21 @@ class BytesValue final : private common_internal::ValueMixin<BytesValue> {
     swap(lhs.value_, rhs.value_);
   }
 
-  size_t Size() const;
+  size_t Size() const { return value_.size(); }
 
-  bool IsEmpty() const;
+  bool IsEmpty() const { return value_.empty(); }
 
-  bool Equals(absl::string_view bytes) const;
-  bool Equals(const absl::Cord& bytes) const;
-  bool Equals(const BytesValue& bytes) const;
+  bool Equals(absl::string_view bytes) const { return value_.Equals(bytes); }
+  bool Equals(const absl::Cord& bytes) const { return value_.Equals(bytes); }
+  bool Equals(const BytesValue& bytes) const {
+    return value_.Equals(bytes.value_);
+  }
 
-  int Compare(absl::string_view bytes) const;
-  int Compare(const absl::Cord& bytes) const;
-  int Compare(const BytesValue& bytes) const;
+  int Compare(absl::string_view bytes) const { return value_.Compare(bytes); }
+  int Compare(const absl::Cord& bytes) const { return value_.Compare(bytes); }
+  int Compare(const BytesValue& bytes) const {
+    return value_.Compare(bytes.value_);
+  }
 
   absl::optional<absl::string_view> TryFlat() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {

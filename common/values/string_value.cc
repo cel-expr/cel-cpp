@@ -138,66 +138,9 @@ absl::Status StringValue::Equal(
 }
 
 size_t StringValue::Size() const {
-  return NativeValue([](const auto& alternative) -> size_t {
+  return value_.Visit([](const auto& alternative) -> size_t {
     return internal::Utf8CodePointCount(alternative);
   });
-}
-
-bool StringValue::IsEmpty() const {
-  return NativeValue(
-      [](const auto& alternative) -> bool { return alternative.empty(); });
-}
-
-bool StringValue::Equals(absl::string_view string) const {
-  return value_.Equals(string);
-}
-
-bool StringValue::Equals(const absl::Cord& string) const {
-  return value_.Equals(string);
-}
-
-bool StringValue::Equals(const StringValue& string) const {
-  return value_.Equals(string.value_);
-}
-
-StringValue StringValue::Clone(google::protobuf::Arena* absl_nonnull arena) const {
-  return StringValue(value_.Clone(arena));
-}
-
-int StringValue::Compare(absl::string_view string) const {
-  return value_.Compare(string);
-}
-
-int StringValue::Compare(const absl::Cord& string) const {
-  return value_.Compare(string);
-}
-
-int StringValue::Compare(const StringValue& string) const {
-  return value_.Compare(string.value_);
-}
-
-bool StringValue::StartsWith(absl::string_view string) const {
-  return value_.StartsWith(string);
-}
-
-bool StringValue::StartsWith(const absl::Cord& string) const {
-  return value_.StartsWith(string);
-}
-
-bool StringValue::StartsWith(const StringValue& string) const {
-  return value_.StartsWith(string.value_);
-}
-
-bool StringValue::EndsWith(absl::string_view string) const {
-  return value_.EndsWith(string);
-}
-
-bool StringValue::EndsWith(const absl::Cord& string) const {
-  return value_.EndsWith(string);
-}
-
-bool StringValue::EndsWith(const StringValue& string) const {
-  return value_.EndsWith(string.value_);
 }
 
 bool StringValue::Contains(absl::string_view string) const {

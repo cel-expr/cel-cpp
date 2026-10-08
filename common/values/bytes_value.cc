@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <cstddef>
 #include <string>
 
 #include "google/protobuf/wrappers.pb.h"
@@ -121,74 +120,6 @@ absl::Status BytesValue::Equal(
   }
   *result = FalseValue();
   return absl::OkStatus();
-}
-
-BytesValue BytesValue::Clone(google::protobuf::Arena* absl_nonnull arena) const {
-  return BytesValue(value_.Clone(arena));
-}
-
-size_t BytesValue::Size() const {
-  return NativeValue(
-      [](const auto& alternative) -> size_t { return alternative.size(); });
-}
-
-bool BytesValue::IsEmpty() const {
-  return NativeValue(
-      [](const auto& alternative) -> bool { return alternative.empty(); });
-}
-
-bool BytesValue::Equals(absl::string_view bytes) const {
-  return NativeValue([bytes](const auto& alternative) -> bool {
-    return alternative == bytes;
-  });
-}
-
-bool BytesValue::Equals(const absl::Cord& bytes) const {
-  return NativeValue([&bytes](const auto& alternative) -> bool {
-    return alternative == bytes;
-  });
-}
-
-bool BytesValue::Equals(const BytesValue& bytes) const {
-  return bytes.NativeValue(
-      [this](const auto& alternative) -> bool { return Equals(alternative); });
-}
-
-namespace {
-
-int CompareImpl(absl::string_view lhs, absl::string_view rhs) {
-  return lhs.compare(rhs);
-}
-
-int CompareImpl(absl::string_view lhs, const absl::Cord& rhs) {
-  return -rhs.Compare(lhs);
-}
-
-int CompareImpl(const absl::Cord& lhs, absl::string_view rhs) {
-  return lhs.Compare(rhs);
-}
-
-int CompareImpl(const absl::Cord& lhs, const absl::Cord& rhs) {
-  return lhs.Compare(rhs);
-}
-
-}  // namespace
-
-int BytesValue::Compare(absl::string_view bytes) const {
-  return NativeValue([bytes](const auto& alternative) -> int {
-    return CompareImpl(alternative, bytes);
-  });
-}
-
-int BytesValue::Compare(const absl::Cord& bytes) const {
-  return NativeValue([&bytes](const auto& alternative) -> int {
-    return CompareImpl(alternative, bytes);
-  });
-}
-
-int BytesValue::Compare(const BytesValue& bytes) const {
-  return bytes.NativeValue(
-      [this](const auto& alternative) -> int { return Compare(alternative); });
 }
 
 }  // namespace cel
