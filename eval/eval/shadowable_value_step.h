@@ -1,14 +1,12 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_SHADOWABLE_VALUE_STEP_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_SHADOWABLE_VALUE_STEP_H_
 
-#include <cstdint>
 #include <memory>
 
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "common/value.h"
-#include "eval/eval/direct_expression_step.h"
-#include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 
 namespace google::api::expr::runtime {
 
@@ -17,9 +15,6 @@ namespace google::api::expr::runtime {
 // Activation.
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateShadowableValueStep(
     absl::string_view name, cel::Value value);
-
-std::unique_ptr<DirectExpressionStep> CreateDirectShadowableValueStep(
-    absl::string_view name, cel::Value value, int64_t expr_id);
 
 }  // namespace google::api::expr::runtime
 

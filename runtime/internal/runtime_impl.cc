@@ -21,13 +21,8 @@
 #include "absl/status/statusor.h"
 #include "base/ast.h"
 #include "base/type_provider.h"
-#include "common/native_type.h"
 #include "common/value.h"
-#include "eval/eval/attribute_trail.h"
-#include "eval/eval/comprehension_slots.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "internal/casts.h"
 #include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
 #include "runtime/runtime.h"
@@ -36,12 +31,7 @@
 namespace cel::runtime_internal {
 namespace {
 
-using ::google::api::expr::runtime::AttributeTrail;
-using ::google::api::expr::runtime::ComprehensionSlots;
-using ::google::api::expr::runtime::DirectExpressionStep;
-using ::google::api::expr::runtime::ExecutionFrameBase;
 using ::google::api::expr::runtime::FlatExpression;
-using ::google::api::expr::runtime::WrappedDirectStep;
 
 class ProgramImpl final : public TraceableProgram {
  public:
@@ -76,46 +66,6 @@ class ProgramImpl final : public TraceableProgram {
   FlatExpression impl_;
 };
 
-class RecursiveProgramImpl final : public TraceableProgram {
- public:
-  using EvaluationListener = TraceableProgram::EvaluationListener;
-  RecursiveProgramImpl(
-      const std::shared_ptr<const RuntimeImpl::Environment>& environment,
-      FlatExpression impl, const DirectExpressionStep* absl_nonnull root)
-      : environment_(environment), impl_(std::move(impl)), root_(root) {}
-
-  absl::StatusOr<Value> TraceImpl(
-      const ActivationInterface& activation,
-      EvaluationListener evaluation_listener, google::protobuf::Arena* absl_nonnull arena,
-      const EvaluateOptions& options) const override {
-    ABSL_DCHECK(arena != nullptr);
-    ComprehensionSlots slots(impl_.comprehension_slots_size());
-    ExecutionFrameBase frame(activation, std::move(evaluation_listener),
-                             impl_.options(), GetTypeProvider(),
-                             environment_->descriptor_pool.get(),
-                             options.message_factory != nullptr
-                                 ? options.message_factory
-                                 : environment_->MutableMessageFactory(),
-                             arena, options.embedder_context, slots);
-
-    Value result;
-    AttributeTrail attribute;
-    CEL_RETURN_IF_ERROR(root_->Evaluate(frame, result, attribute));
-
-    return result;
-  }
-
-  const TypeProvider& GetTypeProvider() const override {
-    return environment_->type_registry.GetComposedTypeProvider();
-  }
-
- private:
-  // Keep the Runtime environment alive while programs reference it.
-  std::shared_ptr<const RuntimeImpl::Environment> environment_;
-  FlatExpression impl_;
-  const DirectExpressionStep* absl_nonnull root_;
-};
-
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<Program>> RuntimeImpl::CreateProgram(
@@ -131,33 +81,7 @@ RuntimeImpl::CreateTraceableProgram(
   CEL_ASSIGN_OR_RETURN(auto flat_expr, expr_builder_.CreateExpressionImpl(
                                            std::move(ast), options.issues));
 
-  // Special case if the program is fully recursive.
-  //
-  // This implementation avoids unnecessary allocs at evaluation time which
-  // improves performance notably for small expressions.
-  if (expr_builder_.options().max_recursion_depth != 0 &&
-      !flat_expr.subexpressions().empty() &&
-      // mainline expression is exactly one recursive step.
-      flat_expr.subexpressions().front().size() == 1 &&
-      flat_expr.subexpressions().front().front().IsGenericStep() &&
-      flat_expr.subexpressions()
-              .front()
-              .front()
-              .GetGenericStep()
-              ->GetNativeTypeId() == NativeTypeId::For<WrappedDirectStep>()) {
-    const DirectExpressionStep* root =
-        internal::down_cast<const WrappedDirectStep*>(
-            flat_expr.subexpressions().front().front().GetGenericStep())
-            ->wrapped();
-    return std::make_unique<RecursiveProgramImpl>(environment_,
-                                                  std::move(flat_expr), root);
-  }
-
   return std::make_unique<ProgramImpl>(environment_, std::move(flat_expr));
-}
-
-bool TestOnly_IsRecursiveImpl(const Program* program) {
-  return dynamic_cast<const RecursiveProgramImpl*>(program) != nullptr;
 }
 
 }  // namespace cel::runtime_internal

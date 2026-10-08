@@ -15,14 +15,12 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_OPTIONAL_OR_STEP_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_OPTIONAL_OR_STEP_H_
 
-#include <cstdint>
 #include <memory>
 #include <optional>
 
-#include "absl/status/status.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 
 namespace google::api::expr::runtime {
 
@@ -53,13 +51,6 @@ std::unique_ptr<OptionalHasValueJumpStep> CreateOptionalHasValueJumpStep(
 // Factory method for OptionalOr step, used to implement optional.or and
 // optional.orValue.
 std::unique_ptr<ExpressionStepLogic> CreateOptionalOrStep(bool is_or_value);
-
-// Creates a step implementing the short-circuiting optional.or or
-// optional.orValue step.
-std::unique_ptr<DirectExpressionStep> CreateDirectOptionalOrStep(
-    int64_t expr_id, std::unique_ptr<DirectExpressionStep> optional,
-    std::unique_ptr<DirectExpressionStep> alternative, bool is_or_value,
-    bool short_circuiting);
 
 }  // namespace google::api::expr::runtime
 

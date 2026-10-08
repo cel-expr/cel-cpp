@@ -15,26 +15,11 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_EQUALITY_STEPS_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_EQUALITY_STEPS_H_
 
-#include <cstdint>
-#include <memory>
-
-#include "eval/eval/direct_expression_step.h"
-
 namespace google::api::expr::runtime {
 
 class ExecutionFrame;
 
-// Factory method for recursive _==_/_!=_ Execution step
-std::unique_ptr<DirectExpressionStep> CreateDirectEqualityStep(
-    std::unique_ptr<DirectExpressionStep> lhs,
-    std::unique_ptr<DirectExpressionStep> rhs, bool negation, int64_t expr_id);
-
 void EvaluateFastEqualStep(bool negation, ExecutionFrame& frame);
-
-// Factory method for recursive @in Execution step
-std::unique_ptr<DirectExpressionStep> CreateDirectInStep(
-    std::unique_ptr<DirectExpressionStep> item,
-    std::unique_ptr<DirectExpressionStep> container, int64_t expr_id);
 
 void EvaluateFastInStep(ExecutionFrame& frame);
 

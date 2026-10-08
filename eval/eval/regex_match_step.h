@@ -15,19 +15,13 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_REGEX_MATCH_STEP_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_REGEX_MATCH_STEP_H_
 
-#include <cstdint>
 #include <memory>
 
 #include "absl/status/statusor.h"
-#include "eval/eval/direct_expression_step.h"
-#include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 #include "re2/re2.h"
 
 namespace google::api::expr::runtime {
-
-std::unique_ptr<DirectExpressionStep> CreateDirectRegexMatchStep(
-    int64_t expr_id, std::unique_ptr<DirectExpressionStep> subject,
-    std::shared_ptr<const RE2> re2);
 
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateRegexMatchStep(
     std::shared_ptr<const RE2> re2);

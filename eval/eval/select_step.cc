@@ -1,6 +1,5 @@
 #include "eval/eval/select_step.h"
 
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -19,9 +18,9 @@
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/structs/proto_message_type_adapter.h"
 #include "internal/status_macros.h"
@@ -321,115 +320,6 @@ void SelectStep::Evaluate(ExecutionFrame* frame) const {
   frame->value_stack().PopAndPush(std::move(result), std::move(result_trail));
 }
 
-class DirectSelectStep : public DirectExpressionStep {
- public:
-  DirectSelectStep(int64_t expr_id,
-                   std::unique_ptr<DirectExpressionStep> operand,
-                   absl::string_view field, bool test_only,
-                   bool enable_wrapper_type_null_unboxing,
-                   bool enable_optional_types)
-      : DirectExpressionStep(expr_id),
-        operand_(std::move(operand)),
-        field_(field),
-        test_only_(test_only),
-        unboxing_option_(enable_wrapper_type_null_unboxing
-                             ? ProtoWrapperTypeOptions::kUnsetNull
-                             : ProtoWrapperTypeOptions::kUnsetProtoDefault),
-        enable_optional_types_(enable_optional_types) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override {
-    CEL_RETURN_IF_ERROR(operand_->Evaluate(frame, result, attribute));
-
-    if (result.IsError() || result.IsUnknown()) {
-      // Just forward.
-      return absl::OkStatus();
-    }
-
-    if (frame.attribute_tracking_enabled()) {
-      attribute = attribute.Step(&field_);
-      absl::optional<Value> value = CheckForMarkedAttributes(attribute, frame);
-      if (value.has_value()) {
-        result = std::move(value).value();
-        return absl::OkStatus();
-      }
-    }
-
-    absl::optional<OptionalValue> optional_arg;
-
-    if (enable_optional_types_ && result.IsOptional()) {
-      optional_arg = result.GetOptional();
-    }
-
-    switch (result.kind()) {
-      case ValueKind::kStruct:
-      case ValueKind::kMap:
-        break;
-      default:
-        if (optional_arg) {
-          break;
-        }
-        result =
-            cel::ErrorValue::From(InvalidSelectTargetError(), frame.arena());
-        return absl::OkStatus();
-    }
-
-    if (test_only_) {
-      if (optional_arg) {
-        if (!optional_arg->HasValue()) {
-          result = cel::BoolValue{false};
-          return absl::OkStatus();
-        }
-        Value value;
-        optional_arg->Value(&value);
-        return PerformHas(value, field_, cel::StringValue::WrapUnsafe(field_),
-                          frame.descriptor_pool(), frame.message_factory(),
-                          frame.arena(), result);
-      }
-      return PerformHas(result, field_, cel::StringValue::WrapUnsafe(field_),
-                        frame.descriptor_pool(), frame.message_factory(),
-                        frame.arena(), result);
-    }
-
-    if (optional_arg) {
-      if (!optional_arg->HasValue()) {
-        // result is still buffer for the container. just return.
-        return absl::OkStatus();
-      }
-      Value value;
-      optional_arg->Value(&value);
-      auto status = PerformOptionalGet(
-          value, field_, cel::StringValue::WrapUnsafe(field_), unboxing_option_,
-          frame.descriptor_pool(), frame.message_factory(), frame.arena(),
-          frame.options().enable_use_new_field_select_implementation, result);
-      if (!status.ok()) {
-        result = ErrorValue::From(std::move(status), frame.arena());
-      }
-      return absl::OkStatus();
-    }
-
-    return PerformGet(
-        result, field_, cel::StringValue::WrapUnsafe(field_), unboxing_option_,
-        frame.descriptor_pool(), frame.message_factory(), frame.arena(),
-        frame.options().enable_use_new_field_select_implementation, result);
-  }
-
- private:
-  std::unique_ptr<DirectExpressionStep> operand_;
-
-  // Field name in formats supported by each of the map and struct field access
-  // APIs.
-  //
-  // ToString or ValueManager::CreateString may force a copy so we do this at
-  // plan time.
-  std::string field_;
-
-  // whether this is a has() expression.
-  bool test_only_;
-  ProtoWrapperTypeOptions unboxing_option_;
-  bool enable_optional_types_;
-};
-
 bool CheckAttributeTrail(const std::string& field, ExecutionFrame* frame) {
   if (!frame->attribute_tracking_enabled()) {
     return false;
@@ -618,15 +508,6 @@ void ProtoHasStep::EvaluateHas(
 }
 
 }  // namespace
-
-std::unique_ptr<DirectExpressionStep> CreateDirectSelectStep(
-    std::unique_ptr<DirectExpressionStep> operand, absl::string_view field,
-    bool test_only, int64_t expr_id, bool enable_wrapper_type_null_unboxing,
-    bool enable_optional_types) {
-  return std::make_unique<DirectSelectStep>(
-      expr_id, std::move(operand), std::move(field), test_only,
-      enable_wrapper_type_null_unboxing, enable_optional_types);
-}
 
 // Factory method for Select - based Execution step
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateSelectStep(

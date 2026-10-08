@@ -115,11 +115,6 @@ class RuntimeImpl : public Runtime {
   google::api::expr::runtime::FlatExprBuilder expr_builder_;
 };
 
-// Exposed for testing to validate program is recursively planned.
-//
-// Uses dynamic_casts to test.
-bool TestOnly_IsRecursiveImpl(const Program* program);
-
 }  // namespace cel::runtime_internal
 
 #endif  // THIRD_PARTY_CEL_CPP_RUNTIME_INTERNAL_RUNTIME_IMPL_H_

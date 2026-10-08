@@ -6,6 +6,7 @@
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "base/type_provider.h"
 #include "common/value.h"
 #include "eval/eval/cel_expression_flat_impl.h"
@@ -18,6 +19,7 @@
 #include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/runtime_options.h"
+#include "google/protobuf/arena.h"
 
 namespace google::api::expr::runtime {
 
@@ -32,8 +34,8 @@ using ::testing::Eq;
 
 absl::StatusOr<CelValue> RunShadowableExpression(
     const absl_nonnull std::shared_ptr<const RuntimeEnv>& env,
-    std::string identifier, cel::Value value, const Activation& activation,
-    Arena* arena) {
+    absl::string_view identifier, cel::Value value,
+    const Activation& activation, Arena* arena) {
   CEL_ASSIGN_OR_RETURN(auto step,
                        CreateShadowableValueStep(identifier, std::move(value)));
   ExecutionPath path;

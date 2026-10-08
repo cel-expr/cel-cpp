@@ -14,28 +14,11 @@
 #include "absl/types/span.h"
 #include "common/expr.h"
 #include "common/value.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/expression_step_logic.h"
 #include "runtime/function_overload_reference.h"
 #include "runtime/function_registry.h"
 
 namespace google::api::expr::runtime {
-
-// Factory method for Call-based execution step where the function has been
-// statically resolved from a set of eagerly functions configured in the
-// CelFunctionRegistry.
-std::unique_ptr<DirectExpressionStep> CreateDirectFunctionStep(
-    int64_t expr_id, const cel::CallExpr& call,
-    std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    std::vector<cel::FunctionOverloadReference> overloads);
-
-// Factory method for Call-based execution step where the function has been
-// statically resolved from a set of lazy functions configured in the
-// CelFunctionRegistry.
-std::unique_ptr<DirectExpressionStep> CreateDirectLazyFunctionStep(
-    int64_t expr_id, const cel::CallExpr& call,
-    std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    std::vector<cel::FunctionRegistry::LazyOverload> providers);
 
 class LazyFunctionStep;
 class EagerFunctionStep;

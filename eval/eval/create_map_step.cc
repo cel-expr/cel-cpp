@@ -18,7 +18,6 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
@@ -27,18 +26,15 @@
 #include "absl/types/optional.h"
 #include "common/value.h"
 #include "common/values/map_value_builder.h"
-#include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "internal/status_macros.h"
 
 namespace google::api::expr::runtime {
 
 namespace {
 
-using ::cel::ErrorValue;
-using ::cel::ErrorValueAssign;
 using ::cel::ErrorValueReturn;
 using ::cel::MapValueBuilderPtr;
 using ::cel::UnknownValue;
@@ -132,112 +128,6 @@ void CreateStructStepForMap::Evaluate(ExecutionFrame* frame) const {
   frame->value_stack().PopAndPush(2 * entry_count_, *std::move(result));
 }
 
-class DirectCreateMapStep : public DirectExpressionStep {
- public:
-  DirectCreateMapStep(std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-                      absl::flat_hash_set<int32_t> optional_indices,
-                      int64_t expr_id)
-      : DirectExpressionStep(expr_id),
-        deps_(std::move(deps)),
-        optional_indices_(std::move(optional_indices)),
-        entry_count_(deps_.size() / 2) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute_trail) const override;
-
- private:
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps_;
-  absl::flat_hash_set<int32_t> optional_indices_;
-  size_t entry_count_;
-};
-
-absl::Status DirectCreateMapStep::Evaluate(
-    ExecutionFrameBase& frame, Value& result,
-    AttributeTrail& attribute_trail) const {
-  auto unknowns = frame.attribute_utility().CreateAccumulator();
-
-  MapValueBuilderPtr builder = NewMapValueBuilder(frame.arena());
-  builder->Reserve(entry_count_);
-
-  for (size_t i = 0; i < entry_count_; i += 1) {
-    Value key;
-    Value value;
-    AttributeTrail tmp_attr;
-    int map_key_index = 2 * i;
-    int map_value_index = map_key_index + 1;
-    CEL_RETURN_IF_ERROR(deps_[map_key_index]->Evaluate(frame, key, tmp_attr));
-
-    if (key.IsError()) {
-      result = std::move(key);
-      return absl::OkStatus();
-    }
-
-    if (frame.unknown_processing_enabled()) {
-      if (key.IsUnknown()) {
-        unknowns.Add(key.GetUnknown());
-      } else if (frame.attribute_utility().CheckForUnknownPartial(tmp_attr)) {
-        unknowns.Add(tmp_attr);
-      }
-    }
-
-    CEL_RETURN_IF_ERROR(cel::CheckMapKey(key))
-        .With(ErrorValueAssign(result, frame.arena()));
-
-    CEL_RETURN_IF_ERROR(
-        deps_[map_value_index]->Evaluate(frame, value, tmp_attr));
-
-    if (value.IsError()) {
-      result = std::move(value);
-      return absl::OkStatus();
-    }
-
-    if (frame.unknown_processing_enabled()) {
-      if (value.IsUnknown()) {
-        unknowns.Add(value.GetUnknown());
-      } else if (frame.attribute_utility().CheckForUnknownPartial(tmp_attr)) {
-        unknowns.Add(tmp_attr);
-      }
-    }
-
-    // Preserve the stack machine behavior of forwarding unknowns before
-    // errors.
-    if (!unknowns.IsEmpty()) {
-      continue;
-    }
-
-    if (optional_indices_.contains(static_cast<int32_t>(i))) {
-      if (auto optional_map_value = value.AsOptional(); optional_map_value) {
-        if (!optional_map_value->HasValue()) {
-          continue;
-        }
-        Value optional_map_value_value;
-        optional_map_value->Value(&optional_map_value_value);
-        if (optional_map_value_value.IsError()) {
-          // Error should never be in optional, but better safe than sorry.
-          result = optional_map_value_value;
-          return absl::OkStatus();
-        }
-        CEL_RETURN_IF_ERROR(
-            builder->Put(std::move(key), std::move(optional_map_value_value)));
-        continue;
-      }
-      result = cel::TypeConversionError(value.DebugString(), "optional_type",
-                                        frame.arena());
-      return absl::OkStatus();
-    }
-
-    CEL_RETURN_IF_ERROR(builder->Put(std::move(key), std::move(value)));
-  }
-
-  if (!unknowns.IsEmpty()) {
-    result = std::move(unknowns).Build();
-    return absl::OkStatus();
-  }
-
-  result = std::move(*builder).Build();
-  return absl::OkStatus();
-}
-
 class MutableMapStep final : public ExpressionStepBase {
  public:
   MutableMapStep() = default;
@@ -248,27 +138,7 @@ class MutableMapStep final : public ExpressionStepBase {
   }
 };
 
-class DirectMutableMapStep final : public DirectExpressionStep {
- public:
-  explicit DirectMutableMapStep(int64_t expr_id)
-      : DirectExpressionStep(expr_id) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override {
-    result =
-        cel::CustomMapValue(NewMutableMapValue(frame.arena()), frame.arena());
-    return absl::OkStatus();
-  }
-};
-
 }  // namespace
-
-std::unique_ptr<DirectExpressionStep> CreateDirectCreateMapStep(
-    std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id) {
-  return std::make_unique<DirectCreateMapStep>(
-      std::move(deps), std::move(optional_indices), expr_id);
-}
 
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>>
 CreateCreateStructStepForMap(size_t entry_count,
@@ -280,11 +150,6 @@ CreateCreateStructStepForMap(size_t entry_count,
 
 std::unique_ptr<ExpressionStepLogic> CreateMutableMapStep() {
   return std::make_unique<MutableMapStep>();
-}
-
-std::unique_ptr<DirectExpressionStep> CreateDirectMutableMapStep(
-    int64_t expr_id) {
-  return std::make_unique<DirectMutableMapStep>(expr_id);
 }
 
 }  // namespace google::api::expr::runtime

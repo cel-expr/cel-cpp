@@ -7,27 +7,19 @@
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
-#include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/type_provider.h"
 #include "common/expr.h"
-#include "common/value.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/cel_expression_flat_impl.h"
-#include "eval/eval/const_value_step.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/public/activation.h"
+#include "eval/public/cel_attribute.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/unknown_attribute_set.h"
 #include "eval/public/unknown_set.h"
 #include "internal/testing.h"
-#include "internal/testing_descriptor_pool.h"
-#include "internal/testing_message_factory.h"
-#include "runtime/activation.h"
 #include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
-#include "runtime/internal/runtime_type_provider.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 
@@ -36,21 +28,13 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::absl_testing::IsOk;
-using ::absl_testing::StatusIs;
-using ::cel::BoolValue;
-using ::cel::ErrorValue;
 using ::cel::Expr;
-using ::cel::IntValue;
 using ::cel::RuntimeOptions;
 using ::cel::TypeProvider;
-using ::cel::UnknownValue;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::runtime_internal::RuntimeEnv;
 using ::google::protobuf::Arena;
-using ::testing::ElementsAre;
 using ::testing::Eq;
-using ::testing::HasSubstr;
-using ::testing::Truly;
 
 class LogicStepTest : public testing::TestWithParam<bool> {
  public:
@@ -192,182 +176,6 @@ TEST_F(LogicStepTest, TestUnknownHandling) {
 }
 
 INSTANTIATE_TEST_SUITE_P(LogicStepTest, LogicStepTest, testing::Bool());
-
-class TernaryStepDirectTest : public testing::TestWithParam<bool> {
- public:
-  TernaryStepDirectTest()
-      : type_provider_(cel::internal::GetTestingDescriptorPool()) {}
-
-  bool Shortcircuiting() { return GetParam(); }
-
- protected:
-  Arena arena_;
-  cel::runtime_internal::RuntimeTypeProvider type_provider_;
-};
-
-TEST_P(TernaryStepDirectTest, ReturnLhs) {
-  cel::Activation activation;
-  RuntimeOptions opts;
-  ExecutionFrameBase frame(activation, opts, type_provider_,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
-      CreateConstValueDirectStep(BoolValue(true), -1),
-      CreateConstValueDirectStep(IntValue(1), -1),
-      CreateConstValueDirectStep(IntValue(2), -1), -1, Shortcircuiting());
-
-  cel::Value result;
-  AttributeTrail attr_unused;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
-
-  ASSERT_TRUE(result.IsInt());
-  EXPECT_EQ(result.GetInt().NativeValue(), 1);
-}
-
-TEST_P(TernaryStepDirectTest, ReturnRhs) {
-  cel::Activation activation;
-  RuntimeOptions opts;
-  ExecutionFrameBase frame(activation, opts, type_provider_,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
-      CreateConstValueDirectStep(BoolValue(false), -1),
-      CreateConstValueDirectStep(IntValue(1), -1),
-      CreateConstValueDirectStep(IntValue(2), -1), -1, Shortcircuiting());
-
-  cel::Value result;
-  AttributeTrail attr_unused;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
-
-  ASSERT_TRUE(result.IsInt());
-  EXPECT_EQ(result.GetInt().NativeValue(), 2);
-}
-
-TEST_P(TernaryStepDirectTest, ForwardError) {
-  cel::Activation activation;
-  RuntimeOptions opts;
-  ExecutionFrameBase frame(activation, opts, type_provider_,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  cel::Value error_value =
-      cel::ErrorValue::From(absl::InternalError("test error"), &arena_);
-
-  std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
-      CreateConstValueDirectStep(error_value, -1),
-      CreateConstValueDirectStep(IntValue(1), -1),
-      CreateConstValueDirectStep(IntValue(2), -1), -1, Shortcircuiting());
-
-  cel::Value result;
-  AttributeTrail attr_unused;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
-
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(result.GetError().NativeValue(),
-              StatusIs(absl::StatusCode::kInternal, "test error"));
-}
-
-TEST_P(TernaryStepDirectTest, ForwardUnknown) {
-  cel::Activation activation;
-  RuntimeOptions opts;
-  opts.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  ExecutionFrameBase frame(activation, opts, type_provider_,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  std::vector<cel::Attribute> attrs{{cel::Attribute("var")}};
-
-  cel::UnknownValue unknown_value = cel::common_internal::MakeUnknownValue(
-      cel::Unknown(cel::AttributeSet(attrs)));
-
-  std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
-      CreateConstValueDirectStep(unknown_value, -1),
-      CreateConstValueDirectStep(IntValue(2), -1),
-      CreateConstValueDirectStep(IntValue(3), -1), -1, Shortcircuiting());
-
-  cel::Value result;
-  AttributeTrail attr_unused;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
-  ASSERT_TRUE(result.IsUnknown());
-  EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
-              ElementsAre(Truly([](const cel::Attribute& attr) {
-                return attr.variable_name() == "var";
-              })));
-}
-
-TEST_P(TernaryStepDirectTest, UnexpectedCondtionKind) {
-  cel::Activation activation;
-  RuntimeOptions opts;
-  ExecutionFrameBase frame(activation, opts, type_provider_,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
-      CreateConstValueDirectStep(IntValue(-1), -1),
-      CreateConstValueDirectStep(IntValue(1), -1),
-      CreateConstValueDirectStep(IntValue(2), -1), -1, Shortcircuiting());
-
-  cel::Value result;
-  AttributeTrail attr_unused;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
-
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(result.GetError().NativeValue(),
-              StatusIs(absl::StatusCode::kUnknown,
-                       HasSubstr("No matching overloads found")));
-}
-
-TEST_P(TernaryStepDirectTest, Shortcircuiting) {
-  class RecordCallStep : public DirectExpressionStep {
-   public:
-    explicit RecordCallStep(bool& was_called)
-        : DirectExpressionStep(-1), was_called_(&was_called) {}
-    absl::Status Evaluate(ExecutionFrameBase& frame, cel::Value& result,
-                          AttributeTrail& trail) const override {
-      *was_called_ = true;
-      result = IntValue(1);
-      return absl::OkStatus();
-    }
-
-   private:
-    bool* absl_nonnull was_called_;
-  };
-
-  bool lhs_was_called = false;
-  bool rhs_was_called = false;
-
-  cel::Activation activation;
-  RuntimeOptions opts;
-  ExecutionFrameBase frame(activation, opts, type_provider_,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  std::unique_ptr<DirectExpressionStep> step = CreateDirectTernaryStep(
-      CreateConstValueDirectStep(BoolValue(false), -1),
-      std::make_unique<RecordCallStep>(lhs_was_called),
-      std::make_unique<RecordCallStep>(rhs_was_called), -1, Shortcircuiting());
-
-  cel::Value result;
-  AttributeTrail attr_unused;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr_unused), IsOk());
-
-  ASSERT_TRUE(result.IsInt());
-  EXPECT_THAT(result.GetInt().NativeValue(), Eq(1));
-  bool expect_eager_eval = !Shortcircuiting();
-  EXPECT_EQ(lhs_was_called, expect_eager_eval);
-  EXPECT_TRUE(rhs_was_called);
-}
-
-INSTANTIATE_TEST_SUITE_P(TernaryStepDirectTest, TernaryStepDirectTest,
-                         testing::Bool());
 
 }  // namespace
 

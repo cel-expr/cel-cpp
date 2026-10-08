@@ -8,19 +8,13 @@
 #include "absl/status/status.h"
 #include "base/type_provider.h"
 #include "common/memory.h"
-#include "common/value.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/cel_expression_flat_impl.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_value.h"
 #include "internal/testing.h"
-#include "internal/testing_descriptor_pool.h"
-#include "internal/testing_message_factory.h"
-#include "runtime/activation.h"
 #include "runtime/internal/runtime_env_testing.h"
-#include "runtime/internal/runtime_type_provider.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 
@@ -29,19 +23,12 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::absl_testing::IsOk;
-using ::absl_testing::StatusIs;
-using ::cel::ErrorValue;
-using ::cel::IntValue;
 using ::cel::MemoryManagerRef;
 using ::cel::RuntimeOptions;
 using ::cel::TypeProvider;
-using ::cel::UnknownValue;
-using ::cel::Value;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::google::protobuf::Arena;
 using ::testing::Eq;
-using ::testing::HasSubstr;
-using ::testing::SizeIs;
 
 TEST(IdentStepTest, TestIdentStep) {
   ExecutionPath path;
@@ -200,107 +187,6 @@ TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
   result = status0.value();
 
   ASSERT_TRUE(result.IsUnknownSet());
-}
-
-TEST(DirectIdentStepTest, Basic) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  cel::Activation activation;
-  RuntimeOptions options;
-
-  activation.InsertOrAssignValue("var1", IntValue(42));
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-  Value result;
-  AttributeTrail trail;
-
-  auto step = CreateDirectIdentStep("var1", -1);
-
-  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
-
-  ASSERT_TRUE(result.IsInt());
-  EXPECT_THAT(result.GetInt().NativeValue(), Eq(42));
-}
-
-TEST(DirectIdentStepTest, UnknownAttribute) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  cel::Activation activation;
-  RuntimeOptions options;
-  options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-
-  activation.InsertOrAssignValue("var1", IntValue(42));
-  ASSERT_THAT(
-      activation.SetUnknownPatterns({CreateCelAttributePattern("var1", {})}),
-      IsOk());
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-  Value result;
-  AttributeTrail trail;
-
-  auto step = CreateDirectIdentStep("var1", -1);
-
-  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
-
-  ASSERT_TRUE(result.IsUnknown());
-  EXPECT_THAT(result.GetUnknown().ToAttributeSet(), SizeIs(1));
-}
-
-TEST(DirectIdentStepTest, MissingAttribute) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  cel::Activation activation;
-  RuntimeOptions options;
-  options.enable_missing_attribute_errors = true;
-
-  activation.InsertOrAssignValue("var1", IntValue(42));
-  ASSERT_THAT(
-      activation.SetMissingPatterns({CreateCelAttributePattern("var1", {})}),
-      IsOk());
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-  Value result;
-  AttributeTrail trail;
-
-  auto step = CreateDirectIdentStep("var1", -1);
-
-  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
-
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(result.GetError().NativeValue(),
-              StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("var1")));
-}
-
-TEST(DirectIdentStepTest, NotFound) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  cel::Activation activation;
-  RuntimeOptions options;
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-  Value result;
-  AttributeTrail trail;
-
-  auto step = CreateDirectIdentStep("var1", -1);
-
-  ASSERT_THAT(step->Evaluate(frame, result, trail), IsOk());
-
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(result.GetError().NativeValue(),
-              StatusIs(absl::StatusCode::kUnknown,
-                       HasSubstr("\"var1\" found in Activation")));
 }
 
 }  // namespace

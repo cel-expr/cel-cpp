@@ -27,8 +27,8 @@
 #include "common/value_kind.h"
 #include "common/value_testing.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
 #include "internal/testing_message_factory.h"
@@ -51,16 +51,14 @@ using ::cel::ValueKind;
 using ::cel::test::BoolValueIs;
 using ::cel::test::ValueKindIs;
 
-class ValueStep : public ExpressionStepLogic, public DirectExpressionStep {
+class ValueStep : public ExpressionStepLogic {
  public:
   ValueStep(Value value, Attribute attr)
       : ExpressionStepLogic(),
-        DirectExpressionStep(-1),
         value_(std::move(value)),
         attr_(std::move(attr)) {}
   explicit ValueStep(Value value)
       : ExpressionStepLogic(),
-        DirectExpressionStep(-1),
         value_(std::move(value)),
         attr_() {}
 
@@ -68,72 +66,10 @@ class ValueStep : public ExpressionStepLogic, public DirectExpressionStep {
     frame->value_stack().Push(value_, attr_);
   }
 
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute_trail) const override {
-    result = value_;
-    attribute_trail = attr_;
-    return absl::OkStatus();
-  }
-
  private:
   Value value_;
   AttributeTrail attr_;
 };
-
-TEST(RecursiveTest, PartialAttrUnknown) {
-  cel::Activation activation;
-  google::protobuf::Arena arena;
-  cel::RuntimeOptions opts;
-  opts.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  // A little contrived for simplicity, but this is for cases where e.g.
-  // `msg == Msg{}` but msg.foo is unknown.
-  auto plan = CreateDirectEqualityStep(
-      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo")),
-      std::make_unique<ValueStep>(IntValue(2)), false, -1);
-
-  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
-                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
-              IsOk());
-
-  ExecutionFrameBase frame(activation, opts, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  cel::Value result;
-  AttributeTrail attribute_trail;
-  ASSERT_THAT(plan->Evaluate(frame, result, attribute_trail), IsOk());
-
-  EXPECT_THAT(result, ValueKindIs(ValueKind::kUnknown));
-}
-
-TEST(RecursiveTest, PartialAttrUnknownDisabled) {
-  cel::Activation activation;
-  google::protobuf::Arena arena;
-  cel::RuntimeOptions opts;
-  opts.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  auto plan = CreateDirectEqualityStep(
-      std::make_unique<ValueStep>(IntValue(1), cel::Attribute("foo")),
-      std::make_unique<ValueStep>(IntValue(2)), false, -1);
-
-  ASSERT_THAT(activation.SetUnknownPatterns({cel::AttributePattern(
-                  "foo", {cel::AttributeQualifierPattern::OfString("bar")})}),
-              IsOk());
-  ExecutionFrameBase frame(activation, opts, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  cel::Value result;
-  AttributeTrail attribute_trail;
-  ASSERT_THAT(plan->Evaluate(frame, result, attribute_trail), IsOk());
-
-  EXPECT_THAT(result, BoolValueIs(false));
-}
 
 TEST(IterativeTest, PartialAttrUnknown) {
   cel::Activation activation;
@@ -233,44 +169,6 @@ Value MakeValue(InputType type, google::protobuf::Arena* absl_nonnull arena) {
     case InputType::kError:
     default:
       return ErrorValue::From(absl::InternalError("error"), arena);
-  }
-}
-
-TEST_P(EqualsTest, Recursive) {
-  const EqualsTestCase& test_case = GetParam();
-  cel::Activation activation;
-  google::protobuf::Arena arena;
-  cel::RuntimeOptions opts;
-  opts.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  auto plan = CreateDirectEqualityStep(
-      std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena)),
-      std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena)),
-      test_case.negation, -1);
-
-  ExecutionFrameBase frame(activation, opts, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  cel::Value result;
-  AttributeTrail attribute_trail;
-  ASSERT_THAT(plan->Evaluate(frame, result, attribute_trail), IsOk());
-
-  switch (test_case.expected_result) {
-    case OutputType::kBoolTrue:
-      EXPECT_THAT(result, BoolValueIs(true));
-      break;
-    case OutputType::kBoolFalse:
-      EXPECT_THAT(result, BoolValueIs(false));
-      break;
-    case OutputType::kError:
-      EXPECT_THAT(result, ValueKindIs(ValueKind::kError));
-      break;
-    case OutputType::kUnknown:
-      EXPECT_THAT(result, ValueKindIs(ValueKind::kUnknown));
-      break;
   }
 }
 
@@ -418,43 +316,6 @@ struct InTestCase {
 };
 
 class InTest : public ::testing::TestWithParam<InTestCase> {};
-
-TEST_P(InTest, Recursive) {
-  const InTestCase& test_case = GetParam();
-  cel::Activation activation;
-  google::protobuf::Arena arena;
-  cel::RuntimeOptions opts;
-  opts.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  auto plan = CreateDirectInStep(
-      std::make_unique<ValueStep>(MakeValue(test_case.lhs, &arena)),
-      std::make_unique<ValueStep>(MakeValue(test_case.rhs, &arena)), -1);
-
-  ExecutionFrameBase frame(activation, opts, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  cel::Value result;
-  AttributeTrail attribute_trail;
-  ASSERT_THAT(plan->Evaluate(frame, result, attribute_trail), IsOk());
-
-  switch (test_case.expected_result) {
-    case OutputType::kBoolTrue:
-      EXPECT_THAT(result, BoolValueIs(true));
-      break;
-    case OutputType::kBoolFalse:
-      EXPECT_THAT(result, BoolValueIs(false));
-      break;
-    case OutputType::kError:
-      EXPECT_THAT(result, ValueKindIs(ValueKind::kError));
-      break;
-    case OutputType::kUnknown:
-      EXPECT_THAT(result, ValueKindIs(ValueKind::kUnknown));
-      break;
-  }
-}
 
 TEST_P(InTest, Iterative) {
   const InTestCase& test_case = GetParam();

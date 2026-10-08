@@ -9,7 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/container/inlined_vector.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
@@ -22,7 +21,6 @@
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_logic.h"
 #include "eval/internal/errors.h"
@@ -303,81 +301,6 @@ class LazyResolver {
   bool receiver_style_;
 };
 
-template <typename Resolver>
-class DirectFunctionStepImpl : public DirectExpressionStep {
- public:
-  DirectFunctionStepImpl(
-      int64_t expr_id, const std::string& name,
-      std::vector<std::unique_ptr<DirectExpressionStep>> arg_steps,
-      bool receiver_style, Resolver&& resolver)
-      : DirectExpressionStep(expr_id),
-        name_(name),
-        arg_steps_(std::move(arg_steps)),
-        receiver_style_(receiver_style),
-        resolver_(std::forward<Resolver>(resolver)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, cel::Value& result,
-                        AttributeTrail& trail) const override {
-    absl::InlinedVector<Value, 2> args;
-    absl::InlinedVector<AttributeTrail, 2> arg_trails;
-
-    args.resize(arg_steps_.size());
-    arg_trails.resize(arg_steps_.size());
-
-    for (size_t i = 0; i < arg_steps_.size(); i++) {
-      CEL_RETURN_IF_ERROR(
-          arg_steps_[i]->Evaluate(frame, args[i], arg_trails[i]));
-    }
-
-    if (frame.unknown_processing_enabled()) {
-      for (size_t i = 0; i < arg_trails.size(); i++) {
-        if (frame.attribute_utility().CheckForUnknown(arg_trails[i],
-                                                      /*use_partial=*/true)) {
-          args[i] = frame.attribute_utility().CreateUnknownSet(
-              arg_trails[i].attribute());
-        }
-      }
-    }
-
-    CEL_ASSIGN_OR_RETURN(ResolveResult resolved_function,
-                         resolver_.Resolve(frame, args));
-
-    if (resolved_function.has_value() &&
-        ShouldAcceptOverload(resolved_function->descriptor, args)) {
-      CEL_ASSIGN_OR_RETURN(result,
-                           Invoke(*resolved_function, expr_id_, args, frame));
-
-      return absl::OkStatus();
-    }
-
-    result = NoOverloadResult(name_, args, receiver_style_, frame);
-
-    return absl::OkStatus();
-  }
-
-  absl::optional<std::vector<const DirectExpressionStep*>> GetDependencies()
-      const override {
-    std::vector<const DirectExpressionStep*> dependencies;
-    dependencies.reserve(arg_steps_.size());
-    for (const auto& arg_step : arg_steps_) {
-      dependencies.push_back(arg_step.get());
-    }
-    return dependencies;
-  }
-
-  absl::optional<std::vector<std::unique_ptr<DirectExpressionStep>>>
-  ExtractDependencies() override {
-    return std::move(arg_steps_);
-  }
-
- private:
-  friend Resolver;
-  std::string name_;
-  std::vector<std::unique_ptr<DirectExpressionStep>> arg_steps_;
-  bool receiver_style_;
-  Resolver resolver_;
-};
-
 }  // namespace
 
 template <class Step>
@@ -461,24 +384,6 @@ absl::StatusOr<ResolveResult> LazyFunctionStep::ResolveFunction(
     absl::Span<const cel::Value> input_args,
     const ExecutionFrameBase& frame) const {
   return ResolveLazy(input_args, name_, receiver_style_, providers_, frame);
-}
-
-std::unique_ptr<DirectExpressionStep> CreateDirectFunctionStep(
-    int64_t expr_id, const cel::CallExpr& call,
-    std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    std::vector<cel::FunctionOverloadReference> overloads) {
-  return std::make_unique<DirectFunctionStepImpl<StaticResolver>>(
-      expr_id, call.function(), std::move(deps), call.has_target(),
-      StaticResolver(std::move(overloads)));
-}
-
-std::unique_ptr<DirectExpressionStep> CreateDirectLazyFunctionStep(
-    int64_t expr_id, const cel::CallExpr& call,
-    std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    std::vector<cel::FunctionRegistry::LazyOverload> providers) {
-  return std::make_unique<DirectFunctionStepImpl<LazyResolver>>(
-      expr_id, call.function(), std::move(deps), call.has_target(),
-      LazyResolver(std::move(providers), call.function(), call.has_target()));
 }
 
 std::unique_ptr<LazyFunctionStep> CreateLazyFunctionStep(

@@ -58,7 +58,6 @@ cc_test(
         ":message_wrapper",
         "//eval/public/structs:trivial_legacy_type_info",
         "//eval/testutil:test_message_cc_proto",
-        "//internal:casts",
         "//internal:testing",
         "@com_google_protobuf//:protobuf",
     ],
@@ -71,9 +70,7 @@ cc_library(
     ],
     deps = [
         ":message_wrapper",
-        "//internal:casts",
         "@com_google_absl//absl/base:core_headers",
-        "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/types:variant",
         "@com_google_protobuf//:protobuf",
     ],

@@ -33,14 +33,12 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "base/type_provider.h"
-#include "common/native_type.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
 #include "eval/eval/attribute_utility.h"
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/comprehension_step.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/equality_steps.h"
 #include "eval/eval/evaluator_stack.h"
 #include "eval/eval/expression_step_logic.h"
@@ -422,25 +420,6 @@ class ExpressionStep {
 // larger.
 static_assert(sizeof(ExpressionStep) == 16);
 #endif
-
-// Wrapper for direct steps to work with the stack machine impl.
-class WrappedDirectStep : public ExpressionStepLogic {
- public:
-  explicit WrappedDirectStep(std::unique_ptr<DirectExpressionStep> impl,
-                             int64_t expr_id = -1)
-      : impl_(std::move(impl)) {}
-
-  void Evaluate(ExecutionFrame* frame) const override;
-
-  cel::NativeTypeId GetNativeTypeId() const override {
-    return cel::NativeTypeId::For<WrappedDirectStep>();
-  }
-
-  const DirectExpressionStep* wrapped() const { return impl_.get(); }
-
- private:
-  std::unique_ptr<DirectExpressionStep> impl_;
-};
 
 using ExecutionPath = std::vector<ExpressionStep>;
 using ExecutionPathView = absl::Span<const ExpressionStep>;

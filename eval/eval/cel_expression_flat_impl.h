@@ -15,19 +15,15 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_EVAL_CEL_EXPRESSION_FLAT_IMPL_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_CEL_EXPRESSION_FLAT_IMPL_H_
 
-#include <cstddef>
 #include <memory>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
-#include "eval/eval/comprehension_slots.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/public/base_activation.h"
 #include "eval/public/cel_expression.h"
 #include "eval/public/cel_value.h"
-#include "internal/casts.h"
 #include "runtime/internal/runtime_env.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
@@ -96,83 +92,6 @@ class CelExpressionFlatImpl : public CelExpression {
  private:
   absl_nonnull std::shared_ptr<const cel::runtime_internal::RuntimeEnv> env_;
   FlatExpression flat_expression_;
-};
-
-// Implementation of the CelExpression that evaluates a recursive representation
-// of the AST.
-//
-// This class adapts FlatExpression to implement the CelExpression interface.
-//
-// Assumes that the flat expression is wrapping a simple recursive program.
-class CelExpressionRecursiveImpl : public CelExpression {
- private:
-  class EvaluationState : public CelEvaluationState {
-   public:
-    explicit EvaluationState(size_t comprehension_slots)
-        : EvaluationState(nullptr, comprehension_slots) {}
-
-    EvaluationState(google::protobuf::Arena* arena, size_t comprehension_slots)
-        : arena_(arena), comprehension_slots_(comprehension_slots) {}
-
-    google::protobuf::Arena* arena() { return arena_; }
-
-    void Rebind(google::protobuf::Arena* arena) { arena_ = arena; }
-
-    ComprehensionSlots& comprehension_slots() { return comprehension_slots_; }
-
-   private:
-    google::protobuf::Arena* arena_;
-    ComprehensionSlots comprehension_slots_;
-  };
-
- public:
-  static absl::StatusOr<std::unique_ptr<CelExpressionRecursiveImpl>> Create(
-      absl_nonnull std::shared_ptr<const cel::runtime_internal::RuntimeEnv> env,
-      FlatExpression flat_expression);
-
-  // Move-only
-  CelExpressionRecursiveImpl(const CelExpressionRecursiveImpl&) = delete;
-  CelExpressionRecursiveImpl& operator=(const CelExpressionRecursiveImpl&) =
-      delete;
-  CelExpressionRecursiveImpl(CelExpressionRecursiveImpl&&) = default;
-  CelExpressionRecursiveImpl& operator=(CelExpressionRecursiveImpl&&) = delete;
-
-  // Implement CelExpression.
-  std::unique_ptr<CelEvaluationState> InitializeState(
-      google::protobuf::Arena* arena) const override {
-    return std::make_unique<EvaluationState>(
-        arena, flat_expression_.comprehension_slots_size());
-  }
-
-  // Implement CelExpression.
-  std::unique_ptr<CelEvaluationState> CreateState() const override {
-    return std::make_unique<EvaluationState>(
-        flat_expression_.comprehension_slots_size());
-  }
-
-  absl::StatusOr<CelValue> Trace(const BaseActivation& activation,
-                                 google::protobuf::Arena* arena,
-                                 CelEvaluationListener callback,
-                                 CelEvaluationState* state) const override;
-
-  // Exposed for inspection in tests.
-  const FlatExpression& flat_expression() const { return flat_expression_; }
-
-  const DirectExpressionStep* root() const { return root_; }
-
- private:
-  explicit CelExpressionRecursiveImpl(
-      absl_nonnull std::shared_ptr<const cel::runtime_internal::RuntimeEnv> env,
-      FlatExpression flat_expression)
-      : env_(std::move(env)),
-        flat_expression_(std::move(flat_expression)),
-        root_(cel::internal::down_cast<const WrappedDirectStep*>(
-                  flat_expression_.path()[0].GetGenericStep())
-                  ->wrapped()) {}
-
-  absl_nonnull std::shared_ptr<const cel::runtime_internal::RuntimeEnv> env_;
-  FlatExpression flat_expression_;
-  const DirectExpressionStep* root_;
 };
 
 }  // namespace google::api::expr::runtime

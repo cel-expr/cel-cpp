@@ -25,7 +25,6 @@
 #include "cel/expr/syntax.pb.h"
 #include "google/protobuf/field_mask.pb.h"
 #include "google/protobuf/descriptor.pb.h"
-#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
@@ -45,7 +44,6 @@
 #include "eval/public/activation.h"
 #include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_attribute.h"
-#include "eval/public/cel_builtins.h"
 #include "eval/public/cel_expr_builder_factory.h"
 #include "eval/public/cel_expression.h"
 #include "eval/public/cel_function.h"
@@ -256,7 +254,7 @@ TEST(FlatExprBuilderTest, BinaryCallTooManyArguments) {
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
 
   auto* call = expr.mutable_call_expr();
-  call->set_function(builtin::kAnd);
+  call->set_function(cel::builtin::kAnd);
   call->mutable_target()->mutable_const_expr()->set_string_value("random");
   call->add_args()->mutable_const_expr()->set_bool_value(false);
   call->add_args()->mutable_const_expr()->set_bool_value(true);
@@ -270,7 +268,7 @@ TEST(FlatExprBuilderTest, TernaryCallTooManyArguments) {
   Expr expr;
   SourceInfo source_info;
   auto* call = expr.mutable_call_expr();
-  call->set_function(builtin::kTernary);
+  call->set_function(cel::builtin::kTernary);
   call->mutable_target()->mutable_const_expr()->set_string_value("random");
   call->add_args()->mutable_const_expr()->set_bool_value(false);
   call->add_args()->mutable_const_expr()->set_int64_value(1);
@@ -1813,7 +1811,7 @@ absl::Status RunTernaryExpression(CelValue selector, CelValue value1,
   Expr expr;
   SourceInfo source_info;
   auto call_expr = expr.mutable_call_expr();
-  call_expr->set_function(builtin::kTernary);
+  call_expr->set_function(cel::builtin::kTernary);
 
   auto arg0 = call_expr->add_args();
   arg0->mutable_ident_expr()->set_name("selector");
@@ -1842,7 +1840,7 @@ TEST(FlatExprBuilderTest, Ternary) {
   Expr expr;
   SourceInfo source_info;
   auto call_expr = expr.mutable_call_expr();
-  call_expr->set_function(builtin::kTernary);
+  call_expr->set_function(cel::builtin::kTernary);
 
   auto arg0 = call_expr->add_args();
   arg0->mutable_ident_expr()->set_name("selector");
@@ -3017,138 +3015,6 @@ INSTANTIATE_TEST_SUITE_P(
                                     "true", "false", "bool", false},
         VariadicLogicalEvalTestCase{"All_Unknown", "[a, b, c].all(x, x)",
                                     "true", "unknown1", "true", "unknown"}));
-
-struct RecursionDepthTestCase {
-  std::string label;
-  std::string expr;
-  int max_recursion_depth;
-  absl::StatusCode expected_status_code;
-  std::string expected_error_msg;
-};
-
-class FlatExprBuilderRecursionDepthTest
-    : public testing::TestWithParam<RecursionDepthTestCase> {};
-
-TEST_P(FlatExprBuilderRecursionDepthTest, CheckRecursionLimit) {
-  const auto& test_case = GetParam();
-  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, parser::Parse(test_case.expr));
-
-  cel::RuntimeOptions options;
-  options.max_recursion_depth = test_case.max_recursion_depth;
-  options.fail_on_warnings = false;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
-
-  auto result =
-      builder.CreateExpression(&parsed_expr.expr(), &parsed_expr.source_info());
-  if (test_case.expected_status_code == absl::StatusCode::kOk) {
-    EXPECT_THAT(result, IsOk());
-  } else {
-    EXPECT_THAT(result, StatusIs(test_case.expected_status_code,
-                                 HasSubstr(test_case.expected_error_msg)));
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    FlatExprBuilderRecursionDepthTest, FlatExprBuilderRecursionDepthTest,
-    testing::Values(
-        RecursionDepthTestCase{"AndChildLimitExceeded", "(1 + 1) && true", 1,
-                               absl::StatusCode::kInvalidArgument,
-                               "Maximum recursion depth of 1 exceeded"},
-        RecursionDepthTestCase{"AndParentLimitExceeded", "(1 + 1) && true", 2,
-                               absl::StatusCode::kInvalidArgument,
-                               "Maximum recursion depth of 2 exceeded"},
-        RecursionDepthTestCase{"AndLimitSuccess", "(1 + 1) && true", 3,
-                               absl::StatusCode::kOk, ""},
-        RecursionDepthTestCase{"AndLimitSuccessGenerous", "(1 + 1) && true", 10,
-                               absl::StatusCode::kOk, ""},
-        RecursionDepthTestCase{"AndLimitSuccessUnlimited", "(1 + 1) && true",
-                               -1, absl::StatusCode::kOk, ""},
-        RecursionDepthTestCase{"OrChildLimitExceeded", "(1 + 1) || true", 1,
-                               absl::StatusCode::kInvalidArgument,
-                               "Maximum recursion depth of 1 exceeded"},
-        RecursionDepthTestCase{"OrParentLimitExceeded", "(1 + 1) || true", 2,
-                               absl::StatusCode::kInvalidArgument,
-                               "Maximum recursion depth of 2 exceeded"},
-        RecursionDepthTestCase{"OrLimitSuccess", "(1 + 1) || true", 3,
-                               absl::StatusCode::kOk, ""},
-        RecursionDepthTestCase{"OrLimitSuccessGenerous",
-                               "(1 + 1) || false || false || false || false || "
-                               "(true && true && true && true && false)",
-                               10, absl::StatusCode::kOk, ""},
-        RecursionDepthTestCase{"OrLimitSuccessUnlimited", "(1 + 1) || true", -1,
-                               absl::StatusCode::kOk, ""},
-        RecursionDepthTestCase{"AndDepthUpdateFromSubsequentArg",
-                               "true && (1 + 1 + 1 + 1)", 4,
-                               absl::StatusCode::kInvalidArgument,
-                               "Maximum recursion depth of 4 exceeded"},
-        RecursionDepthTestCase{"OrDepthUpdateFromSubsequentArg",
-                               "true || (1 + 1 + 1 + 1)", 4,
-                               absl::StatusCode::kInvalidArgument,
-                               "Maximum recursion depth of 4 exceeded"}));
-
-TEST(FlatExprBuilderTest, NonRecursiveChildBlockAndError) {
-  ParsedExpr parsed_expr;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      R"pb(
-        expr: {
-          call_expr: {
-            function: "_&&_"
-            args { const_expr: { bool_value: true } }
-            args {
-              call_expr: {
-                function: "cel.@block"
-                args {
-                  list_expr { elements { const_expr: { int64_value: 1 } } }
-                }
-                args { ident_expr: { name: "@index0" } }
-              }
-            }
-          }
-        }
-      )pb",
-      &parsed_expr));
-
-  cel::RuntimeOptions options;
-  options.max_recursion_depth = 2;
-  options.fail_on_warnings = false;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
-  EXPECT_THAT(
-      builder.CreateExpression(&parsed_expr.expr(), &parsed_expr.source_info()),
-      StatusIs(absl::StatusCode::kInternal,
-               HasSubstr("failed to build recursive program")));
-}
-
-TEST(FlatExprBuilderTest, NonRecursiveChildBlockOrError) {
-  ParsedExpr parsed_expr;
-  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
-      R"pb(
-        expr: {
-          call_expr: {
-            function: "_||_"
-            args { const_expr: { bool_value: true } }
-            args {
-              call_expr: {
-                function: "cel.@block"
-                args {
-                  list_expr { elements { const_expr: { int64_value: 1 } } }
-                }
-                args { ident_expr: { name: "@index0" } }
-              }
-            }
-          }
-        }
-      )pb",
-      &parsed_expr));
-
-  cel::RuntimeOptions options;
-  options.max_recursion_depth = 2;
-  options.fail_on_warnings = false;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
-  EXPECT_THAT(
-      builder.CreateExpression(&parsed_expr.expr(), &parsed_expr.source_info()),
-      StatusIs(absl::StatusCode::kInternal,
-               HasSubstr("failed to build recursive program")));
-}
 
 }  // namespace
 

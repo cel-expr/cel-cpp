@@ -1,20 +1,16 @@
 #include "eval/eval/shadowable_value_step.h"
 
-#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
 
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "common/value.h"
-#include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
-#include "internal/status_macros.h"
+#include "eval/eval/expression_step_logic.h"
 
 namespace google::api::expr::runtime {
 
@@ -52,49 +48,12 @@ void ShadowableValueStep::Evaluate(ExecutionFrame* frame) const {
   }
 }
 
-class DirectShadowableValueStep : public DirectExpressionStep {
- public:
-  DirectShadowableValueStep(std::string identifier, cel::Value value,
-                            int64_t expr_id)
-      : DirectExpressionStep(expr_id),
-        identifier_(std::move(identifier)),
-        value_(std::move(value)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override;
-
- private:
-  std::string identifier_;
-  Value value_;
-};
-
-// TODO(uncreated-issue/67): Attribute tracking is skipped for the shadowed case. May
-// cause problems for users with unknown tracking and variables named like
-// 'list' etc, but follows the current behavior of the stack machine version.
-absl::Status DirectShadowableValueStep::Evaluate(
-    ExecutionFrameBase& frame, Value& result, AttributeTrail& attribute) const {
-  CEL_ASSIGN_OR_RETURN(auto found,
-                       frame.activation().FindVariable(
-                           identifier_, frame.descriptor_pool(),
-                           frame.message_factory(), frame.arena(), &result));
-  if (!found) {
-    result = value_;
-  }
-  return absl::OkStatus();
-}
-
 }  // namespace
 
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateShadowableValueStep(
     absl::string_view name, cel::Value value) {
   return std::make_unique<ShadowableValueStep>(std::string(name),
                                                std::move(value));
-}
-
-std::unique_ptr<DirectExpressionStep> CreateDirectShadowableValueStep(
-    absl::string_view name, cel::Value value, int64_t expr_id) {
-  return std::make_unique<DirectShadowableValueStep>(std::string(name),
-                                                     std::move(value), expr_id);
 }
 
 }  // namespace google::api::expr::runtime

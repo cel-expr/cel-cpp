@@ -16,19 +16,12 @@
 
 #include <cstdint>
 #include <memory>
-#include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
-#include "absl/memory/memory.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/strings/str_cat.h"
-#include "common/native_type.h"
 #include "common/value.h"
-#include "eval/eval/attribute_trail.h"
-#include "eval/eval/comprehension_slots.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/internal/adapter_activation_impl.h"
 #include "eval/internal/interop.h"
@@ -37,7 +30,6 @@
 #include "eval/public/cel_value.h"
 #include "internal/casts.h"
 #include "internal/status_macros.h"
-#include "runtime/internal/runtime_env.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -46,7 +38,6 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::cel::Value;
-using ::cel::runtime_internal::RuntimeEnv;
 
 EvaluationListener AdaptListener(const CelEvaluationListener& listener) {
   if (!listener) return nullptr;
@@ -121,60 +112,6 @@ std::unique_ptr<CelEvaluationState> CelExpressionFlatImpl::CreateState() const {
   return std::make_unique<CelExpressionFlatEvaluationState>(
       env_->descriptor_pool.get(), env_->MutableMessageFactory(),
       flat_expression_);
-}
-
-absl::StatusOr<std::unique_ptr<CelExpressionRecursiveImpl>>
-CelExpressionRecursiveImpl::Create(
-    absl_nonnull std::shared_ptr<const RuntimeEnv> env,
-    FlatExpression flat_expr) {
-  const ExpressionStepLogic* logic = nullptr;
-  if (!flat_expr.path().empty() && flat_expr.path()[0].IsGenericStep()) {
-    logic = flat_expr.path()[0].GetGenericStep();
-  }
-  if (logic != nullptr &&
-      logic->GetNativeTypeId() != cel::NativeTypeId::For<WrappedDirectStep>()) {
-    return absl::InvalidArgumentError(absl::StrCat(
-        "Expected a recursive program step", flat_expr.path().size()));
-  }
-
-  auto* instance =
-      new CelExpressionRecursiveImpl(std::move(env), std::move(flat_expr));
-
-  return absl::WrapUnique(instance);
-}
-
-absl::StatusOr<CelValue> CelExpressionRecursiveImpl::Trace(
-    const BaseActivation& activation, google::protobuf::Arena* arena,
-    CelEvaluationListener callback, CelEvaluationState* state) const {
-  std::unique_ptr<CelEvaluationState> inline_state;
-  if (state == nullptr) {
-    inline_state = CreateState();
-    state = inline_state.get();
-  }
-  auto derived_state = ::cel::internal::down_cast<EvaluationState*>(state);
-  if (arena != nullptr) {
-    derived_state->Rebind(arena);
-  } else {
-    arena = derived_state->arena();
-  }
-  if (state != inline_state.get()) {
-    derived_state->comprehension_slots().Reset();
-  }
-  ABSL_DCHECK(arena != nullptr)
-      << "arena must be implicitly provided when using InitializeState() or "
-         "explicitly provided when using CreateState()";
-  cel::interop_internal::AdapterActivationImpl modern_activation(activation);
-  ExecutionFrameBase execution_frame(
-      modern_activation, AdaptListener(callback), flat_expression_.options(),
-      flat_expression_.type_provider(), env_->descriptor_pool.get(),
-      env_->MutableMessageFactory(), arena,
-      /*embedder_context=*/nullptr, derived_state->comprehension_slots());
-
-  cel::Value result;
-  AttributeTrail trail;
-  CEL_RETURN_IF_ERROR(root_->Evaluate(execution_frame, result, trail));
-
-  return cel::interop_internal::ModernValueToLegacyValueOrDie(arena, result);
 }
 
 }  // namespace google::api::expr::runtime

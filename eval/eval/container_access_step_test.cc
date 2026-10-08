@@ -16,9 +16,7 @@
 #include "common/ast.h"
 #include "common/expr.h"
 #include "eval/eval/cel_expression_flat_impl.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_expr_builder_factory.h"
@@ -34,6 +32,7 @@
 #include "parser/parser.h"
 #include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
+#include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 
 namespace google::api::expr::runtime {
@@ -76,19 +75,10 @@ CelValue EvaluateAttributeHelper(
   container_expr.mutable_ident_expr().set_name("container");
   key_expr.mutable_ident_expr().set_name("key");
 
-  if (use_recursive_impl) {
-    path.push_back(ExpressionStep::MakeGenericStep(
-        std::make_unique<WrappedDirectStep>(CreateDirectContainerAccessStep(
-            CreateDirectIdentStep("container", 1),
-            CreateDirectIdentStep("key", 2),
-            /*enable_optional_types=*/false, 3)),
-        3));
-  } else {
     path.push_back(ExpressionStep::MakeIdentifierStep("container", 1));
     path.push_back(ExpressionStep::MakeIdentifierStep("key", 2));
     path.push_back(ExpressionStep::MakeGenericStep(
         std::move(CreateContainerAccessStep(call).value()), 3));
-  }
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;

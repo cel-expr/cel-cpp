@@ -27,10 +27,9 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "common/value.h"
-#include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "internal/status_macros.h"
 
 namespace google::api::expr::runtime {
@@ -143,124 +142,7 @@ void CreateStructStepForStruct::Evaluate(ExecutionFrame* frame) const {
   frame->value_stack().PopAndPush(entries_.size(), *std::move(result));
 }
 
-class DirectCreateStructStep : public DirectExpressionStep {
- public:
-  DirectCreateStructStep(
-      int64_t expr_id, std::string name, std::vector<std::string> field_keys,
-      std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-      absl::flat_hash_set<int32_t> optional_indices)
-      : DirectExpressionStep(expr_id),
-        name_(std::move(name)),
-        field_keys_(std::move(field_keys)),
-        deps_(std::move(deps)),
-        optional_indices_(std::move(optional_indices)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& trail) const override;
-
- private:
-  std::string name_;
-  std::vector<std::string> field_keys_;
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps_;
-  absl::flat_hash_set<int32_t> optional_indices_;
-};
-
-absl::Status DirectCreateStructStep::Evaluate(ExecutionFrameBase& frame,
-                                              Value& result,
-                                              AttributeTrail& trail) const {
-  Value field_value;
-  AttributeTrail field_attr;
-  auto unknowns = frame.attribute_utility().CreateAccumulator();
-
-  CEL_ASSIGN_OR_RETURN(auto builder,
-                       frame.type_provider().NewValueBuilder(
-                           name_, frame.message_factory(), frame.arena()));
-  if (builder == nullptr) {
-    result = cel::ErrorValue::From(
-        absl::NotFoundError(absl::StrCat("Unable to find builder: ", name_)),
-        frame.arena());
-    return absl::OkStatus();
-  }
-
-  for (int i = 0; i < field_keys_.size(); i++) {
-    CEL_RETURN_IF_ERROR(deps_[i]->Evaluate(frame, field_value, field_attr));
-
-    // TODO(uncreated-issue/67): if the value is an error, we should be able to return
-    // early, however some client tests depend on the error message the struct
-    // impl returns in the stack machine version.
-    if (field_value.IsError()) {
-      result = std::move(field_value);
-      return absl::OkStatus();
-    }
-
-    if (frame.unknown_processing_enabled()) {
-      if (field_value.IsUnknown()) {
-        unknowns.Add(field_value.GetUnknown());
-      } else if (frame.attribute_utility().CheckForUnknownPartial(field_attr)) {
-        unknowns.Add(field_attr);
-      }
-    }
-
-    if (!unknowns.IsEmpty()) {
-      continue;
-    }
-
-    if (optional_indices_.contains(static_cast<int32_t>(i))) {
-      if (auto optional_arg = field_value.AsOptional(); optional_arg) {
-        if (!optional_arg->HasValue()) {
-          continue;
-        }
-        Value optional_arg_value;
-        optional_arg->Value(&optional_arg_value);
-        if (optional_arg_value.IsError()) {
-          // Error should never be in optional, but better safe than sorry.
-          result = std::move(optional_arg_value);
-          return absl::OkStatus();
-        }
-        CEL_ASSIGN_OR_RETURN(
-            absl::optional<ErrorValue> error_value,
-            builder->SetFieldByName(field_keys_[i],
-                                    std::move(optional_arg_value)));
-        if (error_value) {
-          result = std::move(*error_value);
-          return absl::OkStatus();
-        }
-        continue;
-      } else {
-        result = cel::TypeConversionError(field_value.DebugString(),
-                                          "optional_type", frame.arena());
-        return absl::OkStatus();
-      }
-    }
-
-    CEL_ASSIGN_OR_RETURN(
-        absl::optional<ErrorValue> error_value,
-        builder->SetFieldByName(field_keys_[i], std::move(field_value)));
-    if (error_value) {
-      result = std::move(*error_value);
-      return absl::OkStatus();
-    }
-  }
-
-  if (!unknowns.IsEmpty()) {
-    result = std::move(unknowns).Build();
-    return absl::OkStatus();
-  }
-
-  CEL_ASSIGN_OR_RETURN(result, std::move(*builder).Build());
-  return absl::OkStatus();
-}
-
 }  // namespace
-
-std::unique_ptr<DirectExpressionStep> CreateDirectCreateStructStep(
-    std::string resolved_name, std::vector<std::string> field_keys,
-    std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id) {
-  return std::make_unique<DirectCreateStructStep>(
-      expr_id, std::move(resolved_name), std::move(field_keys), std::move(deps),
-      std::move(optional_indices));
-}
 
 std::unique_ptr<ExpressionStepLogic> CreateCreateStructStep(
     std::string name, std::vector<std::string> field_keys,

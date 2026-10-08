@@ -17,11 +17,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
-#include <memory>
 #include <optional>
 #include <utility>
 
-#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
@@ -33,15 +31,12 @@
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/comprehension_step.h"
 #include "eval/eval/equality_steps.h"
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
-#include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
-#include "runtime/internal/errors.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -363,17 +358,6 @@ FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step) {
     return &step.u_.fixed_jump_step;
   }
   return nullptr;
-}
-
-void WrappedDirectStep::Evaluate(ExecutionFrame* frame) const {
-  cel::Value result;
-  AttributeTrail attribute_trail;
-  if (absl::Status status = impl_->Evaluate(*frame, result, attribute_trail);
-      !status.ok()) {
-    frame->Abort(std::move(status));
-    return;
-  }
-  frame->value_stack().Push(std::move(result), std::move(attribute_trail));
 }
 
 }  // namespace google::api::expr::runtime

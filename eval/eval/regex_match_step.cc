@@ -14,7 +14,6 @@
 
 #include "eval/eval/regex_match_step.h"
 
-#include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -24,11 +23,9 @@
 #include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
 #include "common/value.h"
-#include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
-#include "internal/status_macros.h"
+#include "eval/eval/expression_step_logic.h"
 #include "re2/re2.h"
 
 namespace google::api::expr::runtime {
@@ -37,7 +34,6 @@ namespace {
 
 using ::cel::BoolValue;
 using ::cel::StringValue;
-using ::cel::Value;
 
 inline constexpr int kNumRegexMatchArguments = 1;
 inline constexpr size_t kRegexMatchStepSubject = 0;
@@ -84,46 +80,7 @@ class RegexMatchStep final : public ExpressionStepBase {
   const std::shared_ptr<const RE2> re2_;
 };
 
-class RegexMatchDirectStep final : public DirectExpressionStep {
- public:
-  RegexMatchDirectStep(int64_t expr_id,
-                       std::unique_ptr<DirectExpressionStep> subject,
-                       std::shared_ptr<const RE2> re2)
-      : DirectExpressionStep(expr_id),
-        subject_(std::move(subject)),
-        re2_(std::move(re2)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override {
-    AttributeTrail subject_attr;
-    CEL_RETURN_IF_ERROR(subject_->Evaluate(frame, result, subject_attr));
-    if (result.IsError() || result.IsUnknown()) {
-      return absl::OkStatus();
-    }
-
-    if (!result.IsString()) {
-      return absl::Status(absl::StatusCode::kInternal,
-                          "First argument for regular "
-                          "expression match must be a string");
-    }
-    bool match = result.GetString().NativeValue(MatchesVisitor{*re2_});
-    result = BoolValue(match);
-    return absl::OkStatus();
-  }
-
- private:
-  std::unique_ptr<DirectExpressionStep> subject_;
-  const std::shared_ptr<const RE2> re2_;
-};
-
 }  // namespace
-
-std::unique_ptr<DirectExpressionStep> CreateDirectRegexMatchStep(
-    int64_t expr_id, std::unique_ptr<DirectExpressionStep> subject,
-    std::shared_ptr<const RE2> re2) {
-  return std::make_unique<RegexMatchDirectStep>(expr_id, std::move(subject),
-                                                std::move(re2));
-}
 
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateRegexMatchStep(
     std::shared_ptr<const RE2> re2) {

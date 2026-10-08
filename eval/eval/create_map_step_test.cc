@@ -29,9 +29,7 @@
 #include "base/type_provider.h"
 #include "common/expr.h"
 #include "eval/eval/cel_expression_flat_impl.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/unknown_set.h"
@@ -87,33 +85,6 @@ absl::StatusOr<ExecutionPath> CreateStackMachineProgram(
   return path;
 }
 
-absl::StatusOr<ExecutionPath> CreateRecursiveProgram(
-    const std::vector<std::pair<CelValue, CelValue>>& values,
-    Activation& activation) {
-  ExecutionPath path;
-
-  int index = 0;
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  for (const auto& item : values) {
-    std::string key_name = absl::StrCat("key", index);
-    std::string value_name = absl::StrCat("value", index);
-
-    deps.push_back(CreateDirectIdentStep(key_name, -1));
-
-    deps.push_back(CreateDirectIdentStep(value_name, -1));
-
-    activation.InsertValue(key_name, item.first);
-    activation.InsertValue(value_name, item.second);
-
-    index++;
-  }
-  path.push_back(
-      ExpressionStep::MakeGenericStep(std::make_unique<WrappedDirectStep>(
-          CreateDirectCreateMapStep(std::move(deps), {}, -1))));
-
-  return path;
-}
-
 // Helper method. Creates simple pipeline containing CreateStruct step that
 // builds Map and runs it.
 // Equivalent to {key0: value0, ...}
@@ -124,11 +95,7 @@ absl::StatusOr<CelValue> RunCreateMapExpression(
   Activation activation;
 
   ExecutionPath path;
-  if (enable_recursive_program) {
-    CEL_ASSIGN_OR_RETURN(path, CreateRecursiveProgram(values, activation));
-  } else {
-    CEL_ASSIGN_OR_RETURN(path, CreateStackMachineProgram(values, activation));
-  }
+  CEL_ASSIGN_OR_RETURN(path, CreateStackMachineProgram(values, activation));
   cel::RuntimeOptions options;
   if (enable_unknowns) {
     options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;

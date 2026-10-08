@@ -38,31 +38,10 @@
 #define THIRD_PARTY_CEL_CPP_EVAL_EVAL_LAZY_INIT_STEP_H_
 
 #include <cstddef>
-#include <cstdint>
-#include <memory>
-
-#include "absl/base/nullability.h"
-#include "eval/eval/direct_expression_step.h"
 
 namespace google::api::expr::runtime {
 
 class ExecutionFrame;
-
-// Creates a step representing a Bind expression.
-std::unique_ptr<DirectExpressionStep> CreateDirectBindStep(
-    size_t slot_index, std::unique_ptr<DirectExpressionStep> expression,
-    int64_t expr_id);
-
-// Creates a step representing a cel.@block expression.
-std::unique_ptr<DirectExpressionStep> CreateDirectBlockStep(
-    size_t slot_index, size_t slot_count,
-    std::unique_ptr<DirectExpressionStep> expression, int64_t expr_id);
-
-// Creates a direct step representing accessing a lazily evaluated alias from
-// a bind or block.
-std::unique_ptr<DirectExpressionStep> CreateDirectLazyInitStep(
-    size_t slot_index, const DirectExpressionStep* absl_nonnull subexpression,
-    int64_t expr_id);
 
 struct LazyInitStepInfo {
   size_t slot_index : 32;

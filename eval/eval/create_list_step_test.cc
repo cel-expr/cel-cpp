@@ -1,5 +1,6 @@
 #include "eval/eval/create_list_step.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -16,13 +17,8 @@
 #include "base/type_provider.h"
 #include "common/expr.h"
 #include "common/value.h"
-#include "common/value_testing.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/cel_expression_flat_impl.h"
-#include "eval/eval/const_value_step.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/ident_step.h"
 #include "eval/internal/interop.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_attribute.h"
@@ -31,12 +27,8 @@
 #include "eval/public/unknown_attribute_set.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
-#include "internal/testing_descriptor_pool.h"
-#include "internal/testing_message_factory.h"
-#include "runtime/activation.h"
 #include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
-#include "runtime/internal/runtime_type_provider.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 
@@ -45,24 +37,14 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::absl_testing::IsOk;
-using ::absl_testing::IsOkAndHolds;
-using ::absl_testing::StatusIs;
 using ::cel::Attribute;
-using ::cel::AttributeQualifier;
 using ::cel::AttributeSet;
-using ::cel::ErrorValue;
 using ::cel::Expr;
-using ::cel::IntValue;
 using ::cel::TypeProvider;
-using ::cel::UnknownValue;
-using ::cel::Value;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::runtime_internal::RuntimeEnv;
-using ::cel::test::IntValueIs;
 using ::testing::Eq;
-using ::testing::HasSubstr;
 using ::testing::Not;
-using ::testing::UnorderedElementsAre;
 
 // Helper method. Creates simple pipeline containing Select step and runs it.
 absl::StatusOr<CelValue> RunExpression(
@@ -261,288 +243,6 @@ TEST(CreateListStepTest, CreateListHundredAnd2Unknowns) {
   ASSERT_TRUE(result.IsUnknownSet());
   const UnknownSet* result_set = result.UnknownSetOrDie();
   EXPECT_THAT(result_set->unknown_attributes().size(), Eq(2));
-}
-
-TEST(CreateDirectListStep, Basic) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(IntValue(1), -1));
-  deps.push_back(CreateConstValueDirectStep(IntValue(2), -1));
-  auto step = CreateDirectListStep(std::move(deps), {}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsList());
-  EXPECT_THAT(result.GetList().Size(), IsOkAndHolds(2));
-}
-
-TEST(CreateDirectListStep, ForwardFirstError) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(
-      cel::ErrorValue::From(absl::InternalError("test1"), &arena), -1));
-  deps.push_back(CreateConstValueDirectStep(
-      cel::ErrorValue::From(absl::InternalError("test2"), &arena), -1));
-  auto step = CreateDirectListStep(std::move(deps), {}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(result.GetError().NativeValue(),
-              StatusIs(absl::StatusCode::kInternal, "test1"));
-}
-
-std::vector<std::string> UnknownAttrNames(const UnknownValue& v) {
-  std::vector<std::string> names;
-  names.reserve(v.ToAttributeSet().size());
-
-  for (const auto& attr : v.ToAttributeSet()) {
-    EXPECT_THAT(attr.AsString().status(), IsOk());
-    names.push_back(attr.AsString().value_or("<empty>"));
-  }
-
-  return names;
-}
-
-TEST(CreateDirectListStep, MergeUnknowns) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-  options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  AttributeSet attr_set1({Attribute("var1")});
-  AttributeSet attr_set2({Attribute("var2")});
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(
-      CreateConstValueDirectStep(cel::common_internal::MakeUnknownValue(
-                                     cel::Unknown(std::move(attr_set1))),
-                                 -1));
-  deps.push_back(
-      CreateConstValueDirectStep(cel::common_internal::MakeUnknownValue(
-                                     cel::Unknown(std::move(attr_set2))),
-                                 -1));
-  auto step = CreateDirectListStep(std::move(deps), {}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsUnknown());
-  EXPECT_THAT(UnknownAttrNames(result.GetUnknown()),
-              UnorderedElementsAre("var1", "var2"));
-}
-
-TEST(CreateDirectListStep, ErrorBeforeUnknown) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  AttributeSet attr_set1({Attribute("var1")});
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(
-      cel::ErrorValue::From(absl::InternalError("test1"), &arena), -1));
-  deps.push_back(CreateConstValueDirectStep(
-      cel::ErrorValue::From(absl::InternalError("test2"), &arena), -1));
-  auto step = CreateDirectListStep(std::move(deps), {}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(result.GetError().NativeValue(),
-              StatusIs(absl::StatusCode::kInternal, "test1"));
-}
-
-class SetAttrDirectStep : public DirectExpressionStep {
- public:
-  explicit SetAttrDirectStep(Attribute attr)
-      : DirectExpressionStep(-1), attr_(std::move(attr)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attr) const override {
-    result = cel::NullValue();
-    attr = AttributeTrail(attr_);
-    return absl::OkStatus();
-  }
-
- private:
-  cel::Attribute attr_;
-};
-
-TEST(CreateDirectListStep, MissingAttribute) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-  options.enable_missing_attribute_errors = true;
-
-  ASSERT_THAT(
-      activation.SetMissingPatterns({cel::AttributePattern(
-          "var1", {cel::AttributeQualifierPattern::OfString("field1")})}),
-      IsOk());
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(cel::NullValue(), -1));
-  deps.push_back(std::make_unique<SetAttrDirectStep>(
-      Attribute("var1", {AttributeQualifier::OfString("field1")})));
-  auto step = CreateDirectListStep(std::move(deps), {}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(
-      result.GetError().NativeValue(),
-      StatusIs(absl::StatusCode::kInvalidArgument, HasSubstr("var1.field1")));
-}
-
-TEST(CreateDirectListStep, OptionalPresentSet) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(IntValue(1), -1));
-  deps.push_back(CreateConstValueDirectStep(
-      cel::OptionalValue::Of(IntValue(2), &arena), -1));
-  auto step = CreateDirectListStep(std::move(deps), {1}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsList());
-  auto list = result.GetList();
-  EXPECT_THAT(list.Size(), IsOkAndHolds(2));
-  EXPECT_THAT(list.Get(0, cel::internal::GetTestingDescriptorPool(),
-                       cel::internal::GetTestingMessageFactory(), &arena),
-              IsOkAndHolds(IntValueIs(1)));
-  EXPECT_THAT(list.Get(1, cel::internal::GetTestingDescriptorPool(),
-                       cel::internal::GetTestingMessageFactory(), &arena),
-              IsOkAndHolds(IntValueIs(2)));
-}
-
-TEST(CreateDirectListStep, OptionalAbsentNotSet) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(IntValue(1), -1));
-  deps.push_back(CreateConstValueDirectStep(cel::OptionalValue::None(), -1));
-  auto step = CreateDirectListStep(std::move(deps), {1}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsList());
-  auto list = result.GetList();
-  EXPECT_THAT(list.Size(), IsOkAndHolds(1));
-  EXPECT_THAT(list.Get(0, cel::internal::GetTestingDescriptorPool(),
-                       cel::internal::GetTestingMessageFactory(), &arena),
-              IsOkAndHolds(IntValueIs(1)));
-}
-
-TEST(CreateDirectListStep, PartialUnknown) {
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-  options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  ASSERT_THAT(
-      activation.SetUnknownPatterns({cel::AttributePattern(
-          "var1", {cel::AttributeQualifierPattern::OfString("field1")})}),
-      IsOk());
-
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena);
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateConstValueDirectStep(cel::IntValue(1), -1));
-  deps.push_back(std::make_unique<SetAttrDirectStep>(Attribute("var1", {})));
-  auto step = CreateDirectListStep(std::move(deps), {}, -1);
-
-  cel::Value result;
-  AttributeTrail attr;
-
-  ASSERT_THAT(step->Evaluate(frame, result, attr), IsOk());
-
-  ASSERT_TRUE(result.IsUnknown());
-  EXPECT_THAT(UnknownAttrNames(result.GetUnknown()),
-              UnorderedElementsAre("var1"));
 }
 
 }  // namespace

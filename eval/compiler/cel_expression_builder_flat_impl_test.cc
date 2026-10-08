@@ -30,9 +30,6 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "eval/compiler/constant_folding.h"
-#include "eval/compiler/regex_precompilation_optimization.h"
-#include "eval/eval/cel_expression_flat_impl.h"
 #include "eval/public/activation.h"
 #include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_expression.h"
@@ -72,8 +69,6 @@ using ::google::api::expr::parser::ParseWithMacros;
 using ::testing::_;
 using ::testing::Contains;
 using ::testing::HasSubstr;
-using ::testing::IsNull;
-using ::testing::NotNull;
 
 TEST(CelExpressionBuilderFlatImplTest, Error) {
   Expr expr;
@@ -100,14 +95,14 @@ TEST(CelExpressionBuilderFlatImplTest, ParsedExpr) {
   EXPECT_THAT(result, test::IsCelInt64(3));
 }
 
-struct RecursiveTestCase {
+struct TestCase {
   std::string test_name;
   std::string expr;
   test::CelValueMatcher matcher;
   std::string pb_expr;
 };
 
-class RecursivePlanTest : public ::testing::TestWithParam<RecursiveTestCase> {
+class PlanTest : public ::testing::TestWithParam<TestCase> {
  protected:
   absl::Status SetupBuilder(CelExpressionBuilderFlatImpl& builder) {
     builder.GetTypeRegistry()->RegisterEnum("TestEnum",
@@ -146,7 +141,7 @@ class RecursivePlanTest : public ::testing::TestWithParam<RecursiveTestCase> {
   }
 };
 
-absl::StatusOr<ParsedExpr> ParseTestCase(const RecursiveTestCase& test_case) {
+absl::StatusOr<ParsedExpr> ParseTestCase(const TestCase& test_case) {
   static const std::vector<Macro>* kMacros = []() {
     auto* result = new std::vector<Macro>(Macro::AllMacros());
     absl::c_copy(cel::extensions::bindings_macros(),
@@ -166,107 +161,14 @@ absl::StatusOr<ParsedExpr> ParseTestCase(const RecursiveTestCase& test_case) {
   return absl::InvalidArgumentError("No expression provided");
 }
 
-TEST_P(RecursivePlanTest, ParsedExprRecursiveImpl) {
-  const RecursiveTestCase& test_case = GetParam();
-  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, ParseTestCase(test_case));
-  cel::RuntimeOptions options;
-  options.container = "cel.expr.conformance.proto3";
-  google::protobuf::Arena arena;
-  // Unbounded.
-  options.max_recursion_depth = -1;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
-
-  ASSERT_OK(SetupBuilder(builder));
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
-                       builder.CreateExpression(&parsed_expr.expr(),
-                                                &parsed_expr.source_info()));
-
-  EXPECT_THAT(dynamic_cast<const CelExpressionRecursiveImpl*>(plan.get()),
-              NotNull());
-
-  Activation activation;
-
-  ASSERT_OK(SetupActivation(activation, &arena));
-
-  ASSERT_OK_AND_ASSIGN(CelValue result, plan->Evaluate(activation, &arena));
-  EXPECT_THAT(result, test_case.matcher);
-}
-
-TEST_P(RecursivePlanTest, ParsedExprRecursiveOptimizedImpl) {
-  const RecursiveTestCase& test_case = GetParam();
-  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, ParseTestCase(test_case));
-  cel::RuntimeOptions options;
-  options.container = "cel.expr.conformance.proto3";
-  google::protobuf::Arena arena;
-  // Unbounded.
-  options.max_recursion_depth = -1;
-  options.enable_comprehension_list_append = true;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
-
-  ASSERT_OK(SetupBuilder(builder));
-
-  builder.flat_expr_builder().AddProgramOptimizer(
-      cel::runtime_internal::CreateConstantFoldingOptimizer());
-  builder.flat_expr_builder().AddProgramOptimizer(
-      CreateRegexPrecompilationExtension(options.regex_max_program_size));
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
-                       builder.CreateExpression(&parsed_expr.expr(),
-                                                &parsed_expr.source_info()));
-
-  EXPECT_THAT(dynamic_cast<const CelExpressionRecursiveImpl*>(plan.get()),
-              NotNull());
-
-  Activation activation;
-
-  ASSERT_OK(SetupActivation(activation, &arena));
-
-  ASSERT_OK_AND_ASSIGN(CelValue result, plan->Evaluate(activation, &arena));
-  EXPECT_THAT(result, test_case.matcher);
-}
-
-TEST_P(RecursivePlanTest, ParsedExprRecursiveTraceSupport) {
-  const RecursiveTestCase& test_case = GetParam();
-  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, ParseTestCase(test_case));
-  cel::RuntimeOptions options;
-  options.container = "cel.expr.conformance.proto3";
-  google::protobuf::Arena arena;
-  auto cb = [](int64_t id, const CelValue& value, google::protobuf::Arena* arena) {
-    return absl::OkStatus();
-  };
-  // Unbounded.
-  options.max_recursion_depth = -1;
-  options.enable_recursive_tracing = true;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
-
-  ASSERT_OK(SetupBuilder(builder));
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
-                       builder.CreateExpression(&parsed_expr.expr(),
-                                                &parsed_expr.source_info()));
-
-  EXPECT_THAT(dynamic_cast<const CelExpressionRecursiveImpl*>(plan.get()),
-              NotNull());
-
-  Activation activation;
-
-  ASSERT_OK(SetupActivation(activation, &arena));
-
-  ASSERT_OK_AND_ASSIGN(CelValue result, plan->Trace(activation, &arena, cb));
-  EXPECT_THAT(result, test_case.matcher);
-}
-
-TEST_P(RecursivePlanTest, Disabled) {
+TEST_P(PlanTest, Basic) {
   google::protobuf::LinkMessageReflection<TestAllTypes>();
 
-  const RecursiveTestCase& test_case = GetParam();
+  const TestCase& test_case = GetParam();
   ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, ParseTestCase(test_case));
   cel::RuntimeOptions options;
   options.container = "cel.expr.conformance.proto3";
   google::protobuf::Arena arena;
-  // disabled.
-  options.max_recursion_depth = 0;
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
 
   ASSERT_OK(SetupBuilder(builder));
@@ -274,9 +176,6 @@ TEST_P(RecursivePlanTest, Disabled) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
                        builder.CreateExpression(&parsed_expr.expr(),
                                                 &parsed_expr.source_info()));
-
-  EXPECT_THAT(dynamic_cast<const CelExpressionRecursiveImpl*>(plan.get()),
-              IsNull());
 
   Activation activation;
 
@@ -287,8 +186,8 @@ TEST_P(RecursivePlanTest, Disabled) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    RecursivePlanTest, RecursivePlanTest,
-    testing::ValuesIn(std::vector<RecursiveTestCase>{
+    PlanTest, PlanTest,
+    testing::ValuesIn(std::vector<TestCase>{
         {"constant", "'abc'", test::IsCelString("abc")},
         {"call", "1 + 2", test::IsCelInt64(3)},
         {"nested_call", "1 + 1 + 1 + 1", test::IsCelInt64(4)},
@@ -545,7 +444,7 @@ INSTANTIATE_TEST_SUITE_P(
              }
            })pb"}}),
 
-    [](const testing::TestParamInfo<RecursiveTestCase>& info) -> std::string {
+    [](const testing::TestParamInfo<TestCase>& info) -> std::string {
       return info.param.test_name;
     });
 

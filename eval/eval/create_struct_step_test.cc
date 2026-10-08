@@ -29,11 +29,8 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "base/type_provider.h"
-#include "common/expr.h"
 #include "eval/eval/cel_expression_flat_impl.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_type_registry.h"
 #include "eval/public/cel_value.h"
@@ -82,25 +79,6 @@ absl::StatusOr<ExecutionPath> MakeStackMachinePath(absl::string_view field) {
   return path;
 }
 
-absl::StatusOr<ExecutionPath> MakeRecursivePath(absl::string_view field) {
-  ExecutionPath path;
-
-  std::vector<std::unique_ptr<DirectExpressionStep>> deps;
-  deps.push_back(CreateDirectIdentStep("message", -1));
-
-  auto step1 =
-      CreateDirectCreateStructStep("google.api.expr.runtime.TestMessage",
-                                   {std::string(field)}, std::move(deps),
-                                   /*optional_indices=*/{},
-
-                                   /*id=*/-1);
-
-  path.push_back(ExpressionStep::MakeGenericStep(
-      std::make_unique<WrappedDirectStep>(std::move(step1))));
-
-  return path;
-}
-
 // Helper method. Creates simple pipeline containing CreateStruct step that
 // builds message and runs it.
 absl::StatusOr<CelValue> RunExpression(
@@ -122,11 +100,7 @@ absl::StatusOr<CelValue> RunExpression(
   }
   ExecutionPath path;
 
-  if (enable_recursive_planning) {
-    CEL_ASSIGN_OR_RETURN(path, MakeRecursivePath(field));
-  } else {
-    CEL_ASSIGN_OR_RETURN(path, MakeStackMachinePath(field));
-  }
+  CEL_ASSIGN_OR_RETURN(path, MakeStackMachinePath(field));
 
   CelExpressionFlatImpl cel_expr(
       env,
@@ -202,21 +176,11 @@ TEST_P(CreateCreateStructStepTest, TestEmptyMessageCreation) {
                        env_->type_registry.GetComposedTypeProvider().FindType(
                            "google.api.expr.runtime.TestMessage"));
   ASSERT_TRUE(maybe_type.has_value());
-  if (enable_recursive_planning()) {
-    auto step =
-        CreateDirectCreateStructStep("google.api.expr.runtime.TestMessage",
-                                     /*fields=*/{},
-                                     /*deps=*/{},
-                                     /*optional_indices=*/{},
-                                     /*id=*/-1);
-    path.push_back(ExpressionStep::MakeGenericStep(
-        std::make_unique<WrappedDirectStep>(std::move(step))));
-  } else {
+
     auto step = CreateCreateStructStep("google.api.expr.runtime.TestMessage",
                                        /*fields=*/{},
                                        /*optional_indices=*/{});
     path.push_back(ExpressionStep::MakeGenericStep(std::move(step)));
-  }
 
   cel::RuntimeOptions options;
   if (enable_unknowns(), enable_recursive_planning()) {

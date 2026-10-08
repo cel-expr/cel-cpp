@@ -13,11 +13,10 @@
 #include "common/expr.h"
 #include "common/value.h"
 #include "common/values/list_value_builder.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/attribute_utility.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "internal/status_macros.h"
 
 namespace google::api::expr::runtime {
@@ -129,134 +128,13 @@ absl::flat_hash_set<int32_t> MakeOptionalIndicesSet(
   return optional_indices;
 }
 
-class CreateListDirectStep : public DirectExpressionStep {
- public:
-  CreateListDirectStep(
-      std::vector<std::unique_ptr<DirectExpressionStep>> elements,
-      absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id)
-      : DirectExpressionStep(expr_id),
-        elements_(std::move(elements)),
-        optional_indices_(std::move(optional_indices)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute_trail) const override {
-    ListValueBuilderPtr builder = NewListValueBuilder(frame.arena());
-    builder->Reserve(elements_.size());
-
-    AttributeUtility::Accumulator unknowns =
-        frame.attribute_utility().CreateAccumulator();
-    AttributeTrail tmp_attr;
-
-    for (size_t i = 0; i < elements_.size(); ++i) {
-      const auto& element = elements_[i];
-      CEL_RETURN_IF_ERROR(element->Evaluate(frame, result, tmp_attr));
-
-      if (result.IsError()) {
-        return absl::OkStatus();
-      }
-
-      if (frame.attribute_tracking_enabled()) {
-        if (frame.missing_attribute_errors_enabled()) {
-          if (frame.attribute_utility().CheckForMissingAttribute(tmp_attr)) {
-            CEL_ASSIGN_OR_RETURN(
-                result, frame.attribute_utility().CreateMissingAttributeError(
-                            tmp_attr.attribute(), frame.arena()));
-            return absl::OkStatus();
-          }
-        }
-        if (frame.unknown_processing_enabled()) {
-          if (result.IsUnknown()) {
-            unknowns.Add(result.GetUnknown());
-          }
-          if (frame.attribute_utility().CheckForUnknown(tmp_attr,
-                                                        /*use_partial=*/true)) {
-            unknowns.Add(tmp_attr);
-          }
-        }
-      }
-
-      if (!unknowns.IsEmpty()) {
-        // We found an unknown, there is no point in attempting to create a
-        // list. Instead iterate through the remaining elements and look for
-        // more unknowns.
-        continue;
-      }
-
-      // Conditionally add if optional.
-      if (optional_indices_.contains(static_cast<int32_t>(i))) {
-        if (auto optional_arg = result.AsOptional(); optional_arg) {
-          if (!optional_arg->HasValue()) {
-            continue;
-          }
-          Value optional_arg_value;
-          optional_arg->Value(&optional_arg_value);
-          if (optional_arg_value.IsError()) {
-            // Error should never be in optional, but better safe than sorry.
-            result = std::move(optional_arg_value);
-            return absl::OkStatus();
-          }
-          CEL_RETURN_IF_ERROR(builder->Add(std::move(optional_arg_value)));
-          continue;
-        }
-        result = cel::TypeConversionError(result.GetTypeName(), "optional_type",
-                                          frame.arena());
-        return absl::OkStatus();
-      }
-
-      // Otherwise just add.
-      CEL_RETURN_IF_ERROR(builder->Add(std::move(result)));
-    }
-
-    if (!unknowns.IsEmpty()) {
-      result = std::move(unknowns).Build();
-      return absl::OkStatus();
-    }
-    result = std::move(*builder).Build();
-
-    return absl::OkStatus();
-  }
-
- private:
-  std::vector<std::unique_ptr<DirectExpressionStep>> elements_;
-  absl::flat_hash_set<int32_t> optional_indices_;
-};
-
-class DirectMutableListStep : public DirectExpressionStep {
- public:
-  explicit DirectMutableListStep(int64_t expr_id)
-      : DirectExpressionStep(expr_id) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override;
-};
-
-absl::Status DirectMutableListStep::Evaluate(ExecutionFrameBase& frame,
-                                             Value& result,
-                                             AttributeTrail& attribute) const {
-  result = cel::CustomListValue(
-      cel::common_internal::NewMutableListValue(frame.arena()), frame.arena());
-  return absl::OkStatus();
-}
-
 }  // namespace
-
-std::unique_ptr<DirectExpressionStep> CreateDirectListStep(
-    std::vector<std::unique_ptr<DirectExpressionStep>> deps,
-    absl::flat_hash_set<int32_t> optional_indices, int64_t expr_id) {
-  return std::make_unique<CreateListDirectStep>(
-      std::move(deps), std::move(optional_indices), expr_id);
-}
 
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateCreateListStep(
     const cel::ListExpr& create_list_expr) {
   return std::make_unique<CreateListStep>(
       create_list_expr.elements().size(),
       MakeOptionalIndicesSet(create_list_expr));
-}
-
-std::unique_ptr<DirectExpressionStep> CreateDirectMutableListStep(
-    int64_t expr_id) {
-  return std::make_unique<DirectMutableListStep>(expr_id);
 }
 
 }  // namespace google::api::expr::runtime

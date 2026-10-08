@@ -37,7 +37,6 @@
 #include "parser/parser.h"
 #include "runtime/activation.h"
 #include "runtime/function.h"
-#include "runtime/internal/runtime_impl.h"
 #include "runtime/reference_resolver.h"
 #include "runtime/runtime.h"
 #include "runtime/runtime_builder.h"
@@ -184,41 +183,6 @@ class OptionalTypesTest
 
   bool EnableShortCircuiting() { return std::get<1>(GetParam()); }
 };
-
-TEST_P(OptionalTypesTest, RecursivePlan) {
-  RuntimeOptions opts;
-  opts.enable_qualified_type_identifiers = true;
-  opts.max_recursion_depth = -1;
-  opts.short_circuiting = EnableShortCircuiting();
-
-  const EvaluateResultTestCase& test_case = GetTestCase();
-
-  ASSERT_OK_AND_ASSIGN(
-      auto builder,
-      CreateStandardRuntimeBuilder(internal::GetTestingDescriptorPool(), opts));
-
-  ASSERT_OK(EnableOptionalTypes(builder));
-  ASSERT_OK(
-      EnableReferenceResolver(builder, ReferenceResolverEnabled::kAlways));
-
-  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
-
-  ASSERT_OK_AND_ASSIGN(ParsedExpr expr,
-                       Parse(test_case.expression, "<input>",
-                             ParserOptions{.enable_optional_syntax = true}));
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
-                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
-
-  EXPECT_TRUE(runtime_internal::TestOnly_IsRecursiveImpl(program.get()));
-
-  google::protobuf::Arena arena;
-  Activation activation;
-
-  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
-
-  EXPECT_THAT(result, test_case.value_matcher) << test_case.expression;
-}
 
 TEST_P(OptionalTypesTest, Defaults) {
   RuntimeOptions opts;

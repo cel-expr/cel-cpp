@@ -19,7 +19,6 @@
 #include <utility>
 #include <vector>
 
-#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -31,7 +30,6 @@
 #include "common/value.h"
 #include "eval/compiler/flat_expr_builder_extensions.h"
 #include "eval/compiler/resolver.h"
-#include "eval/eval/const_value_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "internal/status_macros.h"
 #include "runtime/activation.h"
@@ -49,7 +47,6 @@ using ::cel::builtin::kAnd;
 using ::cel::builtin::kOr;
 using ::cel::builtin::kTernary;
 using ::cel::runtime_internal::ConvertConstant;
-using ::google::api::expr::runtime::CreateConstValueDirectStep;
 using ::google::api::expr::runtime::EvaluationListener;
 using ::google::api::expr::runtime::ExecutionFrame;
 using ::google::api::expr::runtime::ExecutionPath;
@@ -227,17 +224,6 @@ absl::Status ConstantFoldingExtension::OnPostVisit(PlannerContext& context,
     if (value->Is<UnknownValue>()) {
       return absl::OkStatus();
     }
-  }
-
-  // If recursive planning enabled (recursion limit unbounded or at least 1),
-  // use a recursive (direct) step for the folded constant.
-  //
-  // Constant folding is applied leaf to root based on the program plan so far,
-  // so the planner will have an opportunity to validate that the recursion
-  // limit is being followed when visiting parent nodes in the AST.
-  if (context.options().max_recursion_depth != 0) {
-    return context.ReplaceSubplan(
-        node, CreateConstValueDirectStep(std::move(value), node.id()), 1);
   }
 
   // Otherwise make a stack machine plan.

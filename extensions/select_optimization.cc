@@ -51,7 +51,6 @@
 #include "eval/compiler/flat_expr_builder.h"
 #include "eval/compiler/flat_expr_builder_extensions.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
 #include "eval/public/cel_value.h"
@@ -80,7 +79,6 @@ using ::cel::ExprKind;
 using ::cel::SelectExpr;
 using ::google::api::expr::runtime::AttributeTrail;
 using ::google::api::expr::runtime::CelValue;
-using ::google::api::expr::runtime::DirectExpressionStep;
 using ::google::api::expr::runtime::ExecutionFrame;
 using ::google::api::expr::runtime::ExecutionFrameBase;
 using ::google::api::expr::runtime::ExpressionStep;
@@ -823,58 +821,6 @@ void StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
   frame->value_stack().Push(*std::move(result), std::move(attribute_trail));
 }
 
-class RecursiveImpl : public DirectExpressionStep {
- public:
-  RecursiveImpl(int64_t expr_id, std::unique_ptr<DirectExpressionStep> operand,
-                OptimizedSelectImpl impl)
-      : DirectExpressionStep(expr_id),
-        operand_(std::move(operand)),
-        impl_(std::move(impl)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override;
-
- private:
-  // Get the effective attribute for the optimized select expression.
-  // Assumes the operand is the top of stack if the attribute wasn't known at
-  // plan time.
-  AttributeTrail GetAttributeTrail(const AttributeTrail& operand_trail) const;
-  std::unique_ptr<DirectExpressionStep> operand_;
-  OptimizedSelectImpl impl_;
-};
-
-AttributeTrail RecursiveImpl::GetAttributeTrail(
-    const AttributeTrail& operand_trail) const {
-  return impl_.GetAttributeTrail(operand_trail);
-}
-
-absl::Status RecursiveImpl::Evaluate(ExecutionFrameBase& frame, Value& result,
-                                     AttributeTrail& attribute) const {
-  CEL_RETURN_IF_ERROR(operand_->Evaluate(frame, result, attribute));
-
-  if (result.IsError() || result.IsUnknown()) {
-    // Just forward.
-    return absl::OkStatus();
-  }
-
-  if (frame.attribute_tracking_enabled()) {
-    attribute = impl_.GetAttributeTrail(attribute);
-    CEL_ASSIGN_OR_RETURN(auto value,
-                         CheckForMarkedAttributes(frame, attribute));
-    if (value.has_value()) {
-      result = std::move(value).value();
-      return absl::OkStatus();
-    }
-  }
-
-  if (!result.IsStruct()) {
-    return absl::InvalidArgumentError(
-        "Expected struct type for select optimization");
-  }
-  CEL_ASSIGN_OR_RETURN(result, impl_.ApplySelect(frame, result.GetStruct()));
-  return absl::OkStatus();
-}
-
 class SelectOptimizer : public ProgramOptimizer {
  public:
   explicit SelectOptimizer(const SelectOptimizationOptions& options)
@@ -955,19 +901,6 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
 
   OptimizedSelectImpl impl(std::move(instructions), std::move(qualifiers),
                            presence_test, options_);
-
-  if (subexpression->IsRecursive()) {
-    auto program = subexpression->ExtractRecursiveProgram();
-    auto deps = program.step->ExtractDependencies();
-    if (!deps.has_value() || deps->empty()) {
-      return absl::InvalidArgumentError("Unexpected cel.@attribute call");
-    }
-    subexpression->set_recursive_program(
-        std::make_unique<RecursiveImpl>(node.id(), std::move(deps->at(0)),
-                                        std::move(impl)),
-        program.depth);
-    return absl::OkStatus();
-  }
 
   google::api::expr::runtime::ExecutionPath path;
 

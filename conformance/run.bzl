@@ -47,17 +47,16 @@ def _expand_tests_to_skip(tests_to_skip):
             result.append(test_to_skip[0:slash] + part)
     return result
 
-def _conformance_test_name(name, pratt, optimize, recursive):
+def _conformance_test_name(name, pratt, optimize):
     return "_".join(
         [
             name,
             "pratt" if pratt else "antlr",
             "optimized" if optimize else "unoptimized",
-            "recursive" if recursive else "iterative",
         ],
     )
 
-def _conformance_test_args(modern, optimize, recursive, select_opt, skip_check, dashboard, enable_variadic_logical_operators, pratt):
+def _conformance_test_args(modern, optimize, select_opt, skip_check, dashboard, enable_variadic_logical_operators, pratt):
     args = []
     if modern:
         args.append("--modern")
@@ -65,8 +64,6 @@ def _conformance_test_args(modern, optimize, recursive, select_opt, skip_check, 
         args.append("--opt")
     if select_opt:
         args.append("--select_optimization")
-    if recursive:
-        args.append("--recursive")
     if skip_check:
         args.append("--skip_check")
     else:
@@ -81,10 +78,10 @@ def _conformance_test_args(modern, optimize, recursive, select_opt, skip_check, 
         args.append("--noenable_pratt_parser")
     return args
 
-def _conformance_test(name, data, modern, optimize, recursive, select_opt, skip_check, skip_tests, tags, dashboard, enable_variadic_logical_operators, pratt):
+def _conformance_test(name, data, modern, optimize, select_opt, skip_check, skip_tests, tags, dashboard, enable_variadic_logical_operators, pratt):
     cc_test(
-        name = _conformance_test_name(name, pratt, optimize, recursive),
-        args = _conformance_test_args(modern, optimize, recursive, select_opt, skip_check, dashboard, enable_variadic_logical_operators, pratt) + ["$(rlocationpath {})".format(test) for test in data],
+        name = _conformance_test_name(name, pratt, optimize),
+        args = _conformance_test_args(modern, optimize, select_opt, skip_check, dashboard, enable_variadic_logical_operators, pratt) + ["$(rlocationpath {})".format(test) for test in data],
         env = select(
             {
                 "@platforms//os:windows": {"CEL_SKIP_TESTS": ",".join(skip_tests + _TESTS_TO_SKIP_WINDOWS)},
@@ -115,23 +112,21 @@ def gen_conformance_tests(name, data, modern = False, checked = False, select_op
     tests = []
     for pratt in (True, False):
         for optimize in (True, False):
-            for recursive in (True, False):
-                test_name = _conformance_test_name(name, pratt, optimize, recursive)
-                tests.append(test_name)
-                _conformance_test(
-                    name,
-                    data,
-                    modern = modern,
-                    optimize = optimize,
-                    recursive = recursive,
-                    select_opt = select_opt,
-                    skip_check = skip_check,
-                    skip_tests = _expand_tests_to_skip(skip_tests),
-                    tags = tags,
-                    dashboard = dashboard,
-                    enable_variadic_logical_operators = enable_variadic_logical_operators,
-                    pratt = pratt,
-                )
+            test_name = _conformance_test_name(name, pratt, optimize)
+            tests.append(test_name)
+            _conformance_test(
+                name,
+                data,
+                modern = modern,
+                optimize = optimize,
+                select_opt = select_opt,
+                skip_check = skip_check,
+                skip_tests = _expand_tests_to_skip(skip_tests),
+                tags = tags,
+                dashboard = dashboard,
+                enable_variadic_logical_operators = enable_variadic_logical_operators,
+                pratt = pratt,
+            )
     native.test_suite(
         name = name,
         tests = tests,

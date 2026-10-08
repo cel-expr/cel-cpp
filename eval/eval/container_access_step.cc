@@ -17,12 +17,11 @@
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/attribute_utility.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/internal/errors.h"
 #include "internal/number.h"
-#include "internal/status_macros.h"
 #include "runtime/internal/errors.h"
 
 namespace google::api::expr::runtime {
@@ -311,54 +310,7 @@ void ContainerAccessStep::Evaluate(ExecutionFrame* frame) const {
                                   std::move(result), std::move(result_trail));
 }
 
-class DirectContainerAccessStep : public DirectExpressionStep {
- public:
-  DirectContainerAccessStep(
-      std::unique_ptr<DirectExpressionStep> container_step,
-      std::unique_ptr<DirectExpressionStep> key_step,
-      bool enable_optional_types, int64_t expr_id)
-      : DirectExpressionStep(expr_id),
-        container_step_(std::move(container_step)),
-        key_step_(std::move(key_step)),
-        enable_optional_types_(enable_optional_types) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& trail) const override;
-
- private:
-  std::unique_ptr<DirectExpressionStep> container_step_;
-  std::unique_ptr<DirectExpressionStep> key_step_;
-  bool enable_optional_types_;
-};
-
-absl::Status DirectContainerAccessStep::Evaluate(ExecutionFrameBase& frame,
-                                                 Value& result,
-                                                 AttributeTrail& trail) const {
-  Value container;
-  Value key;
-  AttributeTrail container_trail;
-  AttributeTrail key_trail;
-
-  CEL_RETURN_IF_ERROR(
-      container_step_->Evaluate(frame, container, container_trail));
-  CEL_RETURN_IF_ERROR(key_step_->Evaluate(frame, key, key_trail));
-
-  PerformLookup(frame, container, key, container_trail, enable_optional_types_,
-                result, trail);
-
-  return absl::OkStatus();
-}
-
 }  // namespace
-
-std::unique_ptr<DirectExpressionStep> CreateDirectContainerAccessStep(
-    std::unique_ptr<DirectExpressionStep> container_step,
-    std::unique_ptr<DirectExpressionStep> key_step, bool enable_optional_types,
-    int64_t expr_id) {
-  return std::make_unique<DirectContainerAccessStep>(
-      std::move(container_step), std::move(key_step), enable_optional_types,
-      expr_id);
-}
 
 // Factory method for Select - based Execution step
 absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateContainerAccessStep(

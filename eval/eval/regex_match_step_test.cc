@@ -17,7 +17,6 @@
 #include "cel/expr/checked.pb.h"
 #include "cel/expr/syntax.pb.h"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "eval/public/activation.h"
 #include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_expr_builder_factory.h"

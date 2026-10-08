@@ -246,7 +246,7 @@ _TESTS_TO_SKIP_LEGACY_DASHBOARD = [
 ]
 
 # Generates a bunch of `cc_test` whose names follow the pattern
-# `conformance_(...)_{pratt|antlr}_{optimized|unoptimized}_{recursive|iterative}`.
+# `conformance_(...)_{pratt|antlr}_{optimized|unoptimized}`.
 gen_conformance_tests(
     name = "conformance_parse_only",
     data = _ALL_TESTS,
@@ -315,7 +315,7 @@ gen_conformance_tests(
 )
 
 # Generates a bunch of `cc_test` whose names follow the pattern
-# `conformance_dashboard_..._{pratt|antlr}_{optimized|unoptimized}_{recursive|iterative}`.
+# `conformance_dashboard_..._{pratt|antlr}_{optimized|unoptimized}`.
 gen_conformance_tests(
     name = "conformance_dashboard_parse_only",
     dashboard = True,

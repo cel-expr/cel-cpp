@@ -15,21 +15,16 @@
 
 #include <memory>
 #include <utility>
-#include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "common/expr.h"
-#include "common/native_type.h"
-#include "common/value.h"
 #include "eval/compiler/resolver.h"
-#include "eval/eval/const_value_step.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
 #include "eval/eval/function_step.h"
-#include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "runtime/function_registry.h"
 #include "runtime/internal/issue_collector.h"
@@ -53,7 +48,6 @@ using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::runtime_internal::RuntimeEnv;
 using ::testing::ElementsAre;
 using ::testing::IsEmpty;
-using ::testing::Optional;
 
 class TestStepLogic : public ExpressionStepLogic {
  public:
@@ -524,56 +518,6 @@ TEST_F(ProgramBuilderTest, ExtractToRequiresFlatten) {
   EXPECT_THAT(path, ElementsAre(UniquePtrHolds(step_ptrs.b),
                                 UniquePtrHolds(step_ptrs.c),
                                 UniquePtrHolds(step_ptrs.a)));
-}
-
-TEST_F(ProgramBuilderTest, Recursive) {
-  Expr a;
-  Expr b;
-  Expr c;
-
-  ProgramBuilder program_builder;
-
-  program_builder.EnterSubexpression(&a);
-  program_builder.EnterSubexpression(&b);
-  program_builder.current()->set_recursive_program(
-      CreateConstValueDirectStep(cel::NullValue()), 1);
-  program_builder.ExitSubexpression(&b);
-  program_builder.EnterSubexpression(&c);
-  program_builder.current()->set_recursive_program(
-      CreateConstValueDirectStep(cel::NullValue()), 1);
-  program_builder.ExitSubexpression(&c);
-
-  ASSERT_FALSE(program_builder.current()->IsFlattened());
-  ASSERT_FALSE(program_builder.current()->IsRecursive());
-  ASSERT_TRUE(program_builder.GetSubexpression(&b)->IsRecursive());
-  ASSERT_TRUE(program_builder.GetSubexpression(&c)->IsRecursive());
-
-  EXPECT_EQ(program_builder.GetSubexpression(&b)->recursive_program().depth, 1);
-  EXPECT_EQ(program_builder.GetSubexpression(&c)->recursive_program().depth, 1);
-
-  cel::CallExpr call_expr;
-  call_expr.set_function("_==_");
-  call_expr.mutable_args().emplace_back();
-  call_expr.mutable_args().emplace_back();
-
-  auto max_depth = program_builder.current()->RecursiveDependencyDepth();
-
-  EXPECT_THAT(max_depth, Optional(1));
-
-  auto deps = program_builder.current()->ExtractRecursiveDependencies();
-
-  program_builder.current()->set_recursive_program(
-      CreateDirectFunctionStep(-1, call_expr, std::move(deps), {}),
-      *max_depth + 1);
-
-  program_builder.ExitSubexpression(&a);
-
-  auto path = program_builder.FlattenMain();
-
-  ASSERT_THAT(path, testing::SizeIs(1));
-  EXPECT_TRUE(path[0].IsGenericStep() &&
-              path[0].GetGenericStep()->GetNativeTypeId() ==
-                  cel::NativeTypeId::For<WrappedDirectStep>());
 }
 
 }  // namespace

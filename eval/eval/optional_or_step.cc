@@ -14,7 +14,6 @@
 
 #include "eval/eval/optional_or_step.h"
 
-#include <cstdint>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -24,11 +23,9 @@
 #include "absl/types/span.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
 #include "eval/eval/expression_step_logic.h"
-#include "internal/status_macros.h"
 #include "runtime/internal/errors.h"
 #include "google/protobuf/arena.h"
 
@@ -130,96 +127,6 @@ void OptionalOrStep::Evaluate(ExecutionFrame* frame) const {
   frame->value_stack().PopAndPush(2, std::move(result), std::move(result_attr));
 }
 
-class ExhaustiveDirectOptionalOrStep : public DirectExpressionStep {
- public:
-  ExhaustiveDirectOptionalOrStep(
-      int64_t expr_id, std::unique_ptr<DirectExpressionStep> optional,
-      std::unique_ptr<DirectExpressionStep> alternative, OptionalOrKind kind)
-
-      : DirectExpressionStep(expr_id),
-        kind_(kind),
-        optional_(std::move(optional)),
-        alternative_(std::move(alternative)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override;
-
- private:
-  OptionalOrKind kind_;
-  std::unique_ptr<DirectExpressionStep> optional_;
-  std::unique_ptr<DirectExpressionStep> alternative_;
-};
-
-absl::Status ExhaustiveDirectOptionalOrStep::Evaluate(
-    ExecutionFrameBase& frame, Value& result, AttributeTrail& attribute) const {
-  CEL_RETURN_IF_ERROR(optional_->Evaluate(frame, result, attribute));
-  Value rhs;
-  AttributeTrail rhs_attr;
-  CEL_RETURN_IF_ERROR(alternative_->Evaluate(frame, rhs, rhs_attr));
-  CEL_RETURN_IF_ERROR(EvalOptionalOr(kind_, result, rhs, attribute, rhs_attr,
-                                     result, attribute, frame.arena()));
-  return absl::OkStatus();
-}
-
-class DirectOptionalOrStep : public DirectExpressionStep {
- public:
-  DirectOptionalOrStep(int64_t expr_id,
-                       std::unique_ptr<DirectExpressionStep> optional,
-                       std::unique_ptr<DirectExpressionStep> alternative,
-                       OptionalOrKind kind)
-
-      : DirectExpressionStep(expr_id),
-        kind_(kind),
-        optional_(std::move(optional)),
-        alternative_(std::move(alternative)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute) const override;
-
- private:
-  OptionalOrKind kind_;
-  std::unique_ptr<DirectExpressionStep> optional_;
-  std::unique_ptr<DirectExpressionStep> alternative_;
-};
-
-absl::Status DirectOptionalOrStep::Evaluate(ExecutionFrameBase& frame,
-                                            Value& result,
-                                            AttributeTrail& attribute) const {
-  CEL_RETURN_IF_ERROR(optional_->Evaluate(frame, result, attribute));
-
-  if (result.IsUnknown() || result.IsError()) {
-    // Forward the lhs error instead of attempting to evaluate the alternative
-    // (unlike CEL's commutative logic operators).
-    return absl::OkStatus();
-  }
-
-  auto optional_value = result.AsOptional();
-  if (!optional_value.has_value()) {
-    result = MakeNoOverloadError(kind_, frame.arena());
-    return absl::OkStatus();
-  }
-
-  if (optional_value->HasValue()) {
-    if (kind_ == OptionalOrKind::kOrValue) {
-      result = optional_value->Value();
-    }
-    return absl::OkStatus();
-  }
-
-  CEL_RETURN_IF_ERROR(alternative_->Evaluate(frame, result, attribute));
-
-  // If optional.or check that rhs is an optional.
-  //
-  // Otherwise, we don't know what type to expect so can't check anything.
-  if (kind_ == OptionalOrKind::kOrOptional) {
-    if (!result.IsOptional() && !result.IsError() && !result.IsUnknown()) {
-      result = MakeNoOverloadError(kind_, frame.arena());
-    }
-  }
-
-  return absl::OkStatus();
-}
-
 }  // namespace
 
 void OptionalHasValueJumpStep::Evaluate(ExecutionFrame* frame) const {
@@ -255,21 +162,6 @@ std::unique_ptr<OptionalHasValueJumpStep> CreateOptionalHasValueJumpStep(
 std::unique_ptr<ExpressionStepLogic> CreateOptionalOrStep(bool is_or_value) {
   return std::make_unique<OptionalOrStep>(
       is_or_value ? OptionalOrKind::kOrValue : OptionalOrKind::kOrOptional);
-}
-
-std::unique_ptr<DirectExpressionStep> CreateDirectOptionalOrStep(
-    int64_t expr_id, std::unique_ptr<DirectExpressionStep> optional,
-    std::unique_ptr<DirectExpressionStep> alternative, bool is_or_value,
-    bool short_circuiting) {
-  auto kind =
-      is_or_value ? OptionalOrKind::kOrValue : OptionalOrKind::kOrOptional;
-  if (short_circuiting) {
-    return std::make_unique<DirectOptionalOrStep>(expr_id, std::move(optional),
-                                                  std::move(alternative), kind);
-  } else {
-    return std::make_unique<ExhaustiveDirectOptionalOrStep>(
-        expr_id, std::move(optional), std::move(alternative), kind);
-  }
 }
 
 }  // namespace google::api::expr::runtime

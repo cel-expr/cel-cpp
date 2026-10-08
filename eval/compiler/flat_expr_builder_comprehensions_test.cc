@@ -50,24 +50,18 @@ using ::cel::expr::CheckedExpr;
 using ::cel::expr::ParsedExpr;
 using ::testing::HasSubstr;
 
-class CelExpressionBuilderFlatImplComprehensionsTest
-    : public testing::TestWithParam<bool> {
+class CelExpressionBuilderFlatImplComprehensionsTest : public testing::Test {
  public:
   CelExpressionBuilderFlatImplComprehensionsTest() = default;
 
-  bool enable_recursive_planning() { return GetParam(); }
-
   cel::RuntimeOptions GetRuntimeOptions() {
     cel::RuntimeOptions options;
-    if (enable_recursive_planning()) {
-      options.max_recursion_depth = -1;
-    }
     options.enable_comprehension_list_append = true;
     return options;
   }
 };
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, NestedComp) {
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest, NestedComp) {
   cel::RuntimeOptions options = GetRuntimeOptions();
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
 
@@ -85,7 +79,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, NestedComp) {
   EXPECT_THAT(*result.ListOrDie(), testing::SizeIs(2));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, MapComp) {
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest, MapComp) {
   cel::RuntimeOptions options = GetRuntimeOptions();
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
 
@@ -106,7 +100,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, MapComp) {
               test::EqualsCelValue(CelValue::CreateInt64(4)));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, ExistsOneTrue) {
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest, ExistsOneTrue) {
   cel::RuntimeOptions options = GetRuntimeOptions();
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
 
@@ -123,7 +117,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, ExistsOneTrue) {
   EXPECT_THAT(result, test::IsCelBool(true));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, ExistsOneFalse) {
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest, ExistsOneFalse) {
   cel::RuntimeOptions options = GetRuntimeOptions();
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
 
@@ -140,7 +134,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, ExistsOneFalse) {
   EXPECT_THAT(result, test::IsCelBool(false));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, ListCompWithUnknowns) {
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest, ListCompWithUnknowns) {
   cel::RuntimeOptions options = GetRuntimeOptions();
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
   CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
@@ -179,7 +173,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest, ListCompWithUnknowns) {
               testing::Eq(1));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        InvalidComprehensionWithRewrite) {
   CheckedExpr expr;
   // The rewrite step which occurs when an identifier gets a more qualified name
@@ -216,7 +210,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                                       HasSubstr("Invalid empty expression"))));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        ComprehensionWithConcatVulernability) {
   CheckedExpr expr;
   // The comprehension loop step performs an unsafe concatenation of the
@@ -270,7 +264,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                        HasSubstr("memory exhaustion vulnerability")));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        ComprehensionWithListVulernability) {
   CheckedExpr expr;
   // The comprehension
@@ -314,7 +308,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                        HasSubstr("memory exhaustion vulnerability")));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        ComprehensionWithStructVulernability) {
   CheckedExpr expr;
   // The comprehension loop step builds a deeply nested struct which expands
@@ -371,7 +365,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                        HasSubstr("memory exhaustion vulnerability")));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        ComprehensionWithNestedComprehensionResultVulernability) {
   CheckedExpr expr;
   // The nested comprehension performs an unsafe concatenation on the parent
@@ -439,7 +433,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                        HasSubstr("memory exhaustion vulnerability")));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        ComprehensionWithNestedComprehensionLoopStepVulernability) {
   CheckedExpr expr;
   // The nested comprehension performs an unsafe concatenation on the parent
@@ -486,7 +480,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                        HasSubstr("memory exhaustion vulnerability")));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        ComprehensionWithNestedComprehensionLoopStepVulernabilityResult) {
   CheckedExpr expr;
   // The nested comprehension performs an unsafe concatenation on the parent
@@ -538,7 +532,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                        HasSubstr("memory exhaustion vulnerability")));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        ComprehensionWithNestedComprehensionLoopStepIterRangeVulnerability) {
   CheckedExpr expr;
   // The nested comprehension unsafely modifies the parent accumulator
@@ -585,7 +579,7 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
                        HasSubstr("memory exhaustion vulnerability")));
 }
 
-TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
        InvalidBindComprehension) {
   ParsedExpr expr;
   // Trivial comprehensions (such as cel.bind), are optimized by skipping the
@@ -628,13 +622,6 @@ TEST_P(CelExpressionBuilderFlatImplComprehensionsTest,
           absl::StatusCode::kInvalidArgument,
           HasSubstr("Unexpected iter_var access in trivial comprehension")));
 }
-
-INSTANTIATE_TEST_SUITE_P(TestSuite,
-                         CelExpressionBuilderFlatImplComprehensionsTest,
-                         testing::Bool(),
-                         [](const testing::TestParamInfo<bool>& info) {
-                           return info.param ? "recursive" : "default";
-                         });
 
 }  // namespace
 

@@ -38,7 +38,6 @@
 #include "parser/parser.h"
 #include "parser/standard_macros.h"
 #include "runtime/activation.h"
-#include "runtime/internal/runtime_impl.h"
 #include "runtime/runtime.h"
 #include "runtime/runtime_issue.h"
 #include "runtime/runtime_options.h"
@@ -52,11 +51,9 @@ using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::cel::extensions::ProtobufRuntimeAdapter;
 using ::cel::test::BoolValueIs;
-using ::cel::test::IntValueIs;
 using ::cel::expr::ParsedExpr;
 using ::google::api::expr::parser::Parse;
 using ::testing::ElementsAre;
-using ::testing::HasSubstr;
 using ::testing::TestWithParam;
 using ::testing::Truly;
 
@@ -76,72 +73,6 @@ absl::StatusOr<ParsedExpr> ParseWithTestMacros(absl::string_view expression) {
   auto src = cel::NewSource(expression, "<input>");
   ABSL_CHECK_OK(src.status());
   return Parse(**src, GetMacros());
-}
-
-TEST(StandardRuntimeTest, RecursionLimitExceeded) {
-  RuntimeOptions opts;
-  opts.max_recursion_depth = 1;
-
-  ASSERT_OK_AND_ASSIGN(auto builder,
-                       CreateStandardRuntimeBuilder(
-                           google::protobuf::DescriptorPool::generated_pool(), opts));
-
-  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
-
-  ASSERT_OK_AND_ASSIGN(ParsedExpr expr, ParseWithTestMacros("1 + 2"));
-
-  EXPECT_THAT(ProtobufRuntimeAdapter::CreateProgram(*runtime, expr),
-              StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("Maximum recursion depth of 1 exceeded")));
-}
-
-TEST(StandardRuntimeTest, RecursionUnderLimit) {
-  RuntimeOptions opts;
-  opts.max_recursion_depth = 2;
-
-  ASSERT_OK_AND_ASSIGN(auto builder,
-                       CreateStandardRuntimeBuilder(
-                           google::protobuf::DescriptorPool::generated_pool(), opts));
-
-  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
-
-  ASSERT_OK_AND_ASSIGN(ParsedExpr expr, ParseWithTestMacros("1 + 2"));
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
-                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
-
-  // Whether the implementation is recursive shouldn't affect observable
-  // behavior, but it does have performance implications (it will skip
-  // allocating a value stack).
-  EXPECT_TRUE(runtime_internal::TestOnly_IsRecursiveImpl(program.get()));
-
-  google::protobuf::Arena arena;
-  Activation activation;
-
-  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
-  EXPECT_THAT(result, IntValueIs(3));
-}
-
-TEST(StandardRuntimeTest, RecursionLimitTracksLazyExpressions) {
-  RuntimeOptions opts;
-  opts.max_recursion_depth = 8;
-
-  ASSERT_OK_AND_ASSIGN(auto builder,
-                       CreateStandardRuntimeBuilder(
-                           google::protobuf::DescriptorPool::generated_pool(), opts));
-
-  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
-
-  ASSERT_OK_AND_ASSIGN(ParsedExpr expr, ParseWithTestMacros(R"cel(
-      cel.bind(a, 4 + (3 + (2 + 1)),
-        cel.bind(b, 7 + (6 + (5 + a)),
-          9 + (8 + b)
-        )
-     ))cel"));
-
-  EXPECT_THAT(ProtobufRuntimeAdapter::CreateProgram(*runtime, expr),
-              StatusIs(absl::StatusCode::kInvalidArgument,
-                       HasSubstr("Maximum recursion depth of 8 exceeded")));
 }
 
 struct EvaluateResultTestCase {
@@ -177,8 +108,6 @@ TEST_P(StandardRuntimeTest, Defaults) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
                        ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
 
-  EXPECT_FALSE(runtime_internal::TestOnly_IsRecursiveImpl(program.get()));
-
   google::protobuf::Arena arena;
   Activation activation;
   if (test_case.activation_builder != nullptr) {
@@ -187,39 +116,6 @@ TEST_P(StandardRuntimeTest, Defaults) {
 
   ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
 
-  EXPECT_THAT(result, BoolValueIs(test_case.expected_result))
-      << test_case.expression;
-}
-
-TEST_P(StandardRuntimeTest, Recursive) {
-  RuntimeOptions opts;
-  opts.max_recursion_depth = -1;
-  const EvaluateResultTestCase& test_case = GetTestCase();
-
-  ASSERT_OK_AND_ASSIGN(auto builder,
-                       CreateStandardRuntimeBuilder(
-                           google::protobuf::DescriptorPool::generated_pool(), opts));
-
-  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
-
-  ASSERT_OK_AND_ASSIGN(ParsedExpr expr,
-                       ParseWithTestMacros(test_case.expression));
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
-                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
-
-  // Whether the implementation is recursive shouldn't affect observable
-  // behavior, but it does have performance implications (it will skip
-  // allocating a value stack).
-  EXPECT_TRUE(runtime_internal::TestOnly_IsRecursiveImpl(program.get()));
-
-  google::protobuf::Arena arena;
-  Activation activation;
-  if (test_case.activation_builder != nullptr) {
-    ASSERT_THAT(test_case.activation_builder(activation), IsOk());
-  }
-
-  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
   EXPECT_THAT(result, BoolValueIs(test_case.expected_result))
       << test_case.expression;
 }
@@ -241,8 +137,6 @@ TEST_P(StandardRuntimeTest, FastBuiltins) {
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
                        ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
 
-  EXPECT_FALSE(runtime_internal::TestOnly_IsRecursiveImpl(program.get()));
-
   google::protobuf::Arena arena;
   Activation activation;
   if (test_case.activation_builder != nullptr) {
@@ -251,40 +145,6 @@ TEST_P(StandardRuntimeTest, FastBuiltins) {
 
   ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
 
-  EXPECT_THAT(result, BoolValueIs(test_case.expected_result))
-      << test_case.expression;
-}
-
-TEST_P(StandardRuntimeTest, RecursiveFastBuiltins) {
-  RuntimeOptions opts;
-  opts.enable_fast_builtins = true;
-  opts.max_recursion_depth = -1;
-  const EvaluateResultTestCase& test_case = GetTestCase();
-
-  ASSERT_OK_AND_ASSIGN(auto builder,
-                       CreateStandardRuntimeBuilder(
-                           google::protobuf::DescriptorPool::generated_pool(), opts));
-
-  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
-
-  ASSERT_OK_AND_ASSIGN(ParsedExpr expr,
-                       ParseWithTestMacros(test_case.expression));
-
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
-                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
-
-  // Whether the implementation is recursive shouldn't affect observable
-  // behavior, but it does have performance implications (it will skip
-  // allocating a value stack).
-  EXPECT_TRUE(runtime_internal::TestOnly_IsRecursiveImpl(program.get()));
-
-  google::protobuf::Arena arena;
-  Activation activation;
-  if (test_case.activation_builder != nullptr) {
-    ASSERT_THAT(test_case.activation_builder(activation), IsOk());
-  }
-
-  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
   EXPECT_THAT(result, BoolValueIs(test_case.expected_result))
       << test_case.expression;
 }
@@ -668,20 +528,11 @@ TEST(StandardRuntimeTest, RuntimeIssueSupport) {
   }
 }
 
-enum class EvalStrategy { kIterative, kRecursive };
-
-class StandardRuntimeEvalStrategyTest
-    : public ::testing::TestWithParam<EvalStrategy> {};
+class StandardRuntimeEvalTest : public ::testing::Test {};
 
 // Check that calls to specialized builtins are validated.
-TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinBoolOp) {
-  EvalStrategy eval_strategy = GetParam();
+TEST_F(StandardRuntimeEvalTest, InvalidBuiltinBoolOp) {
   RuntimeOptions options;
-  if (eval_strategy == EvalStrategy::kRecursive) {
-    options.max_recursion_depth = -1;
-  } else {
-    options.max_recursion_depth = 0;
-  }
 
 
   ASSERT_OK_AND_ASSIGN(auto builder,
@@ -699,14 +550,8 @@ TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinBoolOp) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinTernaryOp) {
-  EvalStrategy eval_strategy = GetParam();
+TEST_F(StandardRuntimeEvalTest, InvalidBuiltinTernaryOp) {
   RuntimeOptions options;
-  if (eval_strategy == EvalStrategy::kRecursive) {
-    options.max_recursion_depth = -1;
-  } else {
-    options.max_recursion_depth = 0;
-  }
 
 
   ASSERT_OK_AND_ASSIGN(auto builder,
@@ -743,14 +588,8 @@ TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinTernaryOp) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinIndex) {
-  EvalStrategy eval_strategy = GetParam();
+TEST_F(StandardRuntimeEvalTest, InvalidBuiltinIndex) {
   RuntimeOptions options;
-  if (eval_strategy == EvalStrategy::kRecursive) {
-    options.max_recursion_depth = -1;
-  } else {
-    options.max_recursion_depth = 0;
-  }
 
 
   ASSERT_OK_AND_ASSIGN(auto builder,
@@ -771,15 +610,8 @@ TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinIndex) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinEq) {
-  EvalStrategy eval_strategy = GetParam();
+TEST_F(StandardRuntimeEvalTest, InvalidBuiltinEq) {
   RuntimeOptions options;
-  if (eval_strategy == EvalStrategy::kRecursive) {
-    options.max_recursion_depth = -1;
-  } else {
-    options.max_recursion_depth = 0;
-  }
-
 
   ASSERT_OK_AND_ASSIGN(auto builder,
                        CreateStandardRuntimeBuilder(
@@ -799,14 +631,8 @@ TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinEq) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinIn) {
-  EvalStrategy eval_strategy = GetParam();
+TEST_F(StandardRuntimeEvalTest, InvalidBuiltinIn) {
   RuntimeOptions options;
-  if (eval_strategy == EvalStrategy::kRecursive) {
-    options.max_recursion_depth = -1;
-  } else {
-    options.max_recursion_depth = 0;
-  }
 
 
   ASSERT_OK_AND_ASSIGN(auto builder,
@@ -827,14 +653,8 @@ TEST_P(StandardRuntimeEvalStrategyTest, InvalidBuiltinIn) {
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST_P(StandardRuntimeEvalStrategyTest, PrecisionPreservingDoubleFormat) {
-  EvalStrategy eval_strategy = GetParam();
+TEST_F(StandardRuntimeEvalTest, PrecisionPreservingDoubleFormat) {
   RuntimeOptions options;
-  if (eval_strategy == EvalStrategy::kRecursive) {
-    options.max_recursion_depth = -1;
-  } else {
-    options.max_recursion_depth = 0;
-  }
 
   options.enable_precision_preserving_double_format = true;
 
@@ -860,13 +680,6 @@ TEST_P(StandardRuntimeEvalStrategyTest, PrecisionPreservingDoubleFormat) {
     EXPECT_TRUE(result->Is<BoolValue>() && result.GetBool().NativeValue());
   }
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    StandardRuntimeEvalStrategyTest, StandardRuntimeEvalStrategyTest,
-    testing::Values(EvalStrategy::kIterative, EvalStrategy::kRecursive),
-    [](const auto& info) -> std::string {
-      return info.param == EvalStrategy::kIterative ? "Iterative" : "Recursive";
-    });
 
 }  // namespace
 }  // namespace cel

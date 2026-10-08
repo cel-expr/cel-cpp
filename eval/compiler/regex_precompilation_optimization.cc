@@ -33,8 +33,6 @@
 #include "common/native_type.h"
 #include "common/value.h"
 #include "eval/compiler/flat_expr_builder_extensions.h"
-#include "eval/eval/compiler_constant_step.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/regex_match_step.h"
 #include "internal/re2_options.h"
@@ -175,17 +173,6 @@ class RegexPrecompilationOptimization : public ProgramOptimizer {
       return std::nullopt;
     }
     std::optional<Value> constant;
-    if (subexpression->IsRecursive()) {
-      const auto& program = subexpression->recursive_program();
-      auto deps = program.step->GetDependencies();
-      if (deps.has_value() && deps->size() == 2) {
-        const auto* re_plan =
-            TryDowncastDirectStep<DirectCompilerConstantStep>(deps->at(1));
-        if (re_plan != nullptr) {
-          constant = re_plan->value();
-        }
-      }
-    } else {
       // otherwise stack-machine program.
       ExecutionPathView re_plan = context.GetSubplan(re_expr);
       if (re_plan.size() == 1) {
@@ -194,7 +181,6 @@ class RegexPrecompilationOptimization : public ProgramOptimizer {
           constant = std::move(val);
         }
       }
-    }
 
     if (constant.has_value() && constant->IsString()) {
       return constant->GetString().ToString();
@@ -208,31 +194,8 @@ class RegexPrecompilationOptimization : public ProgramOptimizer {
       ProgramBuilder::Subexpression* absl_nonnull subexpression,
       const Expr& call, const Expr& subject,
       std::shared_ptr<const RE2> regex_program) {
-    if (subexpression->IsRecursive()) {
-      return RewriteRecursivePlan(subexpression, call, subject,
-                                  std::move(regex_program));
-    }
     return RewriteStackMachinePlan(context, call, subject,
                                    std::move(regex_program));
-  }
-
-  absl::Status RewriteRecursivePlan(
-      ProgramBuilder::Subexpression* absl_nonnull subexpression,
-      const Expr& call, const Expr& subject,
-      std::shared_ptr<const RE2> regex_program) {
-    auto program = subexpression->ExtractRecursiveProgram();
-    auto deps = program.step->ExtractDependencies();
-    if (!deps.has_value() || deps->size() != 2) {
-      // Possibly already const-folded, put the plan back.
-      subexpression->set_recursive_program(std::move(program.step),
-                                           program.depth);
-      return absl::OkStatus();
-    }
-    subexpression->set_recursive_program(
-        CreateDirectRegexMatchStep(call.id(), std::move(deps->at(0)),
-                                   std::move(regex_program)),
-        program.depth);
-    return absl::OkStatus();
   }
 
   absl::Status RewriteStackMachinePlan(

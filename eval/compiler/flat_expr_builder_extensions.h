@@ -36,19 +36,14 @@
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/types/optional.h"
 #include "absl/types/variant.h"
 #include "base/ast.h"
 #include "base/type_provider.h"
 #include "common/expr.h"
-#include "common/native_type.h"
 #include "common/type_reflector.h"
 #include "eval/compiler/resolver.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_logic.h"
-#include "eval/eval/trace_step.h"
-#include "internal/casts.h"
 #include "runtime/internal/issue_collector.h"
 #include "runtime/internal/runtime_env.h"
 #include "runtime/runtime_options.h"
@@ -93,11 +88,6 @@ class ProgramBuilder {
     using FlattenedPlan = ExecutionPath;
 
    public:
-    struct RecursiveProgram {
-      std::unique_ptr<DirectExpressionStep> step;
-      int depth;
-    };
-
     ~Subexpression() = default;
 
     // Not copyable or movable.
@@ -108,10 +98,6 @@ class ProgramBuilder {
 
     // Add a program step at the current end of the subexpression.
     bool AddStep(ExpressionStep step) {
-      if (IsRecursive()) {
-        return false;
-      }
-
       if (IsFlattened()) {
         flattened_elements().push_back(std::move(step));
         return true;
@@ -160,27 +146,6 @@ class ProgramBuilder {
       return absl::get<FlattenedPlan>(program_);
     }
 
-    void set_recursive_program(std::unique_ptr<DirectExpressionStep> step,
-                               int depth) {
-      program_ = RecursiveProgram{std::move(step), depth};
-    }
-
-    const RecursiveProgram& recursive_program() const {
-      ABSL_DCHECK(IsRecursive());
-      return absl::get<RecursiveProgram>(program_);
-    }
-
-    absl::optional<int> RecursiveDependencyDepth() const;
-
-    std::vector<std::unique_ptr<DirectExpressionStep>>
-    ExtractRecursiveDependencies() const;
-
-    RecursiveProgram ExtractRecursiveProgram();
-
-    bool IsRecursive() const {
-      return absl::holds_alternative<RecursiveProgram>(program_);
-    }
-
     // Compute the current number of program steps in this subexpression and
     // its dependencies.
     size_t ComputeSize() const;
@@ -221,7 +186,7 @@ class ProgramBuilder {
     //
     // This adds complexity, but supports swapping to a flat representation as
     // needed.
-    absl::variant<TreePlan, FlattenedPlan, RecursiveProgram> program_;
+    absl::variant<TreePlan, FlattenedPlan> program_;
 
     const cel::Expr* self_;
     const cel::Expr* absl_nullable parent_;
@@ -314,31 +279,6 @@ class ProgramBuilder {
   SubprogramMap subprogram_map_;
 };
 
-// Attempt to downcast a specific type of recursive step.
-template <typename Subclass>
-const Subclass* TryDowncastDirectStep(const DirectExpressionStep* step) {
-  if (step == nullptr) {
-    return nullptr;
-  }
-
-  auto type_id = step->GetNativeTypeId();
-  if (type_id == cel::NativeTypeId::For<TraceStep>()) {
-    const auto* trace_step = cel::internal::down_cast<const TraceStep*>(step);
-    auto deps = trace_step->GetDependencies();
-    if (!deps.has_value() || deps->size() != 1) {
-      return nullptr;
-    }
-    step = deps->at(0);
-    type_id = step->GetNativeTypeId();
-  }
-
-  if (type_id == cel::NativeTypeId::For<Subclass>()) {
-    return cel::internal::down_cast<const Subclass*>(step);
-  }
-
-  return nullptr;
-}
-
 // Class representing FlatExpr internals exposed to extensions.
 class PlannerContext {
  public:
@@ -386,14 +326,6 @@ class PlannerContext {
   // This operation forces the subexpression to flatten which removes the
   // expr->program mapping for any descendants.
   absl::Status ReplaceSubplan(const cel::Expr& node, ExecutionPath path);
-
-  // Replace the subplan associated with node with a new recursive subplan.
-  //
-  // This operation clears any existing plan to which removes the
-  // expr->program mapping for any descendants.
-  absl::Status ReplaceSubplan(const cel::Expr& node,
-                              std::unique_ptr<DirectExpressionStep> step,
-                              int depth);
 
   // Extend the current subplan with the given expression step.
   absl::Status AddSubplanStep(const cel::Expr& node, ExpressionStep step);

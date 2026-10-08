@@ -13,17 +13,15 @@
 // limitations under the License.
 #include "eval/eval/equality_steps.h"
 
-#include <cstdint>
-#include <memory>
 #include <utility>
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "base/builtins.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "eval/eval/attribute_trail.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
@@ -75,36 +73,6 @@ absl::StatusOr<Value> EvaluateEquality(
   }
   return negation ? BoolValue(!*is_equal) : BoolValue(*is_equal);
 }
-
-class DirectEqualityStep : public DirectExpressionStep {
- public:
-  explicit DirectEqualityStep(std::unique_ptr<DirectExpressionStep> lhs,
-                              std::unique_ptr<DirectExpressionStep> rhs,
-                              bool negation, int64_t expr_id)
-      : DirectExpressionStep(expr_id),
-        lhs_(std::move(lhs)),
-        rhs_(std::move(rhs)),
-        negation_(negation) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute_trail) const override {
-    AttributeTrail lhs_attr;
-    CEL_RETURN_IF_ERROR(lhs_->Evaluate(frame, result, lhs_attr));
-
-    Value rhs_result;
-    AttributeTrail rhs_attr;
-    CEL_RETURN_IF_ERROR(rhs_->Evaluate(frame, rhs_result, rhs_attr));
-    CEL_ASSIGN_OR_RETURN(
-        result, EvaluateEquality(frame, result, lhs_attr, rhs_result, rhs_attr,
-                                 negation_));
-    return absl::OkStatus();
-  }
-
- private:
-  std::unique_ptr<DirectExpressionStep> lhs_;
-  std::unique_ptr<DirectExpressionStep> rhs_;
-  bool negation_;
-};
 
 absl::StatusOr<Value> EvaluateInMap(ExecutionFrameBase& frame,
                                     const Value& item,
@@ -193,34 +161,6 @@ absl::StatusOr<Value> EvaluateIn(ExecutionFrameBase& frame, const Value& item,
       frame.arena());
 }
 
-class DirectInStep : public DirectExpressionStep {
- public:
-  explicit DirectInStep(std::unique_ptr<DirectExpressionStep> item,
-                        std::unique_ptr<DirectExpressionStep> container,
-                        int64_t expr_id)
-      : DirectExpressionStep(expr_id),
-        item_(std::move(item)),
-        container_(std::move(container)) {}
-
-  absl::Status Evaluate(ExecutionFrameBase& frame, Value& result,
-                        AttributeTrail& attribute_trail) const override {
-    AttributeTrail item_attr;
-    CEL_RETURN_IF_ERROR(item_->Evaluate(frame, result, item_attr));
-
-    Value container_result;
-    AttributeTrail container_attr;
-    CEL_RETURN_IF_ERROR(
-        container_->Evaluate(frame, container_result, container_attr));
-    CEL_ASSIGN_OR_RETURN(result, EvaluateIn(frame, result, item_attr,
-                                            container_result, container_attr));
-    return absl::OkStatus();
-  }
-
- private:
-  std::unique_ptr<DirectExpressionStep> item_;
-  std::unique_ptr<DirectExpressionStep> container_;
-};
-
 }  // namespace
 
 void EvaluateFastEqualStep(bool negation, ExecutionFrame& frame) {
@@ -259,22 +199,6 @@ void EvaluateFastInStep(ExecutionFrame& frame) {
     return;
   }
   frame.value_stack().PopAndPush(2, *std::move(result));
-}
-
-// Factory method for recursive _==_ and _!=_ Execution step
-std::unique_ptr<DirectExpressionStep> CreateDirectEqualityStep(
-    std::unique_ptr<DirectExpressionStep> lhs,
-    std::unique_ptr<DirectExpressionStep> rhs, bool negation, int64_t expr_id) {
-  return std::make_unique<DirectEqualityStep>(std::move(lhs), std::move(rhs),
-                                              negation, expr_id);
-}
-
-// Factory method for recursive @in Execution step
-std::unique_ptr<DirectExpressionStep> CreateDirectInStep(
-    std::unique_ptr<DirectExpressionStep> item,
-    std::unique_ptr<DirectExpressionStep> container, int64_t expr_id) {
-  return std::make_unique<DirectInStep>(std::move(item), std::move(container),
-                                        expr_id);
 }
 
 }  // namespace google::api::expr::runtime

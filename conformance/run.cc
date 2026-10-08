@@ -59,9 +59,6 @@ ABSL_FLAG(bool, opt, false, "Enable optimizations (constant folding)");
 ABSL_FLAG(
     bool, modern, false,
     "Use modern cel::Value APIs implementation of the conformance service.");
-ABSL_FLAG(bool, recursive, false,
-          "Enable recursive plans. Depth limited to slightly more than the "
-          "default nesting limit.");
 ABSL_FLAG(std::vector<std::string>, skip_tests, {}, "Tests to skip");
 ABSL_FLAG(bool, dashboard, false, "Dashboard mode, ignore test failures");
 ABSL_FLAG(bool, skip_check, true, "Skip type checking the expressions");
@@ -264,7 +261,6 @@ NewConformanceServiceFromFlags() {
       cel_conformance::ConformanceServiceOptions{
           .optimize = absl::GetFlag(FLAGS_opt),
           .modern = absl::GetFlag(FLAGS_modern),
-          .recursive = absl::GetFlag(FLAGS_recursive),
           .select_optimization = absl::GetFlag(FLAGS_select_optimization),
           .enable_variadic_logical_operators =
               absl::GetFlag(FLAGS_enable_variadic_logical_operators),

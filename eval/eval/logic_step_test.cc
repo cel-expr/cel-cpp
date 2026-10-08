@@ -2,27 +2,19 @@
 
 #include <memory>
 #include <string>
-#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
-#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/type_provider.h"
 #include "common/expr.h"
-#include "common/unknown.h"
-#include "common/value.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/cel_expression_flat_impl.h"
-#include "eval/eval/const_value_step.h"
-#include "eval/eval/direct_expression_step.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_value.h"
@@ -30,12 +22,8 @@
 #include "eval/public/unknown_set.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
-#include "internal/testing_descriptor_pool.h"
-#include "internal/testing_message_factory.h"
-#include "runtime/activation.h"
 #include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
-#include "runtime/internal/runtime_type_provider.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 
@@ -46,12 +34,8 @@ namespace {
 using ::absl_testing::IsOk;
 using ::cel::Attribute;
 using ::cel::AttributeSet;
-using ::cel::BoolValue;
 using ::cel::Expr;
-using ::cel::IntValue;
 using ::cel::TypeProvider;
-using ::cel::UnknownValue;
-using ::cel::Value;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::runtime_internal::RuntimeEnv;
 using ::google::protobuf::Arena;
@@ -317,369 +301,6 @@ TEST_F(LogicStepTest, TestOrLogicUnknownHandling) {
 }
 
 INSTANTIATE_TEST_SUITE_P(LogicStepTest, LogicStepTest, testing::Bool());
-
-enum class BinaryOp { kAnd, kOr };
-enum class UnaryOp { kNot, kNotStrictlyFalse };
-
-enum class OpArg {
-  kTrue,
-  kFalse,
-  kUnknown,
-  kError,
-  // Arbitrary incorrect type
-  kInt
-};
-
-enum class OpResult {
-  kTrue,
-  kFalse,
-  kUnknown,
-  kError,
-};
-
-struct BinaryTestCase {
-  std::string name;
-  BinaryOp op;
-  OpArg arg0;
-  OpArg arg1;
-  OpResult result;
-};
-
-UnknownValue MakeUnknownValue(std::string attr) {
-  std::vector<Attribute> attrs;
-  attrs.push_back(Attribute(std::move(attr)));
-  return cel::common_internal::MakeUnknownValue(
-      cel::Unknown(AttributeSet(attrs)));
-}
-
-std::unique_ptr<DirectExpressionStep> MakeArgStep(OpArg arg,
-                                                  absl::string_view name,
-                                                  google::protobuf::Arena* arena) {
-  switch (arg) {
-    case OpArg::kTrue:
-      return CreateConstValueDirectStep(BoolValue(true));
-    case OpArg::kFalse:
-      return CreateConstValueDirectStep(BoolValue(false));
-    case OpArg::kUnknown:
-      return CreateConstValueDirectStep(MakeUnknownValue(std::string(name)));
-    case OpArg::kError:
-      return CreateConstValueDirectStep(
-          cel::ErrorValue::From(absl::InternalError(name), arena));
-    case OpArg::kInt:
-      return CreateConstValueDirectStep(IntValue(42));
-  }
-};
-
-class DirectBinaryLogicStepTest
-    : public testing::TestWithParam<std::tuple<bool, BinaryTestCase>> {
- public:
-  DirectBinaryLogicStepTest() = default;
-
-  bool ShortcircuitingEnabled() { return std::get<0>(GetParam()); }
-  const BinaryTestCase& GetTestCase() { return std::get<1>(GetParam()); }
-
- protected:
-  Arena arena_;
-};
-
-TEST_P(DirectBinaryLogicStepTest, TestCases) {
-  const BinaryTestCase& test_case = GetTestCase();
-
-  std::unique_ptr<DirectExpressionStep> lhs =
-      MakeArgStep(test_case.arg0, "lhs", &arena_);
-  std::unique_ptr<DirectExpressionStep> rhs =
-      MakeArgStep(test_case.arg1, "rhs", &arena_);
-
-  std::unique_ptr<DirectExpressionStep> op =
-      (test_case.op == BinaryOp::kAnd)
-          ? CreateDirectAndStep(std::move(lhs), std::move(rhs), -1,
-                                ShortcircuitingEnabled())
-          : CreateDirectOrStep(std::move(lhs), std::move(rhs), -1,
-                               ShortcircuitingEnabled());
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-  options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  Value value;
-  AttributeTrail attr;
-  ASSERT_THAT(op->Evaluate(frame, value, attr), IsOk());
-
-  switch (test_case.result) {
-    case OpResult::kTrue:
-      ASSERT_TRUE(value.IsBool());
-      EXPECT_TRUE(value.GetBool().NativeValue());
-      break;
-    case OpResult::kFalse:
-      ASSERT_TRUE(value.IsBool());
-      EXPECT_FALSE(value.GetBool().NativeValue());
-      break;
-    case OpResult::kUnknown:
-      EXPECT_TRUE(value.IsUnknown());
-      break;
-    case OpResult::kError:
-      EXPECT_TRUE(value.IsError());
-      break;
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    DirectBinaryLogicStepTest, DirectBinaryLogicStepTest,
-    testing::Combine(testing::Bool(),
-                     testing::ValuesIn<std::vector<BinaryTestCase>>({
-                         {
-                             "AndFalseFalse",
-                             BinaryOp::kAnd,
-                             OpArg::kFalse,
-                             OpArg::kFalse,
-                             OpResult::kFalse,
-                         },
-                         {
-                             "AndFalseTrue",
-                             BinaryOp::kAnd,
-                             OpArg::kFalse,
-                             OpArg::kTrue,
-                             OpResult::kFalse,
-                         },
-                         {
-                             "AndTrueFalse",
-                             BinaryOp::kAnd,
-                             OpArg::kTrue,
-                             OpArg::kFalse,
-                             OpResult::kFalse,
-                         },
-                         {
-                             "AndTrueTrue",
-                             BinaryOp::kAnd,
-                             OpArg::kTrue,
-                             OpArg::kTrue,
-                             OpResult::kTrue,
-                         },
-
-                         {
-                             "AndTrueError",
-                             BinaryOp::kAnd,
-                             OpArg::kTrue,
-                             OpArg::kError,
-                             OpResult::kError,
-                         },
-                         {
-                             "AndErrorTrue",
-                             BinaryOp::kAnd,
-                             OpArg::kError,
-                             OpArg::kTrue,
-                             OpResult::kError,
-                         },
-                         {
-                             "AndFalseError",
-                             BinaryOp::kAnd,
-                             OpArg::kFalse,
-                             OpArg::kError,
-                             OpResult::kFalse,
-                         },
-                         {
-                             "AndErrorFalse",
-                             BinaryOp::kAnd,
-                             OpArg::kError,
-                             OpArg::kFalse,
-                             OpResult::kFalse,
-                         },
-                         {
-                             "AndErrorError",
-                             BinaryOp::kAnd,
-                             OpArg::kError,
-                             OpArg::kError,
-                             OpResult::kError,
-                         },
-
-                         {
-                             "AndTrueUnknown",
-                             BinaryOp::kAnd,
-                             OpArg::kTrue,
-                             OpArg::kUnknown,
-                             OpResult::kUnknown,
-                         },
-                         {
-                             "AndUnknownTrue",
-                             BinaryOp::kAnd,
-                             OpArg::kUnknown,
-                             OpArg::kTrue,
-                             OpResult::kUnknown,
-                         },
-                         {
-                             "AndFalseUnknown",
-                             BinaryOp::kAnd,
-                             OpArg::kFalse,
-                             OpArg::kUnknown,
-                             OpResult::kFalse,
-                         },
-                         {
-                             "AndUnknownFalse",
-                             BinaryOp::kAnd,
-                             OpArg::kUnknown,
-                             OpArg::kFalse,
-                             OpResult::kFalse,
-                         },
-                         {
-                             "AndUnknownUnknown",
-                             BinaryOp::kAnd,
-                             OpArg::kUnknown,
-                             OpArg::kUnknown,
-                             OpResult::kUnknown,
-                         },
-                         {
-                             "AndUnknownError",
-                             BinaryOp::kAnd,
-                             OpArg::kUnknown,
-                             OpArg::kError,
-                             OpResult::kUnknown,
-                         },
-                         {
-                             "AndErrorUnknown",
-                             BinaryOp::kAnd,
-                             OpArg::kError,
-                             OpArg::kUnknown,
-                             OpResult::kUnknown,
-                         },
-                         // Or cases are simplified since the logic generalizes
-                         // and is covered by and cases.
-                     })),
-    [](const testing::TestParamInfo<DirectBinaryLogicStepTest::ParamType>& info)
-        -> std::string {
-      bool shortcircuiting_enabled = std::get<0>(info.param);
-      absl::string_view name = std::get<1>(info.param).name;
-      return absl::StrCat(
-          name, (shortcircuiting_enabled ? "ShortcircuitingEnabled" : ""));
-    });
-
-struct UnaryTestCase {
-  std::string name;
-  UnaryOp op;
-  OpArg arg;
-  OpResult result;
-};
-
-class DirectUnaryLogicStepTest : public testing::TestWithParam<UnaryTestCase> {
- public:
-  DirectUnaryLogicStepTest() = default;
-
-  const UnaryTestCase& GetTestCase() { return GetParam(); }
-
- protected:
-  Arena arena_;
-};
-
-TEST_P(DirectUnaryLogicStepTest, TestCases) {
-  const UnaryTestCase& test_case = GetTestCase();
-
-  std::unique_ptr<DirectExpressionStep> arg =
-      MakeArgStep(test_case.arg, "arg", &arena_);
-
-  std::unique_ptr<DirectExpressionStep> op =
-      (test_case.op == UnaryOp::kNot)
-          ? CreateDirectNotStep(std::move(arg), -1)
-          : CreateDirectNotStrictlyFalseStep(std::move(arg), -1);
-
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-  options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  ExecutionFrameBase frame(activation, options, type_provider,
-                           cel::internal::GetTestingDescriptorPool(),
-                           cel::internal::GetTestingMessageFactory(), &arena_);
-
-  Value value;
-  AttributeTrail attr;
-  ASSERT_THAT(op->Evaluate(frame, value, attr), IsOk());
-
-  switch (test_case.result) {
-    case OpResult::kTrue:
-      ASSERT_TRUE(value.IsBool());
-      EXPECT_TRUE(value.GetBool().NativeValue());
-      break;
-    case OpResult::kFalse:
-      ASSERT_TRUE(value.IsBool());
-      EXPECT_FALSE(value.GetBool().NativeValue());
-      break;
-    case OpResult::kUnknown:
-      EXPECT_TRUE(value.IsUnknown());
-      break;
-    case OpResult::kError:
-      EXPECT_TRUE(value.IsError());
-      break;
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(
-    DirectUnaryLogicStepTest, DirectUnaryLogicStepTest,
-    testing::ValuesIn<std::vector<UnaryTestCase>>(
-        {UnaryTestCase{"NotTrue", UnaryOp::kNot, OpArg::kTrue,
-                       OpResult::kFalse},
-         UnaryTestCase{"NotError", UnaryOp::kNot, OpArg::kError,
-                       OpResult::kError},
-         UnaryTestCase{"NotUnknown", UnaryOp::kNot, OpArg::kUnknown,
-                       OpResult::kUnknown},
-         UnaryTestCase{"NotInt", UnaryOp::kNot, OpArg::kInt, OpResult::kError},
-         UnaryTestCase{"NotFalse", UnaryOp::kNot, OpArg::kFalse,
-                       OpResult::kTrue},
-         UnaryTestCase{"NotStrictlyFalseTrue", UnaryOp::kNotStrictlyFalse,
-                       OpArg::kTrue, OpResult::kTrue},
-         UnaryTestCase{"NotStrictlyFalseError", UnaryOp::kNotStrictlyFalse,
-                       OpArg::kError, OpResult::kTrue},
-         UnaryTestCase{"NotStrictlyFalseUnknown", UnaryOp::kNotStrictlyFalse,
-                       OpArg::kUnknown, OpResult::kTrue},
-         UnaryTestCase{"NotStrictlyFalseInt", UnaryOp::kNotStrictlyFalse,
-                       OpArg::kInt, OpResult::kError},
-         UnaryTestCase{"NotStrictlyFalseFalse", UnaryOp::kNotStrictlyFalse,
-                       OpArg::kFalse, OpResult::kFalse}}),
-    [](const testing::TestParamInfo<DirectUnaryLogicStepTest::ParamType>& info)
-        -> std::string { return info.param.name; });
-
-TEST(UnaryLogicStepTest, BooleanNot) {
-  ExecutionPath path;
-  path.push_back(ExpressionStep::MakeConstant(cel::BoolValue(true)));
-  path.push_back(ExpressionStep::MakeBooleanNotStep());
-
-  google::protobuf::Arena arena;
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  FlatExpressionEvaluatorState state(
-      2, 0, type_provider, cel::internal::GetTestingDescriptorPool(),
-      cel::internal::GetTestingMessageFactory(), &arena);
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-  ExecutionFrame frame(path, activation, options, state);
-  ASSERT_OK_AND_ASSIGN(cel::Value value, frame.Evaluate());
-  ASSERT_TRUE(value.IsBool());
-  EXPECT_FALSE(value.GetBool().NativeValue());
-}
-
-TEST(UnaryLogicStepTest, NotStrictlyFalse) {
-  google::protobuf::Arena arena;
-
-  ExecutionPath path;
-  path.push_back(ExpressionStep::MakeConstant(
-      cel::ErrorValue::From(absl::InternalError("error"), &arena)));
-  path.push_back(ExpressionStep::MakeNotStrictlyFalseStep());
-
-  cel::runtime_internal::RuntimeTypeProvider type_provider(
-      cel::internal::GetTestingDescriptorPool());
-  FlatExpressionEvaluatorState state(
-      2, 0, type_provider, cel::internal::GetTestingDescriptorPool(),
-      cel::internal::GetTestingMessageFactory(), &arena);
-  cel::Activation activation;
-  cel::RuntimeOptions options;
-  ExecutionFrame frame(path, activation, options, state);
-  ASSERT_OK_AND_ASSIGN(cel::Value value, frame.Evaluate());
-  ASSERT_TRUE(value.IsBool());
-  EXPECT_TRUE(value.GetBool().NativeValue());
-}
 
 }  // namespace
 
