@@ -36,6 +36,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
+#include "base/attribute.h"
 #include "checker/validation_result.h"
 #include "common/decl.h"
 #include "common/native_type.h"
@@ -80,6 +81,7 @@ using ::google::api::expr::parser::EnrichedParse;
 using ::google::api::expr::parser::Parse;
 using ::google::api::expr::runtime::RequestContext;
 using ::google::rpc::context::AttributeContext;
+using ::testing::UnorderedElementsAre;
 
 RuntimeOptions GetOptions() {
   RuntimeOptions options;
@@ -1464,6 +1466,179 @@ void BM_MapTransformComprehension(benchmark::State& state) {
 }
 
 BENCHMARK(BM_MapTransformComprehension)->Range(1, 1 << 16);
+
+void BM_SingleUnknownVariable(benchmark::State& state) {
+  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, Parse("unk"));
+
+  RuntimeOptions options = GetOptions();
+  options.unknown_processing = UnknownProcessingOptions::kAttributeOnly;
+  auto runtime = StandardRuntimeOrDie(options);
+
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
+
+  Activation activation;
+  ASSERT_THAT(activation.SetUnknownPatterns({AttributePattern("unk")}), IsOk());
+
+  for (auto _ : state) {
+    google::protobuf::Arena arena;
+    ASSERT_OK_AND_ASSIGN(cel::Value result,
+                         program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.IsUnknown());
+    ASSERT_THAT(result.GetUnknown().ToAttributeSet(),
+                UnorderedElementsAre(Attribute("unk")));
+  }
+}
+
+BENCHMARK(BM_SingleUnknownVariable);
+
+void BM_DeepUnknownQualifier(benchmark::State& state) {
+  ASSERT_OK_AND_ASSIGN(
+      ParsedExpr parsed_expr,
+      Parse("a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z"));
+
+  RuntimeOptions options = GetOptions();
+  options.unknown_processing = UnknownProcessingOptions::kAttributeOnly;
+  auto runtime = StandardRuntimeOrDie(options);
+
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
+
+  google::protobuf::Arena arena;
+  google::protobuf::Arena::UniquePtr<google::protobuf::Struct> struct_value =
+      google::protobuf::Arena::MakeUnique<google::protobuf::Struct>(&arena);
+  google::protobuf::Struct* struct_value_ptr = struct_value.get();
+  for (char l = 'b'; l <= 'z'; ++l) {
+    auto* fields = struct_value_ptr->mutable_fields();
+    struct_value_ptr = (*fields)[std::string(1, l)].mutable_struct_value();
+  }
+
+  Attribute attribute(
+      "a",
+      {AttributeQualifier::OfString("b"), AttributeQualifier::OfString("c"),
+       AttributeQualifier::OfString("d"), AttributeQualifier::OfString("e"),
+       AttributeQualifier::OfString("f"), AttributeQualifier::OfString("g"),
+       AttributeQualifier::OfString("h"), AttributeQualifier::OfString("i"),
+       AttributeQualifier::OfString("j"), AttributeQualifier::OfString("k"),
+       AttributeQualifier::OfString("l"), AttributeQualifier::OfString("m"),
+       AttributeQualifier::OfString("n"), AttributeQualifier::OfString("o"),
+       AttributeQualifier::OfString("p"), AttributeQualifier::OfString("q"),
+       AttributeQualifier::OfString("r"), AttributeQualifier::OfString("s"),
+       AttributeQualifier::OfString("t"), AttributeQualifier::OfString("u"),
+       AttributeQualifier::OfString("v"), AttributeQualifier::OfString("w"),
+       AttributeQualifier::OfString("x"), AttributeQualifier::OfString("y"),
+       AttributeQualifier::OfString("z")});
+
+  Activation activation;
+  ASSERT_THAT(activation.SetUnknownPatterns({AttributePattern(
+                  "a", {AttributeQualifierPattern::OfString("b"),
+                        AttributeQualifierPattern::OfString("c"),
+                        AttributeQualifierPattern::OfString("d"),
+                        AttributeQualifierPattern::OfString("e"),
+                        AttributeQualifierPattern::OfString("f"),
+                        AttributeQualifierPattern::OfString("g"),
+                        AttributeQualifierPattern::OfString("h"),
+                        AttributeQualifierPattern::OfString("i"),
+                        AttributeQualifierPattern::OfString("j"),
+                        AttributeQualifierPattern::OfString("k"),
+                        AttributeQualifierPattern::OfString("l"),
+                        AttributeQualifierPattern::OfString("m"),
+                        AttributeQualifierPattern::OfString("n"),
+                        AttributeQualifierPattern::OfString("o"),
+                        AttributeQualifierPattern::OfString("p"),
+                        AttributeQualifierPattern::OfString("q"),
+                        AttributeQualifierPattern::OfString("r"),
+                        AttributeQualifierPattern::OfString("s"),
+                        AttributeQualifierPattern::OfString("t"),
+                        AttributeQualifierPattern::OfString("u"),
+                        AttributeQualifierPattern::OfString("v"),
+                        AttributeQualifierPattern::OfString("w"),
+                        AttributeQualifierPattern::OfString("x"),
+                        AttributeQualifierPattern::OfString("y"),
+                        AttributeQualifierPattern::OfString("z")})}),
+              IsOk());
+  activation.InsertOrAssignValue(
+      "a",
+      cel::Value::WrapMessage(struct_value.get(), runtime->GetDescriptorPool(),
+                              runtime->GetMessageFactory(), &arena));
+
+  for (auto _ : state) {
+    google::protobuf::Arena arena;
+    ASSERT_OK_AND_ASSIGN(cel::Value result,
+                         program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.IsUnknown());
+    ASSERT_THAT(result.GetUnknown().ToAttributeSet(),
+                UnorderedElementsAre(attribute));
+  }
+}
+
+BENCHMARK(BM_DeepUnknownQualifier);
+
+void BM_ObnoxiousUnknownQualifier(benchmark::State& state) {
+  ASSERT_OK_AND_ASSIGN(
+      ParsedExpr parsed_expr,
+      Parse("a.b.c.d.e.f.g.h.i.j.k.l.m.n.o.p.q.r.s.t.u.v.w.x.y.z"));
+
+  RuntimeOptions options = GetOptions();
+  options.unknown_processing = UnknownProcessingOptions::kAttributeOnly;
+  auto runtime = StandardRuntimeOrDie(options);
+
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
+
+  google::protobuf::Arena arena;
+  google::protobuf::Arena::UniquePtr<google::protobuf::Struct> struct_value =
+      google::protobuf::Arena::MakeUnique<google::protobuf::Struct>(&arena);
+  google::protobuf::Struct* struct_value_ptr = struct_value.get();
+  std::vector<AttributePattern> attributes;
+  for (char v = 'a'; v <= 'z'; ++v) {
+    std::vector<AttributeQualifierPattern> qualifiers;
+    for (char q = 'a'; q <= 'z'; ++q) {
+      if (v == q) {
+        continue;
+      }
+      qualifiers.push_back(
+          AttributeQualifierPattern::OfString(std::string(1, q)));
+    }
+    attributes.emplace_back(std::string(1, v), std::move(qualifiers));
+  }
+  for (char l = 'b'; l <= 'z'; ++l) {
+    auto* fields = struct_value_ptr->mutable_fields();
+    struct_value_ptr = (*fields)[std::string(1, l)].mutable_struct_value();
+  }
+  Activation activation;
+  ASSERT_THAT(activation.SetUnknownPatterns(attributes), IsOk());
+  activation.InsertOrAssignValue(
+      "a",
+      cel::Value::WrapMessage(struct_value.get(), runtime->GetDescriptorPool(),
+                              runtime->GetMessageFactory(), &arena));
+  Attribute attribute(
+      "a",
+      {AttributeQualifier::OfString("b"), AttributeQualifier::OfString("c"),
+       AttributeQualifier::OfString("d"), AttributeQualifier::OfString("e"),
+       AttributeQualifier::OfString("f"), AttributeQualifier::OfString("g"),
+       AttributeQualifier::OfString("h"), AttributeQualifier::OfString("i"),
+       AttributeQualifier::OfString("j"), AttributeQualifier::OfString("k"),
+       AttributeQualifier::OfString("l"), AttributeQualifier::OfString("m"),
+       AttributeQualifier::OfString("n"), AttributeQualifier::OfString("o"),
+       AttributeQualifier::OfString("p"), AttributeQualifier::OfString("q"),
+       AttributeQualifier::OfString("r"), AttributeQualifier::OfString("s"),
+       AttributeQualifier::OfString("t"), AttributeQualifier::OfString("u"),
+       AttributeQualifier::OfString("v"), AttributeQualifier::OfString("w"),
+       AttributeQualifier::OfString("x"), AttributeQualifier::OfString("y"),
+       AttributeQualifier::OfString("z")});
+
+  for (auto _ : state) {
+    google::protobuf::Arena arena;
+    ASSERT_OK_AND_ASSIGN(cel::Value result,
+                         program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.IsUnknown());
+    ASSERT_THAT(result.GetUnknown().ToAttributeSet(),
+                UnorderedElementsAre(attribute));
+  }
+}
+
+BENCHMARK(BM_ObnoxiousUnknownQualifier);
 
 }  // namespace
 

@@ -68,6 +68,7 @@ cc_test(
     ],
     deps = [
         ":request_context_cc_proto",
+        "//base:attributes",
         "//checker:validation_result",
         "//common:decl",
         "//common:legacy_value",
