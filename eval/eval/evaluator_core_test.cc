@@ -1,17 +1,23 @@
 #include "eval/eval/evaluator_core.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "cel/expr/syntax.pb.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "base/type_provider.h"
 #include "common/value.h"
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
 #include "eval/eval/cel_expression_flat_impl.h"
+#include "eval/eval/create_list_step.h"
+#include "eval/eval/expression_step_logic.h"
+#include "eval/eval/function_step.h"
 #include "eval/internal/interop.h"
 #include "eval/public/activation.h"
 #include "eval/public/builtin_func_registrar.h"
@@ -20,6 +26,8 @@
 #include "internal/testing_descriptor_pool.h"
 #include "internal/testing_message_factory.h"
 #include "runtime/activation.h"
+#include "runtime/function_overload_reference.h"
+#include "runtime/function_registry.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/internal/runtime_type_provider.h"
 #include "runtime/runtime_options.h"
@@ -388,6 +396,94 @@ TEST(EvaluatorCoreTest, TraceTest) {
         return absl::OkStatus();
       });
   ASSERT_THAT(eval_status, IsOk());
+}
+
+TEST(EvaluatorCoreTest, StepStackDelta) {
+  EXPECT_EQ(ExpressionStep::MakeConstant(cel::IntValue(1)).StackDelta(), 1);
+  EXPECT_EQ(ExpressionStep::MakeConstant(cel::BoolValue(true)).StackDelta(), 1);
+  EXPECT_EQ(ExpressionStep::MakeConstant(cel::DoubleValue(1.0)).StackDelta(),
+            1);
+  EXPECT_EQ(ExpressionStep::MakeConstant(cel::NullValue()).StackDelta(), 1);
+  EXPECT_EQ(ExpressionStep::MakeConstant(cel::UintValue(1)).StackDelta(), 1);
+  EXPECT_EQ(
+      ExpressionStep::MakeConstant(cel::StringValue::Literal("a")).StackDelta(),
+      1);
+
+  ExpressionStep moved_step = ExpressionStep::MakeConstant(cel::IntValue(1));
+  ExpressionStep dest_step = std::move(moved_step);
+  EXPECT_EQ(moved_step.StackDelta(), 0);  // NOLINT(bugprone-use-after-move)
+  EXPECT_EQ(dest_step.StackDelta(), 1);
+
+  EXPECT_EQ(ExpressionStep::MakeLazyInitStep(0, 1).StackDelta(), 1);
+  EXPECT_EQ(ExpressionStep::MakeAssignSlotAndPopStep(0).StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeClearSlotsStep(0, 2).StackDelta(), 0);
+  EXPECT_EQ(ExpressionStep::MakeReadSlotStep(0).StackDelta(), 1);
+
+  EXPECT_EQ(ExpressionStep::MakeBooleanNotStep().StackDelta(), 0);
+  EXPECT_EQ(ExpressionStep::MakeNotStrictlyFalseStep().StackDelta(), 0);
+  EXPECT_EQ(ExpressionStep::MakeBooleanOrStep(3).StackDelta(), -2);
+  EXPECT_EQ(ExpressionStep::MakeBooleanAndStep(2).StackDelta(), -1);
+
+  EXPECT_EQ(ExpressionStep::MakeComprehensionFinishStep(0).StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeComprehensionNextStep().StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeComprehensionNext2Step().StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeComprehensionCondStep().StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeComprehensionCond2Step().StackDelta(), -1);
+
+  EXPECT_EQ(ExpressionStep::MakeBooleanOrJumpStep(2).StackDelta(), 0);
+  EXPECT_EQ(ExpressionStep::MakeBooleanAndJumpStep(2).StackDelta(), 0);
+  EXPECT_EQ(ExpressionStep::MakeTernaryJumpStep().StackDelta(), 0);
+  EXPECT_EQ(ExpressionStep::MakeFixedJumpStep().StackDelta(), 0);
+
+  EXPECT_EQ(ExpressionStep::MakeIdentifierStep("x").StackDelta(), 1);
+  EXPECT_EQ(ExpressionStep::MakeFastInStep().StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeFastEqualStep().StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeFastNotEqualStep().StackDelta(), -1);
+  EXPECT_EQ(ExpressionStep::MakeNewMutableListStep().StackDelta(), 1);
+  EXPECT_EQ(ExpressionStep::MakeMutableListAppendStep().StackDelta(), -1);
+
+  EXPECT_EQ(ExpressionStep::MakeCreateSmallListStep(SmallListStepInfo{0, 4})
+                .StackDelta(),
+            -3);
+  EXPECT_EQ(
+      ExpressionStep::MakeCreateListStep(
+          std::make_unique<ListStepInfo>(5, absl::flat_hash_set<size_t>{}))
+          .StackDelta(),
+      -4);
+
+  EXPECT_EQ(ExpressionStep::MakeEagerFunctionStep(
+                std::make_unique<EagerFunctionStep>(
+                    std::vector<cel::FunctionOverloadReference>{}, "fn",
+                    /*num_args=*/3, /*receiver_style=*/false, /*expr_id=*/1))
+                .StackDelta(),
+            -2);
+  EXPECT_EQ(ExpressionStep::MakeLazyFunctionStep(
+                std::make_unique<LazyFunctionStep>(
+                    std::vector<cel::FunctionRegistry::LazyOverload>{}, "fn",
+                    /*num_args=*/2, /*receiver_style=*/false, /*expr_id=*/1))
+                .StackDelta(),
+            -1);
+
+  EXPECT_EQ(ExpressionStep::MakeGenericStep(
+                std::make_unique<FakeConstExpressionStep>())
+                .StackDelta(),
+            1);
+  EXPECT_EQ(ExpressionStep::MakeGenericStep(
+                std::make_unique<FakeIncrementExpressionStep>(), /*id=*/-1,
+                /*stack_delta=*/-2)
+                .StackDelta(),
+            -2);
+  EXPECT_EQ(ExpressionStep::MakeGenericStep(
+                std::make_unique<FakeIncrementExpressionStep>(), /*id=*/-1,
+                /*stack_delta=*/std::numeric_limits<int16_t>::max())
+                .StackDelta(),
+            std::nullopt);
+  EXPECT_EQ(ExpressionStep::MakeGenericStep(
+                std::make_unique<FakeIncrementExpressionStep>(), /*id=*/-1,
+                /*stack_delta=*/
+                static_cast<int64_t>(std::numeric_limits<int16_t>::min()) - 1)
+                .StackDelta(),
+            std::nullopt);
 }
 
 }  // namespace google::api::expr::runtime
