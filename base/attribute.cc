@@ -30,6 +30,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "base/kind.h"
+#include "internal/lexis.h"
 #include "internal/status_macros.h"
 #include "internal/strings.h"
 
@@ -133,13 +134,60 @@ struct AttributeQualifierToString {
   }
 
   void operator()(absl::string_view value) const {
-    absl::StrAppend(&output, internal::FormatStringLiteral(value));
+    if (internal::LexisIsIdentifier(value)) {
+      absl::StrAppend(&output, value);
+    } else {
+      internal::FormatStringLiteralTo(value, &output);
+    }
   }
 
-  void operator()(common_internal::WildcardType) const { output.append("*"); }
+  void operator()(common_internal::WildcardType) const {
+    output.push_back('*');
+  }
 
   std::string& output;
 };
+
+struct AttributeQualifierJoinString {
+  void operator()(std::monostate) const {}
+
+  void operator()(bool value) const {
+    output.push_back('[');
+    output.append(value ? "true" : "false");
+    output.push_back(']');
+  }
+
+  void operator()(int64_t value) const {
+    absl::StrAppend(&output, "[", value, "]");
+  }
+
+  void operator()(uint64_t value) const {
+    absl::StrAppend(&output, "[", value, "u", "]");
+  }
+
+  void operator()(absl::string_view value) const {
+    if (internal::LexisIsIdentifier(value)) {
+      absl::StrAppend(&output, ".", value);
+    } else {
+      output.push_back('[');
+      internal::FormatStringLiteralTo(value, &output);
+      output.push_back(']');
+    }
+  }
+
+  void operator()(common_internal::WildcardType) const { output.append(".*"); }
+
+  std::string& output;
+};
+
+template <typename Q>
+void AttributeQualifierAppendJoinString(std::string* out,
+                                        absl::Span<const Q> qualifiers) {
+  for (const auto& qualifier : qualifiers) {
+    std::visit(AttributeQualifierJoinString{*out},
+               common_internal::AsVariant(qualifier));
+  }
+}
 
 }  // namespace
 
@@ -218,34 +266,61 @@ absl::StatusOr<std::string> Attribute::AsString() const {
 std::string Attribute::ToString() const {
   std::string result;
   result.append(variable_name());
-  for (const auto& qualifier : qualifier_path()) {
-    result.push_back('[');
-    std::visit(AttributeQualifierToString{result},
-               common_internal::AsVariant(qualifier));
-    result.push_back(']');
-  }
+  AttributeQualifier::AppendJoinString(&result, qualifier_path());
   return result;
 }
 
 std::string AttributePattern::ToString() const {
   std::string result;
   result.append(variable());
-  for (const auto& qualifier : qualifier_path()) {
-    result.push_back('[');
-    std::visit(AttributeQualifierToString{result},
-               common_internal::AsVariant(qualifier));
-    result.push_back(']');
-  }
+  AttributeQualifierPattern::AppendJoinString(&result, qualifier_path());
   return result;
 }
 
-std::string AttributeQualifier::ToString() const {
-  std::string result;
-  absl::Status status =
-      std::visit(AttributeQualifierStringPrinter{&result}, value_);
-  ABSL_DCHECK_OK(status) << "bad attribute qualifier";
-  status.IgnoreError();
-  return result;
+void AttributeQualifier::AppendToString(std::string* absl_nonnull out) const {
+  std::visit(AttributeQualifierToString{*out}, value_);
+}
+
+void AttributeQualifierView::AppendToString(
+    std::string* absl_nonnull out) const {
+  std::visit(AttributeQualifierToString{*out}, value_);
+}
+
+void AttributeQualifierPattern::AppendToString(
+    std::string* absl_nonnull out) const {
+  std::visit(AttributeQualifierToString{*out}, value_);
+}
+
+void AttributeQualifier::AppendJoinString(std::string* absl_nonnull out) const {
+  std::visit(AttributeQualifierJoinString{*out}, value_);
+}
+
+void AttributeQualifierView::AppendJoinString(
+    std::string* absl_nonnull out) const {
+  std::visit(AttributeQualifierJoinString{*out}, value_);
+}
+
+void AttributeQualifierPattern::AppendJoinString(
+    std::string* absl_nonnull out) const {
+  std::visit(AttributeQualifierJoinString{*out}, value_);
+}
+
+void AttributeQualifier::AppendJoinString(
+    std::string* absl_nonnull out,
+    absl::Span<const AttributeQualifier> qualifiers) {
+  AttributeQualifierAppendJoinString(out, qualifiers);
+}
+
+void AttributeQualifierView::AppendJoinString(
+    std::string* absl_nonnull out,
+    absl::Span<const AttributeQualifierView> qualifiers) {
+  AttributeQualifierAppendJoinString(out, qualifiers);
+}
+
+void AttributeQualifierPattern::AppendJoinString(
+    std::string* absl_nonnull out,
+    absl::Span<const AttributeQualifierPattern> qualifiers) {
+  AttributeQualifierAppendJoinString(out, qualifiers);
 }
 
 bool AttributeQualifier::IsMatch(const AttributeQualifier& other) const {

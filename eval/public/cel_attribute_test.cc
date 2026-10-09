@@ -17,7 +17,6 @@ namespace {
 
 using cel::expr::Expr;
 
-using ::absl_testing::IsOkAndHolds;
 using ::absl_testing::StatusIs;
 using ::testing::Eq;
 using ::testing::IsEmpty;
@@ -76,7 +75,7 @@ TEST(CelAttributeQualifierTest, TestUint64Access) {
 
   EXPECT_TRUE(qualifier.GetUint64Key().has_value());
   EXPECT_THAT(qualifier.GetUint64Key().value(), Eq(1UL));
-  EXPECT_THAT(qualifier.ToString(), "1");
+  EXPECT_THAT(qualifier.ToString(), "1u");
 }
 
 TEST(CelAttributeQualifierTest, TestStringAccess) {

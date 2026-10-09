@@ -14,6 +14,7 @@
 
 #include "base/attribute.h"
 
+#include <cstdint>
 #include <optional>
 
 #include "absl/strings/string_view.h"
@@ -80,19 +81,71 @@ TEST(Attribute, ToString) {
   EXPECT_EQ(Attribute("foo", {AttributeQualifier::OfBool(true),
                               AttributeQualifier::OfInt(2),
                               AttributeQualifier::OfUint(3),
-                              AttributeQualifier::OfString("bar")})
+                              AttributeQualifier::OfString("bar"),
+                              AttributeQualifier::OfString("baz qux")})
                 .ToString(),
-            "foo[true][2][3u][\"bar\"]");
+            "foo[true][2][3u].bar[\"baz qux\"]");
 }
 
 TEST(AttributePattern, ToString) {
-  EXPECT_EQ(AttributePattern("foo", {AttributeQualifierPattern::OfBool(true),
-                                     AttributeQualifierPattern::OfInt(2),
-                                     AttributeQualifierPattern::OfUint(3),
-                                     AttributeQualifierPattern::OfString("bar"),
-                                     AttributeQualifierPattern::Wildcard()})
-                .ToString(),
-            "foo[true][2][3u][\"bar\"][*]");
+  EXPECT_EQ(
+      AttributePattern("foo", {AttributeQualifierPattern::OfBool(true),
+                               AttributeQualifierPattern::OfInt(2),
+                               AttributeQualifierPattern::OfUint(3),
+                               AttributeQualifierPattern::OfString("bar"),
+                               AttributeQualifierPattern::OfString("baz qux"),
+                               AttributeQualifierPattern::Wildcard()})
+          .ToString(),
+      "foo[true][2][3u].bar[\"baz qux\"].*");
+}
+
+TEST(AttributeQualifierView, Order) {
+  // int < uint < string < bool
+  EXPECT_LT(AttributeQualifierView::OfInt(int64_t{0}),
+            AttributeQualifierView::OfUint(uint64_t{0}));
+  EXPECT_LT(AttributeQualifierView::OfInt(int64_t{0}),
+            AttributeQualifierView::OfString(""));
+  EXPECT_LT(AttributeQualifierView::OfInt(int64_t{0}),
+            AttributeQualifierView::OfBool(false));
+  EXPECT_LT(AttributeQualifierView::OfUint(uint64_t{0}),
+            AttributeQualifierView::OfString(""));
+  EXPECT_LT(AttributeQualifierView::OfUint(uint64_t{0}),
+            AttributeQualifierView::OfBool(false));
+}
+
+TEST(AttributeQualifierView, TransparentOrder) {
+  EXPECT_EQ(AttributeQualifierView::OfInt(int64_t{0}),
+            AttributeQualifier::OfInt(0));
+  EXPECT_EQ(AttributeQualifierView::OfUint(uint64_t{0}),
+            AttributeQualifier::OfUint(0));
+  EXPECT_EQ(AttributeQualifierView::OfString("0"),
+            AttributeQualifier::OfString("0"));
+  EXPECT_EQ(AttributeQualifierView::OfBool(false),
+            AttributeQualifier::OfBool(false));
+  EXPECT_EQ(AttributeQualifier::OfInt(0),
+            AttributeQualifierView::OfInt(int64_t{0}));
+  EXPECT_EQ(AttributeQualifier::OfUint(0),
+            AttributeQualifierView::OfUint(uint64_t{0}));
+  EXPECT_EQ(AttributeQualifier::OfString("0"),
+            AttributeQualifierView::OfString("0"));
+  EXPECT_EQ(AttributeQualifier::OfBool(false),
+            AttributeQualifierView::OfBool(false));
+  EXPECT_LT(AttributeQualifierView::OfInt(int64_t{0}),
+            AttributeQualifier::OfInt(1));
+  EXPECT_LT(AttributeQualifierView::OfUint(uint64_t{0}),
+            AttributeQualifier::OfUint(1));
+  EXPECT_LT(AttributeQualifierView::OfString("0"),
+            AttributeQualifier::OfString("1"));
+  EXPECT_LT(AttributeQualifierView::OfBool(false),
+            AttributeQualifier::OfBool(true));
+  EXPECT_LT(AttributeQualifier::OfInt(0),
+            AttributeQualifierView::OfInt(int64_t{1}));
+  EXPECT_LT(AttributeQualifier::OfUint(0),
+            AttributeQualifierView::OfUint(uint64_t{1}));
+  EXPECT_LT(AttributeQualifier::OfString("0"),
+            AttributeQualifierView::OfString("1"));
+  EXPECT_LT(AttributeQualifier::OfBool(false),
+            AttributeQualifierView::OfBool(true));
 }
 
 }  // namespace

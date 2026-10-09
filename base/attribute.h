@@ -27,6 +27,7 @@
 
 #include "absl/base/attributes.h"
 #include "absl/base/macros.h"
+#include "absl/base/nullability.h"
 #include "absl/functional/overload.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
@@ -38,8 +39,10 @@
 namespace cel {
 
 namespace common_internal {
-class AttributeMatcherNode;
 struct WildcardType {};
+// Important. The types in the variants must align with each other and the order
+// matters. It must be int < uint < string < bool. If you change it here in the
+// header you must change the logic in the source.
 using AttributeQualifierVariant =
     std::variant<std::monostate, int64_t, uint64_t, std::string, bool>;
 using AttributeQualifierPatternVariant =
@@ -114,9 +117,6 @@ class AttributeQualifier {
   AttributeQualifier& operator=(AttributeQualifier&&) = default;
 
   Kind kind() const;
-
-  [[nodiscard]]
-  std::string ToString() const;
 
   ABSL_DEPRECATE_AND_INLINE()
   std::optional<int64_t> GetInt64Key() const { return AsInt(); }
@@ -215,6 +215,27 @@ class AttributeQualifier {
     }
     return std::nullopt;
   }
+
+  void AppendToString(std::string* absl_nonnull out) const;
+
+  [[nodiscard]]
+  std::string ToString() const {
+    std::string out;
+    AppendToString(&out);
+    return out;
+  }
+
+  void AppendJoinString(std::string* absl_nonnull out) const;
+
+  [[nodiscard]]
+  std::string JoinString() const {
+    std::string out;
+    AppendJoinString(&out);
+    return out;
+  }
+
+  static void AppendJoinString(std::string* absl_nonnull out,
+                               absl::Span<const AttributeQualifier> qualifiers);
 
   [[nodiscard]]
   bool IsMatch(const AttributeQualifier& other) const;
@@ -391,6 +412,28 @@ class AttributeQualifierView {
     }
     return std::nullopt;
   }
+
+  void AppendToString(std::string* absl_nonnull out) const;
+
+  [[nodiscard]]
+  std::string ToString() const {
+    std::string out;
+    AppendToString(&out);
+    return out;
+  }
+
+  void AppendJoinString(std::string* absl_nonnull out) const;
+
+  [[nodiscard]]
+  std::string JoinString() const {
+    std::string out;
+    AppendJoinString(&out);
+    return out;
+  }
+
+  static void AppendJoinString(
+      std::string* absl_nonnull out,
+      absl::Span<const AttributeQualifierView> qualifiers);
 
  private:
   friend const common_internal::AttributeQualifierViewVariant&
@@ -632,6 +675,28 @@ class AttributeQualifierPattern {
             }),
         value_);
   }
+
+  void AppendToString(std::string* absl_nonnull out) const;
+
+  [[nodiscard]]
+  std::string ToString() const {
+    std::string out;
+    AppendToString(&out);
+    return out;
+  }
+
+  void AppendJoinString(std::string* absl_nonnull out) const;
+
+  [[nodiscard]]
+  std::string JoinString() const {
+    std::string out;
+    AppendJoinString(&out);
+    return out;
+  }
+
+  static void AppendJoinString(
+      std::string* absl_nonnull out,
+      absl::Span<const AttributeQualifierPattern> qualifiers);
 
   [[nodiscard]]
   bool IsMatch(const AttributeQualifier& qualifier) const;

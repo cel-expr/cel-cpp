@@ -33,6 +33,7 @@ cc_library(
     ],
     deps = [
         ":kind",
+        "//internal:lexis",
         "//internal:status_macros",
         "//internal:strings",
         "@com_google_absl//absl/algorithm:container",
