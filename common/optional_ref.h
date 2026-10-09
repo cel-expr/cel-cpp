@@ -79,6 +79,7 @@ class optional_ref final {
 
   constexpr bool has_value() const { return value_ != nullptr; }
 
+  ABSL_DEPRECATE_AND_INLINE()
   constexpr explicit operator bool() const { return has_value(); }
 
   constexpr T& value() const {
