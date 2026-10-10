@@ -913,8 +913,8 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
   absl::c_move(operand_subplan, std::back_inserter(path));
 
   path.push_back(ExpressionStep::MakeGenericStep(
-      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)),
-      node.id()));
+      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)), node.id(),
+      /*stack_delta=*/0));
 
   return context.ReplaceSubplan(node, std::move(path));
 }

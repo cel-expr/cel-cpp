@@ -298,10 +298,8 @@ TEST_F(UpdatedConstantFoldingTest, CreatesList) {
   program_builder.ExitSubexpression(&elem_two);
 
   // createlist
-  ASSERT_OK_AND_ASSIGN(auto step,
-                       CreateCreateListStep(create_list.list_expr()));
-  program_builder.AddStep(
-      ExpressionStep::MakeGenericStep(std::move(step), create_list.id()));
+  program_builder.AddStep(CreateCreateListStep(
+      create_list.list_expr().elements().size(), {}, create_list.id()));
   program_builder.ExitSubexpression(&create_list);
 
   std::shared_ptr<google::protobuf::Arena> arena;
@@ -376,10 +374,8 @@ TEST_F(UpdatedConstantFoldingTest, CreatesLargeList) {
   program_builder.ExitSubexpression(&elem4);
 
   // createlist
-  ASSERT_OK_AND_ASSIGN(auto step_large,
-                       CreateCreateListStep(create_list.list_expr()));
-  program_builder.AddStep(
-      ExpressionStep::MakeGenericStep(std::move(step_large), create_list.id()));
+  program_builder.AddStep(CreateCreateListStep(
+      create_list.list_expr().elements().size(), {}, create_list.id()));
   program_builder.ExitSubexpression(&create_list);
 
   std::shared_ptr<google::protobuf::Arena> arena;
