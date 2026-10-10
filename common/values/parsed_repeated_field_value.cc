@@ -396,6 +396,29 @@ absl::Status ParsedRepeatedFieldValue::Contains(
   const auto* reflection = message_->GetReflection();
   const int size = reflection->FieldSize(*message_, field_);
   if (size > 0) {
+    if (field_->type() == google::protobuf::FieldDescriptor::TYPE_STRING) {
+      if (!other.IsString()) {
+        *result = FalseValue();
+        return absl::OkStatus();
+      }
+      const StringValue& other_string = other.GetString();
+      std::string scratch;
+      for (int i = 0; i < size; ++i) {
+        auto element = well_known_types::GetRepeatedStringField(
+            reflection, *message_, field_, i, scratch);
+        bool match = absl::visit(
+            [&other_string](const auto& elem_val) {
+              return other_string.Equals(elem_val);
+            },
+            element);
+        if (match) {
+          *result = TrueValue();
+          return absl::OkStatus();
+        }
+      }
+      *result = FalseValue();
+      return absl::OkStatus();
+    }
     CEL_ASSIGN_OR_RETURN(auto accessor,
                          common_internal::RepeatedFieldAccessorFor(field_));
     Value scratch;
