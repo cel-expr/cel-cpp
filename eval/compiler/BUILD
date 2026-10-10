@@ -151,6 +151,7 @@ cc_test(
         "//common:kind",
         "//common:value",
         "//eval/public:activation",
+        "//eval/public:ast_rewrite",
         "//eval/public:builtin_func_registrar",
         "//eval/public:cel_attribute",
         "//eval/public:cel_expr_builder_factory",
@@ -470,6 +471,7 @@ cc_test(
     deps = [
         ":cel_expression_builder_flat_impl",
         "//eval/public:activation",
+        "//eval/public:builtin_func_registrar",
         "//eval/public:cel_attribute",
         "//eval/public:cel_expression",
         "//eval/public:cel_value",

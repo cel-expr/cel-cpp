@@ -42,6 +42,7 @@
 #include "eval/compiler/constant_folding.h"
 #include "eval/compiler/qualified_reference_resolver.h"
 #include "eval/public/activation.h"
+#include "eval/public/ast_rewrite.h"
 #include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_expr_builder_factory.h"
@@ -3015,6 +3016,92 @@ INSTANTIATE_TEST_SUITE_P(
                                     "true", "false", "bool", false},
         VariadicLogicalEvalTestCase{"All_Unknown", "[a, b, c].all(x, x)",
                                     "true", "unknown1", "true", "unknown"}));
+
+void ReplaceResultAccumulatorWithLegacyName(Expr* expr) {
+  class LegacyAccumulatorRewriter : public AstRewriterBase {
+   public:
+    bool PostVisitRewrite(Expr* expr, const SourcePosition*) override {
+      if (expr->has_ident_expr() && expr->ident_expr().name() == "@result") {
+        expr->mutable_ident_expr()->set_name("__result__");
+        return true;
+      }
+      if (expr->has_comprehension_expr() &&
+          expr->comprehension_expr().accu_var() == "@result") {
+        expr->mutable_comprehension_expr()->set_accu_var("__result__");
+        return true;
+      }
+      return false;
+    }
+  } rewriter;
+  AstRewrite(expr, /*source_info=*/nullptr, &rewriter);
+}
+
+TEST(FlatExprBuilderTest, LegacyAccumulatorReferenceDoesNotMutateInPlace) {
+  cel::RuntimeOptions options;
+  options.enable_comprehension_list_append = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  for (absl::string_view expr_str : {
+           "[1, 2].map(x, (__result__ + [x]).size()) == [1, 2]",
+           "[1, 2, 3].filter(x, (__result__ + [x]).size() > 1) == []",
+           "[1, 2, 3].filter(x, (__result__ + [x]).size() == 1) == [1]",
+       }) {
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, parser::Parse(expr_str));
+    ReplaceResultAccumulatorWithLegacyName(parsed_expr.mutable_expr());
+
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                         builder.CreateExpression(&parsed_expr.expr(),
+                                                  &parsed_expr.source_info()));
+
+    Activation activation;
+    google::protobuf::Arena arena;
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr->Evaluate(activation, &arena));
+    EXPECT_THAT(result, test::IsCelBool(true)) << expr_str;
+  }
+}
+
+TEST(FlatExprBuilderTest,
+     ComprehensionTernaryNonIdentFalseBranchSkipsMutableListAppend) {
+  // Hand-crafted comprehension where the false branch of the ternary loop_step
+  // is not the accumulator variable:
+  //   accu_var = "__result__", accu_init = []
+  //   loop_step = x > 1 ? (__result__ + [x]) : [0]
+  // For iter_range = [1, 2, 3]:
+  //   x = 1 -> false branch -> __result__ becomes [0]
+  //   x = 2 -> true branch  -> __result__ becomes [0, 2]
+  //   x = 3 -> true branch  -> __result__ becomes [0, 2, 3]
+  ASSERT_OK_AND_ASSIGN(
+      ParsedExpr parsed_expr,
+      parser::Parse("[1, 2, 3].filter(x, x > 1) == [0, 2, 3]"));
+  Expr* filter_expr =
+      parsed_expr.mutable_expr()->mutable_call_expr()->mutable_args(0);
+  ASSERT_TRUE(filter_expr->has_comprehension_expr());
+  Expr* false_branch = filter_expr->mutable_comprehension_expr()
+                           ->mutable_loop_step()
+                           ->mutable_call_expr()
+                           ->mutable_args(2);
+  false_branch->Clear();
+  false_branch->mutable_list_expr()
+      ->add_elements()
+      ->mutable_const_expr()
+      ->set_int64_value(0);
+
+  cel::RuntimeOptions options;
+  options.enable_comprehension_list_append = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  Activation activation;
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  EXPECT_THAT(result, test::IsCelBool(true));
+}
 
 }  // namespace
 
