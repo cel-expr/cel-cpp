@@ -20,13 +20,11 @@
 #include "absl/base/nullability.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/span.h"
-#include "base/attribute.h"
+#include "base/attribute_matcher.h"
 #include "common/value.h"
 #include "eval/public/base_activation.h"
 #include "runtime/activation_interface.h"
 #include "runtime/function_overload_reference.h"
-#include "runtime/internal/attribute_matcher.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -52,14 +50,19 @@ class AdapterActivationImpl : public ActivationInterface {
   std::vector<FunctionOverloadReference> FindFunctionOverloads(
       absl::string_view name) const override;
 
-  absl::Span<const cel::AttributePattern> GetUnknownAttributes() const override;
+  const AttributeMatcher& GetUnknownAttributeMatcher() const override {
+    return legacy_activation_.GetUnknownAttributeMatcher();
+  }
 
-  absl::Span<const cel::AttributePattern> GetMissingAttributes() const override;
+  const AttributeMatcher& GetKnownAttributeMatcher() const override {
+    return legacy_activation_.GetKnownAttributeMatcher();
+  }
+
+  const AttributeMatcher& GetMissingAttributeMatcher() const override {
+    return legacy_activation_.GetMissingAttributeMatcher();
+  }
 
  private:
-  const runtime_internal::AttributeMatcher* absl_nullable GetAttributeMatcher()
-      const override;
-
   const google::api::expr::runtime::BaseActivation& legacy_activation_;
 };
 

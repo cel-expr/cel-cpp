@@ -7,17 +7,17 @@
 #include <vector>
 
 #include "absl/base/attributes.h"
-#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "base/attribute_matcher.h"
 #include "eval/public/base_activation.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_function.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/cel_value_producer.h"
-#include "runtime/internal/attribute_matcher.h"
+#include "internal/status_macros.h"
 #include "google/protobuf/arena.h"
 
 namespace cel::runtime_internal {
@@ -80,19 +80,20 @@ class Activation : public BaseActivation {
   // If a field access is found to match any of the provided patterns, the
   // result is treated as a missing attribute error.
   absl::Status SetMissingAttributePatterns(
-      std::vector<CelAttributePattern> missing_attribute_patterns) {
-    missing_attribute_patterns_ = std::move(missing_attribute_patterns);
+      const std::vector<CelAttributePattern>& missing_attribute_patterns) {
+    missing_attributes_.ClearAttributes();
+    for (const auto& pattern : missing_attribute_patterns) {
+      // This function used to return void, thus they could not fail. We use
+      // upsert because it just works most of the time, especially if the caller
+      // provided overlapped attribute patterns. Ideally we would use insert.
+      CEL_RETURN_IF_ERROR(missing_attributes_.UpsertAttribute(pattern));
+    }
     return absl::OkStatus();
-  }
-
-  const std::vector<CelAttributePattern>& missing_attribute_patterns()
-      const override {
-    return missing_attribute_patterns_;
   }
 
   ABSL_DEPRECATED("Use SetUnknownAttributePatterns")
   void set_unknown_attribute_patterns(
-      std::vector<CelAttributePattern> unknown_attribute_patterns) {
+      const std::vector<CelAttributePattern>& unknown_attribute_patterns) {
     SetUnknownAttributePatterns(std::move(unknown_attribute_patterns))
         .IgnoreError();
   }
@@ -100,16 +101,27 @@ class Activation : public BaseActivation {
   // Sets the collection of attribute patterns that will be recognized as
   // "unknown" values during expression evaluation.
   absl::Status SetUnknownAttributePatterns(
-      std::vector<CelAttributePattern> unknown_attribute_patterns) {
-    unknown_attribute_patterns_ = std::move(unknown_attribute_patterns);
+      const std::vector<CelAttributePattern>& unknown_attribute_patterns) {
+    unknown_attributes_.ClearAttributes();
+    for (const auto& pattern : unknown_attribute_patterns) {
+      // This function used to return void, thus they could not fail. We use
+      // upsert because it just works most of the time, especially if the caller
+      // provided overlapped attribute patterns. Ideally we would use insert.
+      CEL_RETURN_IF_ERROR(unknown_attributes_.UpsertAttribute(pattern));
+    }
     return absl::OkStatus();
   }
 
-  // Return the collection of attribute patterns that determine "unknown"
-  // values.
-  const std::vector<CelAttributePattern>& unknown_attribute_patterns()
-      const override {
-    return unknown_attribute_patterns_;
+  const cel::AttributeMatcher& GetUnknownAttributeMatcher() const final {
+    return unknown_attributes_;
+  }
+
+  const cel::AttributeMatcher& GetKnownAttributeMatcher() const final {
+    return known_attributes_;
+  }
+
+  const cel::AttributeMatcher& GetMissingAttributeMatcher() const final {
+    return missing_attributes_;
   }
 
  private:
@@ -148,32 +160,13 @@ class Activation : public BaseActivation {
 
   friend class cel::runtime_internal::ActivationAttributeMatcherAccess;
 
-  void SetAttributeMatcher(
-      const cel::runtime_internal::AttributeMatcher* matcher) {
-    attribute_matcher_ = matcher;
-  }
-
-  void SetAttributeMatcher(
-      std::unique_ptr<const cel::runtime_internal::AttributeMatcher> matcher) {
-    owned_attribute_matcher_ = std::move(matcher);
-    attribute_matcher_ = owned_attribute_matcher_.get();
-  }
-
-  const cel::runtime_internal::AttributeMatcher* absl_nullable
-  GetAttributeMatcher() const override {
-    return attribute_matcher_;
-  }
-
   absl::flat_hash_map<std::string, ValueEntry> value_map_;
   absl::flat_hash_map<std::string, std::vector<std::unique_ptr<CelFunction>>>
       function_map_;
 
-  std::vector<CelAttributePattern> missing_attribute_patterns_;
-  std::vector<CelAttributePattern> unknown_attribute_patterns_;
-
-  const cel::runtime_internal::AttributeMatcher* attribute_matcher_ = nullptr;
-  std::unique_ptr<const cel::runtime_internal::AttributeMatcher>
-      owned_attribute_matcher_;
+  cel::AttributeMatcher unknown_attributes_;
+  cel::AttributeMatcher known_attributes_;
+  cel::AttributeMatcher missing_attributes_;
 };
 
 }  // namespace google::api::expr::runtime

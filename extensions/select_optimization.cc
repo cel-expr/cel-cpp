@@ -42,6 +42,7 @@
 #include "common/constant.h"
 #include "common/expr.h"
 #include "common/function_descriptor.h"
+#include "common/internal/attribute_trail.h"
 #include "common/kind.h"
 #include "common/legacy_value.h"
 #include "common/memory.h"
@@ -50,7 +51,6 @@
 #include "common/value.h"
 #include "eval/compiler/flat_expr_builder.h"
 #include "eval/compiler/flat_expr_builder_extensions.h"
-#include "eval/eval/attribute_trail.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
 #include "eval/public/cel_value.h"
@@ -77,7 +77,7 @@ using ::cel::ConstantKind;
 using ::cel::Expr;
 using ::cel::ExprKind;
 using ::cel::SelectExpr;
-using ::google::api::expr::runtime::AttributeTrail;
+using ::cel::common_internal::AttributeTrail;
 using ::google::api::expr::runtime::CelValue;
 using ::google::api::expr::runtime::ExecutionFrame;
 using ::google::api::expr::runtime::ExecutionFrameBase;
@@ -653,8 +653,6 @@ class OptimizedSelectImpl {
   absl::StatusOr<Value> ApplySelect(ExecutionFrameBase& frame,
                                     const StructValue& struct_value) const;
 
-  AttributeTrail GetAttributeTrail(const AttributeTrail& operand_trail) const;
-
   std::optional<Attribute> attribute() const { return attribute_; }
 
   const std::vector<AttributeQualifier>& qualifiers() const {
@@ -668,37 +666,6 @@ class OptimizedSelectImpl {
   bool presence_test_;
   SelectOptimizationOptions options_;
 };
-
-// Check for unknowns or missing attributes.
-absl::StatusOr<std::optional<Value>> CheckForMarkedAttributes(
-    ExecutionFrameBase& frame, const AttributeTrail& attribute_trail) {
-  if (attribute_trail.empty()) {
-    return std::nullopt;
-  }
-
-  if (frame.unknown_processing_enabled() &&
-      frame.attribute_utility().CheckForUnknownExact(attribute_trail)) {
-    // Check if the inferred attribute is marked. Only matches if this attribute
-    // or a parent is marked unknown (use_partial = false).
-    // Partial matches (i.e. descendant of this attribute is marked) aren't
-    // considered yet in case another operation would select an unmarked
-    // descended attribute.
-    //
-    // TODO(uncreated-issue/51): this may return a more specific attribute than the
-    // declared pattern. Follow up will truncate the returned attribute to match
-    // the pattern.
-    return frame.attribute_utility().CreateUnknownSet(
-        attribute_trail.attribute());
-  }
-
-  if (frame.missing_attribute_errors_enabled() &&
-      frame.attribute_utility().CheckForMissingAttribute(attribute_trail)) {
-    return frame.attribute_utility().CreateMissingAttributeError(
-        attribute_trail.attribute(), frame.arena());
-  }
-
-  return std::nullopt;
-}
 
 absl::StatusOr<Value> OptimizedSelectImpl::ApplySelect(
     ExecutionFrameBase& frame, const StructValue& struct_value) const {
@@ -733,21 +700,6 @@ absl::StatusOr<Value> OptimizedSelectImpl::ApplySelect(
       frame.options().enable_use_new_field_select_implementation);
 }
 
-AttributeTrail OptimizedSelectImpl::GetAttributeTrail(
-    const AttributeTrail& operand_trail) const {
-  if (operand_trail.empty()) {
-    return AttributeTrail();
-  }
-  std::vector<AttributeQualifier> qualifiers = std::vector<AttributeQualifier>(
-      operand_trail.attribute().qualifier_path().begin(),
-      operand_trail.attribute().qualifier_path().end());
-  qualifiers.reserve(qualifiers_.size() + qualifiers.size());
-  absl::c_copy(qualifiers_, std::back_inserter(qualifiers));
-  return AttributeTrail(
-      Attribute(std::string(operand_trail.attribute().variable_name()),
-                std::move(qualifiers)));
-}
-
 class StackMachineImpl : public ExpressionStepBase {
  public:
   StackMachineImpl(int expr_id, OptimizedSelectImpl impl)
@@ -756,31 +708,18 @@ class StackMachineImpl : public ExpressionStepBase {
   void Evaluate(ExecutionFrame* frame) const override;
 
  private:
-  // Get the effective attribute for the optimized select expression.
-  // Assumes the operand is the top of stack if the attribute wasn't known at
-  // plan time.
-  AttributeTrail GetAttributeTrail(ExecutionFrame* frame) const;
-
   OptimizedSelectImpl impl_;
 };
 
-AttributeTrail StackMachineImpl::GetAttributeTrail(
-    ExecutionFrame* frame) const {
-  const auto& attr = frame->value_stack().PeekAttribute();
-  return impl_.GetAttributeTrail(attr);
-}
-
 void StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
-  // Default empty.
-  AttributeTrail attribute_trail;
   // TODO(uncreated-issue/51): add support for variable qualifiers and string literal
   // variable names.
-  constexpr size_t kStackInputs = 1;
 
   // For now, we expect the operand to be top of stack.
-  const Value& operand = frame->value_stack().Peek();
+  Value& operand = frame->value_stack().Peek();
+  AttributeTrail& trail = frame->value_stack().PeekAttribute();
 
-  if (operand->Is<ErrorValue>() || operand->Is<UnknownValue>()) {
+  if (operand.Is<ErrorValue>() || operand.Is<UnknownValue>()) {
     // Just forward the error which is already top of stack.
     return;
   }
@@ -790,18 +729,11 @@ void StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
     // When possible, this is computed at plan time based on the optimized
     // select arguments.
     // TODO(uncreated-issue/51): add support variable qualifiers
-    attribute_trail = GetAttributeTrail(frame);
-    absl::StatusOr<std::optional<Value>> value =
-        CheckForMarkedAttributes(*frame, attribute_trail);
-    if (!value.ok()) {
-      frame->Abort(std::move(value).status());
-      return;
-    }
-    if (value->has_value()) {
-      frame->value_stack().Pop(kStackInputs);
-      frame->value_stack().Push(std::move(*value).value(),
-                                std::move(attribute_trail));
-      return;
+    for (const auto& qualifier : impl_.qualifiers()) {
+      if (trail.Match<AttributeTrail::kFull>(qualifier, operand,
+                                             frame->unknown_tree())) {
+        return;
+      }
     }
   }
 
@@ -817,8 +749,7 @@ void StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
     return;
   }
 
-  frame->value_stack().Pop(kStackInputs);
-  frame->value_stack().Push(*std::move(result), std::move(attribute_trail));
+  operand = *result;
 }
 
 class SelectOptimizer : public ProgramOptimizer {

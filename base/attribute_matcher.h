@@ -200,8 +200,7 @@ AttributeMatch MakeAttributeMatch(
     const common_internal::AttributeMatcherNode* node);
 
 [[nodiscard]]
-const AttributeMatcherNode* GetAttributeMatcherNode(
-    const AttributeMatch& match);
+const AttributeMatcherNode* GetAttributeMatcherNode(AttributeMatch match);
 
 }  // namespace common_internal
 
@@ -252,7 +251,14 @@ class [[nodiscard]] AttributeMatch {
   friend AttributeMatch common_internal::MakeAttributeMatch(
       const common_internal::AttributeMatcherNode* node);
   friend const common_internal::AttributeMatcherNode*
-  common_internal::GetAttributeMatcherNode(const AttributeMatch& match);
+  common_internal::GetAttributeMatcherNode(AttributeMatch match);
+
+  AttributeMatch NotNoneMatchQualifier(
+      const AttributeQualifierView& qualifier) const {
+    ABSL_DCHECK(!IsNone());
+    ABSL_DCHECK(qualifier);
+    return AttributeMatch(node_->MatchQualifier(qualifier));
+  }
 
   AttributeMatch NotNoneMatchQualifier(
       const AttributeQualifierView& qualifier) const {
@@ -276,7 +282,7 @@ inline AttributeMatch MakeAttributeMatch(
 
 [[nodiscard]]
 inline const AttributeMatcherNode* GetAttributeMatcherNode(
-    const AttributeMatch& match) {
+    AttributeMatch match) {
   return match.node_;
 }
 

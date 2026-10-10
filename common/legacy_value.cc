@@ -1071,8 +1071,8 @@ absl::Status ModernValue(google::protobuf::Arena* arena,
           MapValue(common_internal::LegacyMapValue(legacy_value.MapOrDie()));
       return absl::OkStatus();
     case CelValue::Type::kUnknownSet:
-      result =
-          common_internal::MakeUnknownValue(*legacy_value.UnknownSetOrDie());
+      result = common_internal::MakeUnknownValue(
+          *legacy_value.UnknownSetOrDie(), arena);
       return absl::OkStatus();
     case CelValue::Type::kCelType: {
       auto type_name = legacy_value.CelTypeOrDie().value();
@@ -1131,8 +1131,7 @@ absl::StatusOr<google::api::expr::runtime::CelValue> LegacyValue(
       return common_internal::LegacyTrivialMapValue(arena, modern_value);
     case ValueKind::kUnknown:
       return CelValue::CreateUnknownSet(google::protobuf::Arena::Create<Unknown>(
-          arena,
-          common_internal::GetUnknown(modern_value.Get<UnknownValue>())));
+          arena, common_internal::ToUnknown(modern_value.Get<UnknownValue>())));
     case ValueKind::kType:
       return CelValue::CreateCelType(
           CelValue::CelTypeHolder(google::protobuf::Arena::Create<std::string>(
@@ -1183,7 +1182,8 @@ absl::StatusOr<Value> FromLegacyValue(google::protobuf::Arena* arena,
     case CelValue::Type::kMap:
       return MapValue(common_internal::LegacyMapValue(legacy_value.MapOrDie()));
     case CelValue::Type::kUnknownSet:
-      return common_internal::MakeUnknownValue(*legacy_value.UnknownSetOrDie());
+      return common_internal::MakeUnknownValue(*legacy_value.UnknownSetOrDie(),
+                                               arena);
     case CelValue::Type::kCelType:
       return CreateTypeValueFromView(arena,
                                      legacy_value.CelTypeOrDie().value());
@@ -1234,7 +1234,7 @@ absl::StatusOr<google::api::expr::runtime::CelValue> ToLegacyValue(
       return common_internal::LegacyTrivialMapValue(arena, value);
     case ValueKind::kUnknown:
       return CelValue::CreateUnknownSet(google::protobuf::Arena::Create<Unknown>(
-          arena, common_internal::GetUnknown(value.Get<UnknownValue>())));
+          arena, common_internal::ToUnknown(value.Get<UnknownValue>())));
     case ValueKind::kType:
       return CelValue::CreateCelType(
           CelValue::CelTypeHolder(google::protobuf::Arena::Create<std::string>(

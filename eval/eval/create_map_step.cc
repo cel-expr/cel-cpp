@@ -23,7 +23,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/optional.h"
+#include "common/internal/attribute_trail.h"
 #include "common/value.h"
 #include "common/values/map_value_builder.h"
 #include "eval/eval/evaluator_core.h"
@@ -37,7 +37,6 @@ namespace {
 
 using ::cel::ErrorValueReturn;
 using ::cel::MapValueBuilderPtr;
-using ::cel::UnknownValue;
 using ::cel::Value;
 using ::cel::common_internal::NewMapValueBuilder;
 using ::cel::common_internal::NewMutableMapValue;
@@ -70,11 +69,11 @@ absl::StatusOr<Value> CreateStructStepForMap::DoEvaluate(
   }
 
   if (frame->enable_unknowns()) {
-    absl::optional<UnknownValue> unknown_set =
-        frame->attribute_utility().IdentifyAndMergeUnknowns(
-            args, frame->value_stack().GetAttributeSpan(args.size()), true);
-    if (unknown_set.has_value()) {
-      return *unknown_set;
+    if (auto unknown = cel::common_internal::PartiallyIdentityAndMergeUnknowns(
+            args, frame->value_stack().GetAttributeSpan(args.size()),
+            frame->unknown_tree());
+        unknown.has_value()) {
+      return *unknown;
     }
   }
 

@@ -298,14 +298,9 @@ class Value final : private common_internal::ValueMixin<Value> {
   Value() = default;
   Value(const Value&) = default;
   Value& operator=(const Value&) = default;
-  Value(Value&& other) = default;
-  Value& operator=(Value&&) = default;
 
   // NOLINTNEXTLINE(google-explicit-constructor)
   Value(const ListValue& value) : variant_(value.ToValueVariant()) {}
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  Value(ListValue&& value) : variant_(std::move(value).ToValueVariant()) {}
 
   // NOLINTNEXTLINE(google-explicit-constructor)
   Value& operator=(const ListValue& value) {
@@ -314,16 +309,7 @@ class Value final : private common_internal::ValueMixin<Value> {
   }
 
   // NOLINTNEXTLINE(google-explicit-constructor)
-  Value& operator=(ListValue&& value) {
-    variant_ = std::move(value).ToValueVariant();
-    return *this;
-  }
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
   Value(const MapValue& value) : variant_(value.ToValueVariant()) {}
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  Value(MapValue&& value) : variant_(std::move(value).ToValueVariant()) {}
 
   // NOLINTNEXTLINE(google-explicit-constructor)
   Value& operator=(const MapValue& value) {
@@ -332,16 +318,7 @@ class Value final : private common_internal::ValueMixin<Value> {
   }
 
   // NOLINTNEXTLINE(google-explicit-constructor)
-  Value& operator=(MapValue&& value) {
-    variant_ = std::move(value).ToValueVariant();
-    return *this;
-  }
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
   Value(const StructValue& value) : variant_(value.ToValueVariant()) {}
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  Value(StructValue&& value) : variant_(std::move(value).ToValueVariant()) {}
 
   // NOLINTNEXTLINE(google-explicit-constructor)
   Value& operator=(const StructValue& value) {
@@ -350,26 +327,11 @@ class Value final : private common_internal::ValueMixin<Value> {
   }
 
   // NOLINTNEXTLINE(google-explicit-constructor)
-  Value& operator=(StructValue&& value) {
-    variant_ = std::move(value).ToValueVariant();
-    return *this;
-  }
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
   Value(const MessageValue& value) : variant_(value.ToValueVariant()) {}
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  Value(MessageValue&& value) : variant_(std::move(value).ToValueVariant()) {}
 
   // NOLINTNEXTLINE(google-explicit-constructor)
   Value& operator=(const MessageValue& value) {
     variant_ = value.ToValueVariant();
-    return *this;
-  }
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  Value& operator=(MessageValue&& value) {
-    variant_ = std::move(value).ToValueVariant();
     return *this;
   }
 
@@ -379,19 +341,8 @@ class Value final : private common_internal::ValueMixin<Value> {
                  static_cast<const OpaqueValue&>(value)) {}
 
   // NOLINTNEXTLINE(google-explicit-constructor)
-  Value(OptionalValue&& value)
-      : variant_(absl::in_place_type<OpaqueValue>,
-                 static_cast<OpaqueValue&&>(value)) {}
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
   Value& operator=(const OptionalValue& value) {
     variant_.Assign(static_cast<const OpaqueValue&>(value));
-    return *this;
-  }
-
-  // NOLINTNEXTLINE(google-explicit-constructor)
-  Value& operator=(OptionalValue&& value) {
-    variant_.Assign(static_cast<OpaqueValue&&>(value));
     return *this;
   }
 

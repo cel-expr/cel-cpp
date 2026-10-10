@@ -3,14 +3,12 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
-#include <utility>
 
 #include "absl/base/dynamic_annotations.h"
 #include "absl/base/nullability.h"
 #include "absl/log/absl_log.h"
+#include "common/internal/attribute_trail.h"
 #include "common/value.h"
-#include "eval/eval/attribute_trail.h"
 #include "internal/new.h"
 
 namespace google::api::expr::runtime {
@@ -27,7 +25,8 @@ void EvaluatorStack::Grow() {
 
 void EvaluatorStack::Reserve(size_t size) {
   static_assert(alignof(cel::Value) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__);
-  static_assert(alignof(AttributeTrail) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+  static_assert(alignof(cel::common_internal::AttributeTrail) <=
+                __STDCPP_DEFAULT_NEW_ALIGNMENT__);
 
   if (max_size_ >= size) {
     return;
@@ -39,10 +38,12 @@ void EvaluatorStack::Reserve(size_t size) {
       reinterpret_cast<cel::Value*>(data);
   cel::Value* absl_nullability_unknown values = values_begin;
 
-  AttributeTrail* absl_nullability_unknown attributes_begin =
-      reinterpret_cast<AttributeTrail*>(reinterpret_cast<uint8_t*>(data) +
-                                        AttributesBytesOffset(size));
-  AttributeTrail* absl_nullability_unknown attributes = attributes_begin;
+  cel::common_internal::AttributeTrail* absl_nullability_unknown
+      attributes_begin =
+          reinterpret_cast<cel::common_internal::AttributeTrail*>(
+              reinterpret_cast<uint8_t*>(data) + AttributesBytesOffset(size));
+  cel::common_internal::AttributeTrail* absl_nullability_unknown attributes =
+      attributes_begin;
 
   if (max_size_ > 0) {
     const size_t n = this->size();
@@ -55,13 +56,9 @@ void EvaluatorStack::Reserve(size_t size) {
                                        attributes_begin + size, attributes + m);
 
     for (size_t i = 0; i < m; ++i) {
-      ::new (static_cast<void*>(values++))
-          cel::Value(std::move(values_begin_[i]));
-      ::new (static_cast<void*>(attributes++))
-          AttributeTrail(std::move(attributes_begin_[i]));
+      *values++ = values_begin_[i];
+      *attributes++ = attributes_begin_[i];
     }
-    std::destroy_n(values_begin_, n);
-    std::destroy_n(attributes_begin_, n);
 
     ABSL_ANNOTATE_CONTIGUOUS_CONTAINER(values_begin_, values_begin_ + max_size_,
                                        values_, values_begin_ + max_size_);

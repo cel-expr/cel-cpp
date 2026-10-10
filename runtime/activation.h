@@ -28,14 +28,14 @@
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/types/optional.h"
-#include "absl/types/span.h"
 #include "base/attribute.h"
+#include "base/attribute_matcher.h"
 #include "common/function_descriptor.h"
 #include "common/value.h"
+#include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
 #include "runtime/function.h"
 #include "runtime/function_overload_reference.h"
-#include "runtime/internal/attribute_matcher.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -76,16 +76,6 @@ class Activation final : public ActivationInterface {
   std::vector<FunctionOverloadReference> FindFunctionOverloads(
       absl::string_view name) const override;
 
-  absl::Span<const cel::AttributePattern> GetUnknownAttributes()
-      const override {
-    return unknown_patterns_;
-  }
-
-  absl::Span<const cel::AttributePattern> GetMissingAttributes()
-      const override {
-    return missing_patterns_;
-  }
-
   // Bind a value to a named variable.
   //
   // Returns false if the entry for name was overwritten.
@@ -98,23 +88,41 @@ class Activation final : public ActivationInterface {
   bool InsertOrAssignValueProvider(absl::string_view name,
                                    ValueProvider provider);
 
-  absl::Status AddUnknownPattern(cel::AttributePattern pattern) {
-    unknown_patterns_.push_back(std::move(pattern));
+  absl::Status AddUnknownPattern(const cel::AttributePattern& pattern) {
+    // This function used to return void, thus they could not fail. We use
+    // upsert because it just works most of the time, especially if the caller
+    // provided overlapped attribute patterns. Ideally we would use insert.
+    return unknown_attributes_.UpsertAttribute(pattern);
+  }
+
+  absl::Status SetUnknownPatterns(
+      const std::vector<cel::AttributePattern>& patterns) {
+    unknown_attributes_.ClearAttributes();
+    for (const auto& pattern : patterns) {
+      // This function used to return void, thus they could not fail. We use
+      // upsert because it just works most of the time, especially if the caller
+      // provided overlapped attribute patterns. Ideally we would use insert.
+      CEL_RETURN_IF_ERROR(unknown_attributes_.UpsertAttribute(pattern));
+    }
     return absl::OkStatus();
   }
 
-  absl::Status SetUnknownPatterns(std::vector<cel::AttributePattern> patterns) {
-    unknown_patterns_ = std::move(patterns);
-    return absl::OkStatus();
+  absl::Status AddMissingPattern(const cel::AttributePattern& pattern) {
+    // This function used to return void, thus they could not fail. We use
+    // upsert because it just works most of the time, especially if the caller
+    // provided overlapped attribute patterns. Ideally we would use insert.
+    return missing_attributes_.UpsertAttribute(pattern);
   }
 
-  absl::Status AddMissingPattern(cel::AttributePattern pattern) {
-    missing_patterns_.push_back(std::move(pattern));
-    return absl::OkStatus();
-  }
-
-  absl::Status SetMissingPatterns(std::vector<cel::AttributePattern> patterns) {
-    missing_patterns_ = std::move(patterns);
+  absl::Status SetMissingPatterns(
+      const std::vector<cel::AttributePattern>& patterns) {
+    missing_attributes_.ClearAttributes();
+    for (const auto& pattern : patterns) {
+      // This function used to return void, thus they could not fail. We use
+      // upsert because it just works most of the time, especially if the caller
+      // provided overlapped attribute patterns. Ideally we would use insert.
+      CEL_RETURN_IF_ERROR(missing_attributes_.UpsertAttribute(pattern));
+    }
     return absl::OkStatus();
   }
 
@@ -122,6 +130,18 @@ class Activation final : public ActivationInterface {
   // a matching descriptor).
   bool InsertFunction(const cel::FunctionDescriptor& descriptor,
                       std::unique_ptr<cel::Function> impl);
+
+  const AttributeMatcher& GetUnknownAttributeMatcher() const final {
+    return unknown_attributes_;
+  }
+
+  const AttributeMatcher& GetKnownAttributeMatcher() const final {
+    return known_attributes_;
+  }
+
+  const AttributeMatcher& GetMissingAttributeMatcher() const final {
+    return missing_attributes_;
+  }
 
  private:
   struct ValueEntry {
@@ -136,29 +156,13 @@ class Activation final : public ActivationInterface {
     std::unique_ptr<cel::Function> implementation;
   };
 
-  friend class runtime_internal::ActivationAttributeMatcherAccess;
-
-  void SetAttributeMatcher(const runtime_internal::AttributeMatcher* matcher) {
-    attribute_matcher_ = matcher;
-  }
-
-  void SetAttributeMatcher(
-      std::unique_ptr<const runtime_internal::AttributeMatcher> matcher) {
-    owned_attribute_matcher_ = std::move(matcher);
-    attribute_matcher_ = owned_attribute_matcher_.get();
-  }
-
-  const runtime_internal::AttributeMatcher* absl_nullable GetAttributeMatcher()
-      const override {
-    return attribute_matcher_;
-  }
-
   friend void swap(Activation& a, Activation& b) {
     using std::swap;
     swap(a.values_, b.values_);
     swap(a.functions_, b.functions_);
-    swap(a.unknown_patterns_, b.unknown_patterns_);
-    swap(a.missing_patterns_, b.missing_patterns_);
+    swap(a.unknown_attributes_, b.unknown_attributes_);
+    swap(a.known_attributes_, b.known_attributes_);
+    swap(a.missing_attributes_, b.missing_attributes_);
   }
 
   // Internal getter for provided values.
@@ -174,12 +178,9 @@ class Activation final : public ActivationInterface {
   mutable absl::Mutex mutex_;
   mutable absl::flat_hash_map<std::string, ValueEntry> values_;
 
-  std::vector<cel::AttributePattern> unknown_patterns_;
-  std::vector<cel::AttributePattern> missing_patterns_;
-
-  const runtime_internal::AttributeMatcher* attribute_matcher_ = nullptr;
-  std::unique_ptr<const runtime_internal::AttributeMatcher>
-      owned_attribute_matcher_;
+  AttributeMatcher unknown_attributes_;
+  AttributeMatcher known_attributes_;
+  AttributeMatcher missing_attributes_;
 
   absl::flat_hash_map<std::string, std::vector<FunctionEntry>> functions_;
 };

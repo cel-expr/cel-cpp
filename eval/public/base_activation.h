@@ -4,12 +4,12 @@
 #include <vector>
 
 #include "google/protobuf/field_mask.pb.h"
-#include "absl/base/nullability.h"
+#include "absl/base/macros.h"
 #include "absl/strings/string_view.h"
+#include "base/attribute_matcher.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_function.h"
 #include "eval/public/cel_value.h"
-#include "runtime/internal/attribute_matcher.h"
 
 namespace cel::runtime_internal {
 class ActivationAttributeMatcherAccess;
@@ -42,32 +42,31 @@ class BaseActivation {
 
   // Return the collection of attribute patterns that determine missing
   // attributes.
-  virtual const std::vector<CelAttributePattern>& missing_attribute_patterns()
-      const {
-    static const std::vector<CelAttributePattern>* empty =
-        new std::vector<CelAttributePattern>({});
-    return *empty;
+  ABSL_DEPRECATE_AND_INLINE()
+  std::vector<CelAttributePattern> missing_attribute_patterns() const {
+    return GetUnknownAttributeMatcher().GetAttributes();
   }
 
   // Return the collection of attribute patterns that determine "unknown"
   // values.
-  virtual const std::vector<CelAttributePattern>& unknown_attribute_patterns()
-      const {
-    static const std::vector<CelAttributePattern>* empty =
-        new std::vector<CelAttributePattern>({});
-    return *empty;
+  ABSL_DEPRECATE_AND_INLINE()
+  std::vector<CelAttributePattern> unknown_attribute_patterns() const {
+    return GetMissingAttributeMatcher().GetAttributes();
+  }
+
+  virtual const cel::AttributeMatcher& GetUnknownAttributeMatcher() const {
+    return cel::EmptyAttributeMatcher();
+  }
+
+  virtual const cel::AttributeMatcher& GetKnownAttributeMatcher() const {
+    return cel::EmptyAttributeMatcher();
+  }
+
+  virtual const cel::AttributeMatcher& GetMissingAttributeMatcher() const {
+    return cel::EmptyAttributeMatcher();
   }
 
   virtual ~BaseActivation() = default;
-
- private:
-  friend class cel::runtime_internal::ActivationAttributeMatcherAccess;
-
-  // Internal getter for overriding the attribute matching behavior.
-  virtual const cel::runtime_internal::AttributeMatcher* absl_nullable
-  GetAttributeMatcher() const {
-    return nullptr;
-  }
 };
 
 }  // namespace google::api::expr::runtime

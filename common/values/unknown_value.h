@@ -20,12 +20,13 @@
 
 #include <ostream>
 #include <string>
-#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "base/attribute_set.h"
+#include "common/internal/unknowns.h"
 #include "common/type.h"
 #include "common/unknown.h"
 #include "common/value_kind.h"
@@ -42,11 +43,20 @@ class UnknownValue;
 
 namespace common_internal {
 [[nodiscard]]
-UnknownValue MakeUnknownValue(Unknown value);
+UnknownValue MakeUnknownValue(const Unknown& value,
+                              google::protobuf::Arena* absl_nonnull arena);
 [[nodiscard]]
-Unknown GetUnknown(const UnknownValue& value);
+UnknownValue MakeUnknownValue(
+    const common_internal::UnknownRoot* root,
+    const common_internal::UnknownAttributeSet* attributes,
+    const common_internal::UnknownFunctionSet* functions);
 [[nodiscard]]
-const FunctionResultSet& GetUnknownFunctionResultSet(
+Unknown ToUnknown(const UnknownValue& value);
+using UnknownValueRep = UnknownSet;
+[[nodiscard]]
+UnknownValue MakeUnknownValue(const UnknownValueRep& rep);
+[[nodiscard]]
+const UnknownValueRep& GetUnknownValueRep(
     const UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND);
 }  // namespace common_internal
 
@@ -89,30 +99,34 @@ class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
   bool IsZeroValue() const { return false; }
 
   [[nodiscard]]
-  AttributeSet ToAttributeSet() const {
-    return unknown_.unknown_attributes();
-  }
+  AttributeSet ToAttributeSet() const;
 
-  void swap(UnknownValue& other) noexcept {
-    using std::swap;
-    swap(unknown_, other.unknown_);
-  }
+  [[nodiscard]]
+  FunctionResultSet ToFunctionResultSet() const;
 
  private:
-  friend UnknownValue common_internal::MakeUnknownValue(Unknown value);
-  friend Unknown common_internal::GetUnknown(const UnknownValue&);
-  friend const FunctionResultSet& common_internal::GetUnknownFunctionResultSet(
-      const UnknownValue& value);
+  friend UnknownValue common_internal::MakeUnknownValue(
+      const common_internal::UnknownRoot* root,
+      const common_internal::UnknownAttributeSet* attributes,
+      const common_internal::UnknownFunctionSet* functions);
+  friend Unknown common_internal::ToUnknown(const UnknownValue& value);
+  friend const common_internal::UnknownValueRep&
+  common_internal::GetUnknownValueRep(const UnknownValue& value);
+  friend UnknownValue common_internal::MakeUnknownValue(
+      const common_internal::UnknownValueRep& rep);
   friend class common_internal::ValueMixin<UnknownValue>;
 
-  explicit UnknownValue(Unknown unknown) : unknown_(std::move(unknown)) {}
+  using Rep = common_internal::UnknownValueRep;
 
-  Unknown unknown_;
+  UnknownValue(const common_internal::UnknownRoot* root,
+               const common_internal::UnknownAttributeSet* attributes,
+               const common_internal::UnknownFunctionSet* functions)
+      : rep_{root, attributes, functions} {}
+
+  explicit UnknownValue(const Rep& rep) : rep_(rep) {}
+
+  Rep rep_;
 };
-
-inline void swap(UnknownValue& lhs, UnknownValue& rhs) noexcept {
-  lhs.swap(rhs);
-}
 
 inline std::ostream& operator<<(std::ostream& out, const UnknownValue& value) {
   return out << value.DebugString();
@@ -121,19 +135,27 @@ inline std::ostream& operator<<(std::ostream& out, const UnknownValue& value) {
 namespace common_internal {
 
 [[nodiscard]]
-inline UnknownValue MakeUnknownValue(Unknown value) {
-  return UnknownValue(std::move(value));
+inline UnknownValue MakeUnknownValue(
+    const common_internal::UnknownRoot* root,
+    const common_internal::UnknownAttributeSet* attributes,
+    const common_internal::UnknownFunctionSet* functions) {
+  return UnknownValue(root, attributes, functions);
 }
 
 [[nodiscard]]
-inline Unknown GetUnknown(const UnknownValue& value) {
-  return value.unknown_;
+inline Unknown ToUnknown(const UnknownValue& value) {
+  return Unknown(value.ToAttributeSet(), value.ToFunctionResultSet());
 }
 
 [[nodiscard]]
-inline const FunctionResultSet& GetUnknownFunctionResultSet(
+inline UnknownValue MakeUnknownValue(const UnknownValueRep& rep) {
+  return UnknownValue(rep);
+}
+
+[[nodiscard]]
+inline const UnknownValueRep& GetUnknownValueRep(
     const UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  return value.unknown_.unknown_function_results();
+  return value.rep_;
 }
 
 }  // namespace common_internal

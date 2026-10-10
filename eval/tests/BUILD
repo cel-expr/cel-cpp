@@ -240,8 +240,6 @@ cc_test(
         "//internal:status_macros",
         "//internal:testing",
         "//parser",
-        "//runtime/internal:activation_attribute_matcher_access",
-        "//runtime/internal:attribute_matcher",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",

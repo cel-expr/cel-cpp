@@ -21,12 +21,11 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "absl/types/span.h"
 #include "base/attribute.h"
+#include "base/attribute_matcher.h"
 #include "common/value.h"
 #include "internal/status_macros.h"
 #include "runtime/function_overload_reference.h"
-#include "runtime/internal/attribute_matcher.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
@@ -80,8 +79,9 @@ class ActivationInterface {
   //
   // The returned span must remain valid for the duration of any evaluation
   // using this this activation.
-  virtual absl::Span<const cel::AttributePattern> GetUnknownAttributes()
-      const = 0;
+  std::vector<cel::AttributePattern> GetUnknownAttributes() const {
+    return GetUnknownAttributeMatcher().GetAttributes();
+  }
 
   // Return a list of missing attribute patterns.
   //
@@ -91,16 +91,20 @@ class ActivationInterface {
   //
   // The returned span must remain valid for the duration of any evaluation
   // using this activation.
-  virtual absl::Span<const cel::AttributePattern> GetMissingAttributes()
-      const = 0;
+  std::vector<cel::AttributePattern> GetMissingAttributes() const {
+    return GetMissingAttributeMatcher().GetAttributes();
+  }
 
- private:
-  friend class runtime_internal::ActivationAttributeMatcherAccess;
+  virtual const AttributeMatcher& GetUnknownAttributeMatcher() const {
+    return EmptyAttributeMatcher();
+  }
 
-  // Returns the attribute matcher for this activation.
-  virtual const runtime_internal::AttributeMatcher* absl_nullable
-  GetAttributeMatcher() const {
-    return nullptr;
+  virtual const cel::AttributeMatcher& GetKnownAttributeMatcher() const {
+    return EmptyAttributeMatcher();
+  }
+
+  virtual const AttributeMatcher& GetMissingAttributeMatcher() const {
+    return EmptyAttributeMatcher();
   }
 };
 

@@ -14,13 +14,11 @@
 
 #include "eval/eval/regex_match_step.h"
 
-#include <cstdio>
 #include <memory>
 #include <string>
 #include <utility>
 
 #include "absl/status/status.h"
-#include "absl/strings/cord.h"
 #include "absl/strings/string_view.h"
 #include "common/value.h"
 #include "eval/eval/evaluator_core.h"
@@ -32,48 +30,31 @@ namespace google::api::expr::runtime {
 
 namespace {
 
-using ::cel::BoolValue;
-using ::cel::StringValue;
-
-inline constexpr int kNumRegexMatchArguments = 1;
-inline constexpr size_t kRegexMatchStepSubject = 0;
-
-struct MatchesVisitor final {
-  const RE2& re;
-
-  bool operator()(const absl::Cord& value) const {
-    if (auto flat = value.TryFlat(); flat.has_value()) {
-      return RE2::PartialMatch(*flat, re);
-    }
-    return RE2::PartialMatch(static_cast<std::string>(value), re);
-  }
-
-  bool operator()(absl::string_view value) const {
-    return RE2::PartialMatch(value, re);
-  }
-};
-
 class RegexMatchStep final : public ExpressionStepBase {
  public:
   explicit RegexMatchStep(std::shared_ptr<const RE2> re2)
       : ExpressionStepBase(), re2_(std::move(re2)) {}
 
   void Evaluate(ExecutionFrame* frame) const override {
-    if (!frame->value_stack().HasEnough(kNumRegexMatchArguments)) {
+    if (!frame->value_stack().HasEnough(1)) {
       frame->Abort(absl::InternalError(
           "Insufficient arguments supplied for regular expression match"));
       return;
     }
-    auto input_args = frame->value_stack().GetSpan(kNumRegexMatchArguments);
-    const auto& subject = input_args[kRegexMatchStepSubject];
-    if (!subject->Is<cel::StringValue>()) {
+    auto& subject_and_result = frame->value_stack().Peek();
+    if (subject_and_result.IsUnknown() || subject_and_result.IsError()) {
+      return;
+    }
+    if (!subject_and_result.IsString()) {
+      // We can only get here if something is seriously wrong, we verified that
+      // we should have gotten a string.
       frame->Abort(absl::InternalError(
           "First argument for regular expression match must be a string"));
       return;
     }
-    bool match = subject.GetString().NativeValue(MatchesVisitor{*re2_});
-    frame->value_stack().Pop(kNumRegexMatchArguments);
-    frame->value_stack().Push(cel::BoolValue(match));
+    std::string scratch;
+    subject_and_result = cel::BoolValue(RE2::PartialMatch(
+        subject_and_result.GetString().ToStringView(&scratch), *re2_));
   }
 
  private:
