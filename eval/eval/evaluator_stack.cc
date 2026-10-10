@@ -68,8 +68,11 @@ void EvaluatorStack::Reserve(size_t size) {
     ABSL_ANNOTATE_CONTIGUOUS_CONTAINER(
         attributes_begin_, attributes_begin_ + max_size_, attributes_,
         attributes_begin_ + max_size_);
-
-    cel::internal::SizedDelete(data_, SizeBytes(max_size_));
+    if (stack_buffer_) {
+      stack_buffer_ = false;
+    } else {
+      cel::internal::SizedDelete(data_, SizeBytes(max_size_));
+    }
   } else {
     ABSL_ANNOTATE_CONTIGUOUS_CONTAINER(values_begin, values_begin + size,
                                        values_begin + size, values);
@@ -87,6 +90,40 @@ void EvaluatorStack::Reserve(size_t size) {
 
   data_ = data;
   max_size_ = size;
+}
+
+void EvaluatorStack::InitUnowned(void* data, size_t size) {
+  static_assert(alignof(cel::Value) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+  static_assert(alignof(AttributeTrail) <= __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+
+  if (size == 0) {
+    return;
+  }
+
+  cel::Value* absl_nullability_unknown values_begin =
+      reinterpret_cast<cel::Value*>(data);
+  cel::Value* absl_nullability_unknown values = values_begin;
+
+  AttributeTrail* absl_nullability_unknown attributes_begin =
+      reinterpret_cast<AttributeTrail*>(reinterpret_cast<uint8_t*>(data) +
+                                        AttributesBytesOffset(size));
+  AttributeTrail* absl_nullability_unknown attributes = attributes_begin;
+
+  ABSL_ANNOTATE_CONTIGUOUS_CONTAINER(values_begin, values_begin + size,
+                                     values_begin + size, values);
+  ABSL_ANNOTATE_CONTIGUOUS_CONTAINER(attributes_begin, attributes_begin + size,
+                                     attributes_begin + size, attributes);
+
+  values_ = values;
+  values_begin_ = values_begin;
+  values_end_ = values_begin + size;
+
+  attributes_ = attributes;
+  attributes_begin_ = attributes_begin;
+
+  data_ = data;
+  max_size_ = size;
+  stack_buffer_ = true;
 }
 
 }  // namespace google::api::expr::runtime

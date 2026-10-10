@@ -75,6 +75,21 @@ CelExpressionFlatEvaluationState::CelExpressionFlatEvaluationState(
 absl::StatusOr<CelValue> CelExpressionFlatImpl::Trace(
     const BaseActivation& activation, google::protobuf::Arena* arena,
     CelEvaluationListener callback, CelEvaluationState* state) const {
+  cel::interop_internal::AdapterActivationImpl modern_activation(activation);
+  if (state == nullptr && flat_expression_.value_stack_size() <=
+                              FlatExpression::kInlineStackLimit) {
+    ABSL_DCHECK(arena != nullptr)
+        << "arena must be implicitly provided when using InitializeState() or "
+           "explicitly provided when using CreateState()";
+    CEL_ASSIGN_OR_RETURN(
+        cel::Value value,
+        flat_expression_.EvaluateWithCallback(
+            modern_activation, /*embedder_context=*/nullptr,
+            AdaptListener(callback), env_->descriptor_pool.get(),
+            env_->MutableMessageFactory(), arena));
+    return cel::interop_internal::ModernValueToLegacyValueOrDie(arena, value);
+  }
+
   std::unique_ptr<CelEvaluationState> inline_state;
   if (state == nullptr) {
     inline_state = CreateState();
@@ -90,7 +105,6 @@ absl::StatusOr<CelValue> CelExpressionFlatImpl::Trace(
   ABSL_DCHECK(arena != nullptr)
       << "arena must be implicitly provided when using InitializeState() or "
          "explicitly provided when using CreateState()";
-  cel::interop_internal::AdapterActivationImpl modern_activation(activation);
 
   CEL_ASSIGN_OR_RETURN(cel::Value value,
                        flat_expression_.EvaluateWithCallback(

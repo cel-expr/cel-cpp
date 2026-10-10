@@ -118,6 +118,12 @@ class EvaluationStatus final {
   alignas(absl::Status) char status_[sizeof(absl::Status)];
 };
 
+int64_t OneMinusArgCount(size_t count) {
+  ABSL_DCHECK(count <=
+              static_cast<size_t>(std::numeric_limits<int64_t>::max()));
+  return 1 - static_cast<int64_t>(count);
+}
+
 }  // namespace
 
 void ExpressionStep::EvaluateMutableListAppendStep(ExecutionFrame& frame) {
@@ -221,17 +227,17 @@ FlatExpressionEvaluatorState FlatExpression::MakeEvaluatorState(
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     google::protobuf::Arena* absl_nonnull arena) const {
-  return FlatExpressionEvaluatorState(path_.size(), comprehension_slots_size_,
-                                      type_provider_, descriptor_pool,
-                                      message_factory, arena);
+  return FlatExpressionEvaluatorState(value_stack_size_,
+                                      comprehension_slots_size_, type_provider_,
+                                      descriptor_pool, message_factory, arena);
 }
 
 FlatExpressionEvaluatorState FlatExpression::MakeEvaluatorState(
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nullable message_factory) const {
-  return FlatExpressionEvaluatorState(path_.size(), comprehension_slots_size_,
-                                      type_provider_, descriptor_pool,
-                                      message_factory);
+  return FlatExpressionEvaluatorState(value_stack_size_,
+                                      comprehension_slots_size_, type_provider_,
+                                      descriptor_pool, message_factory);
 }
 
 absl::StatusOr<cel::Value> FlatExpression::EvaluateWithCallback(
@@ -239,6 +245,27 @@ absl::StatusOr<cel::Value> FlatExpression::EvaluateWithCallback(
     const cel::EmbedderContext* absl_nullable embedder_context,
     EvaluationListener listener, FlatExpressionEvaluatorState& state) const {
   state.Reset();
+
+  ExecutionFrame frame(subexpressions_, activation, options_, state,
+                       std::move(listener), embedder_context);
+
+  return frame.Evaluate(frame.callback());
+}
+
+absl::StatusOr<cel::Value> FlatExpression::EvaluateWithCallback(
+    const cel::ActivationInterface& activation,
+    const cel::EmbedderContext* absl_nullable embedder_context,
+    EvaluationListener listener,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) const {
+  ABSL_DCHECK_LE(value_stack_size_, kInlineStackLimit);
+  alignas(__STDCPP_DEFAULT_NEW_ALIGNMENT__)
+      uint8_t stack_buffer[EvaluatorStack::SizeBytes(kInlineStackLimit)];
+  FlatExpressionEvaluatorState state(value_stack_size_,
+                                     comprehension_slots_size_, stack_buffer,
+                                     sizeof(stack_buffer), type_provider_,
+                                     descriptor_pool, message_factory, arena);
 
   ExecutionFrame frame(subexpressions_, activation, options_, state,
                        std::move(listener), embedder_context);
@@ -358,6 +385,61 @@ FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step) {
     return &step.u_.fixed_jump_step;
   }
   return nullptr;
+}
+
+std::optional<int64_t> ExpressionStep::StackDelta() const {
+  switch (header_.kind) {
+    case ExpressionStepKind::kMovedFrom:
+      return 0;
+    case ExpressionStepKind::kGenericLogic:
+      if (header_.stack_delta == std::numeric_limits<int16_t>::max()) {
+        // Impractical, but technically allowed.
+        return std::nullopt;
+      }
+      return header_.stack_delta;
+    case ExpressionStepKind::kIntConstant:
+    case ExpressionStepKind::kBoolConstant:
+    case ExpressionStepKind::kDoubleConstant:
+    case ExpressionStepKind::kNullConstant:
+    case ExpressionStepKind::kUintConstant:
+    case ExpressionStepKind::kOtherConstant:
+    case ExpressionStepKind::kLazyInit:
+    case ExpressionStepKind::kReadSlot:
+    case ExpressionStepKind::kIdentifier:
+    case ExpressionStepKind::kNewMutableList:
+      return 1;
+    case ExpressionStepKind::kAssignSlotAndPop:
+    case ExpressionStepKind::kComprehensionFinish:
+    case ExpressionStepKind::kComprehensionNext:
+    case ExpressionStepKind::kComprehensionNext2:
+    case ExpressionStepKind::kComprehensionCond:
+    case ExpressionStepKind::kComprehensionCond2:
+    case ExpressionStepKind::kFastIn:
+    case ExpressionStepKind::kFastEqual:
+    case ExpressionStepKind::kFastNotEqual:
+    case ExpressionStepKind::kMutableListAppend:
+      return -1;
+    case ExpressionStepKind::kClearSlots:
+    case ExpressionStepKind::kBooleanNot:
+    case ExpressionStepKind::kNotStrictlyFalse:
+    case ExpressionStepKind::kBooleanOrJump:
+    case ExpressionStepKind::kBooleanAndJump:
+    case ExpressionStepKind::kTernaryJump:
+    case ExpressionStepKind::kFixedJump:
+      return 0;
+    case ExpressionStepKind::kBooleanOr:
+    case ExpressionStepKind::kBooleanAnd:
+      return OneMinusArgCount(u_.arg_count);
+    case ExpressionStepKind::kEagerFunction:
+      return OneMinusArgCount(u_.eager_function_step->num_arguments());
+    case ExpressionStepKind::kLazyFunction:
+      return OneMinusArgCount(u_.lazy_function_step->num_arguments());
+    case ExpressionStepKind::kCreateList:
+      return OneMinusArgCount(u_.create_list_step->num_elements());
+    case ExpressionStepKind::kCreateSmallList:
+      return OneMinusArgCount(u_.create_small_list_step.list_size);
+  }
+  return std::nullopt;
 }
 
 }  // namespace google::api::expr::runtime

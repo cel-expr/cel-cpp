@@ -46,12 +46,18 @@ class ProgramImpl final : public TraceableProgram {
       EvaluationListener evaluation_listener, google::protobuf::Arena* absl_nonnull arena,
       const EvaluateOptions& options) const override {
     ABSL_DCHECK(arena != nullptr);
-    auto state =
+    google::protobuf::MessageFactory* message_factory =
+        options.message_factory != nullptr
+            ? options.message_factory
+            : environment_->MutableMessageFactory();
+    if (impl_.value_stack_size() <= FlatExpression::kInlineStackLimit) {
+      return impl_.EvaluateWithCallback(
+          activation, options.embedder_context, std::move(evaluation_listener),
+          environment_->descriptor_pool.get(), message_factory, arena);
+    }
+    google::api::expr::runtime::FlatExpressionEvaluatorState state =
         impl_.MakeEvaluatorState(environment_->descriptor_pool.get(),
-                                 options.message_factory != nullptr
-                                     ? options.message_factory
-                                     : environment_->MutableMessageFactory(),
-                                 arena);
+                                 message_factory, arena);
     return impl_.EvaluateWithCallback(activation, options.embedder_context,
                                       std::move(evaluation_listener), state);
   }
