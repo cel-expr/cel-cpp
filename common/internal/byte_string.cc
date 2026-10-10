@@ -133,7 +133,7 @@ absl::optional<absl::string_view> ByteString::TryFlat() const {
       if (auto flat = rep_.large.data->TryFlat(); flat.has_value()) {
         return flat->substr(rep_.large.offset, rep_.large.size);
       }
-      return absl::nullopt;
+      return std::nullopt;
     }
   }
 }
