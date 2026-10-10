@@ -423,5 +423,33 @@ TEST(AttributeMatcher, PastFullMatch) {
       _);
 }
 
+TEST(AttributeMatcher, MatchAttribute) {
+  AttributeMatcher matcher;
+  EXPECT_THAT(matcher.InsertAttribute(
+                  Attribute("foo", {AttributeQualifier::OfString("bar"),
+                                    AttributeQualifier::OfString("baz")})),
+              IsOk());
+  EXPECT_THAT(matcher.MatchAttribute(
+                  Attribute("foo", {AttributeQualifier::OfString("bar"),
+                                    AttributeQualifier::OfString("baz")})),
+              AttributeMatchIs(MatchType::FULL));
+  EXPECT_THAT(
+      matcher.MatchAttribute("foo", {AttributeQualifierView::OfString("bar"),
+                                     AttributeQualifierView::OfString("baz")}),
+      AttributeMatchIs(MatchType::FULL));
+  EXPECT_THAT(matcher.MatchAttribute(
+                  Attribute("foo", {AttributeQualifier::OfString("bar")})),
+              AttributeMatchIs(MatchType::PARTIAL));
+  EXPECT_THAT(
+      matcher.MatchAttribute("foo", {AttributeQualifierView::OfString("bar")}),
+      AttributeMatchIs(MatchType::PARTIAL));
+  EXPECT_THAT(matcher.MatchAttribute(
+                  Attribute("bar", {AttributeQualifier::OfString("baz")})),
+              AttributeMatchIs(MatchType::NONE));
+  EXPECT_THAT(
+      matcher.MatchAttribute("bar", {AttributeQualifierView::OfString("baz")}),
+      AttributeMatchIs(MatchType::NONE));
+}
+
 }  // namespace
 }  // namespace cel

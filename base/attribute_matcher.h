@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "absl/base/attributes.h"
+#include "absl/base/optimization.h"
 #include "absl/functional/function_ref.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
@@ -78,6 +79,32 @@ class AttributeMatcherNode {
                     const AttributeMatcherNode& rhs) const {
       return lhs < rhs.key();
     }
+
+    bool operator()(absl::string_view lhs,
+                    const AttributeQualifierPattern& rhs) const {
+      // Fast path for top-level variable matching, should only be called in
+      // that context.
+      ABSL_DCHECK(rhs.IsString());
+      return lhs < rhs.GetString();
+    }
+
+    bool operator()(const AttributeQualifierPattern& lhs,
+                    absl::string_view rhs) const {
+      // Fast path for top-level variable matching, should only be called in
+      // that context.
+      ABSL_DCHECK(lhs.IsString());
+      return lhs.GetString() < rhs;
+    }
+
+    bool operator()(absl::string_view lhs,
+                    const AttributeMatcherNode& rhs) const {
+      return (*this)(lhs, rhs.key());
+    }
+
+    bool operator()(const AttributeMatcherNode& lhs,
+                    absl::string_view rhs) const {
+      return (*this)(lhs.key(), rhs);
+    }
   };
 
   AttributeMatcherNode(AttributeMatcherNode* parent,
@@ -113,7 +140,21 @@ class AttributeMatcherNode {
 
   [[nodiscard]]
   const AttributeMatcherNode* MatchQualifier(
-      const cel::AttributeQualifierView& qualifier) const {
+      const AttributeQualifierView& qualifier) const {
+    if (children_ != nullptr) {
+      auto it = children_->find(qualifier);
+      if (it != children_->end()) {
+        return &*it;
+      }
+    } else if (wildcard_ != nullptr) {
+      return wildcard_.get();
+    }
+    return nullptr;
+  }
+
+  [[nodiscard]]
+  const AttributeMatcherNode* MatchQualifier(
+      const AttributeQualifier& qualifier) const {
     if (children_ != nullptr) {
       auto it = children_->find(qualifier);
       if (it != children_->end()) {
@@ -199,6 +240,7 @@ class [[nodiscard]] AttributeMatch {
   // match should be handled.
   AttributeMatch MatchQualifier(const AttributeQualifierView& qualifier) const {
     ABSL_DCHECK(!IsFull());
+    ABSL_DCHECK(qualifier);
     if (IsNone()) {
       return AttributeMatch();
     }
@@ -206,10 +248,18 @@ class [[nodiscard]] AttributeMatch {
   }
 
  private:
+  friend class AttributeMatcher;
   friend AttributeMatch common_internal::MakeAttributeMatch(
       const common_internal::AttributeMatcherNode* node);
   friend const common_internal::AttributeMatcherNode*
   common_internal::GetAttributeMatcherNode(const AttributeMatch& match);
+
+  AttributeMatch NotNoneMatchQualifier(
+      const AttributeQualifierView& qualifier) const {
+    ABSL_DCHECK(!IsNone());
+    ABSL_DCHECK(qualifier);
+    return AttributeMatch(node_->MatchQualifier(qualifier));
+  }
 
   explicit AttributeMatch(const common_internal::AttributeMatcherNode* node)
       : node_(node) {}
@@ -273,11 +323,50 @@ class AttributeMatcher {
 
   AttributeMatch MatchVariable(absl::string_view variable) const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    auto it = children_.find(AttributeQualifierView::OfString(variable));
-    if (it != children_.end()) {
-      return common_internal::MakeAttributeMatch(&*it);
+    if (!variable.empty()) {
+      auto it = children_.find(variable);
+      if (it != children_.end()) {
+        return common_internal::MakeAttributeMatch(&*it);
+      }
     }
     return AttributeMatch();
+  }
+
+  AttributeMatch MatchAttribute(
+      absl::string_view variable,
+      absl::Span<const AttributeQualifierView> qualifiers) const {
+    AttributeMatch match = MatchVariable(variable);
+    for (const auto& qualifier : qualifiers) {
+      if (ABSL_PREDICT_FALSE(!qualifier)) {
+        return AttributeMatch();
+      }
+      if (match.IsNone()) {
+        break;
+      }
+      match = match.NotNoneMatchQualifier(qualifier);
+    }
+    return match;
+  }
+
+  AttributeMatch MatchAttribute(
+      absl::string_view variable,
+      absl::Span<const AttributeQualifier> qualifiers) const {
+    AttributeMatch match = MatchVariable(variable);
+    for (const auto& qualifier : qualifiers) {
+      if (ABSL_PREDICT_FALSE(!qualifier)) {
+        return AttributeMatch();
+      }
+      if (match.IsNone()) {
+        break;
+      }
+      match = match.NotNoneMatchQualifier(qualifier);
+    }
+    return match;
+  }
+
+  AttributeMatch MatchAttribute(const Attribute& attribute) const {
+    return MatchAttribute(attribute.variable_name(),
+                          attribute.qualifier_path());
   }
 
   // Returns an array of attribute patterns corresponding to the

@@ -116,6 +116,8 @@ class AttributeQualifier {
   AttributeQualifier& operator=(const AttributeQualifier&) = default;
   AttributeQualifier& operator=(AttributeQualifier&&) = default;
 
+  explicit AttributeQualifier(const AttributeQualifierView& other);
+
   Kind kind() const;
 
   ABSL_DEPRECATE_AND_INLINE()
@@ -324,6 +326,10 @@ class AttributeQualifierView {
 
   AttributeQualifierView& operator=(AttributeQualifier&&) = delete;
 
+  explicit operator bool() const {
+    return !std::holds_alternative<std::monostate>(value_);
+  }
+
   ABSL_DEPRECATE_AND_INLINE()
   std::optional<int64_t> GetInt64Key() const { return AsInt(); }
 
@@ -449,6 +455,25 @@ class AttributeQualifierView {
 
   Variant value_;
 };
+
+inline AttributeQualifier::AttributeQualifier(
+    const AttributeQualifierView& other)
+    : value_(std::visit(
+          absl::Overload([](std::monostate) -> Variant { return Variant(); },
+                         [](int64_t value) -> Variant {
+                           return Variant(std::in_place_type<int64_t>, value);
+                         },
+                         [](uint64_t value) -> Variant {
+                           return Variant(std::in_place_type<uint64_t>, value);
+                         },
+                         [](absl::string_view value) -> Variant {
+                           return Variant(std::in_place_type<std::string>,
+                                          value);
+                         },
+                         [](bool value) -> Variant {
+                           return Variant(std::in_place_type<bool>, value);
+                         }),
+          common_internal::AsVariant(other))) {}
 
 // AttributeQualifierPattern matches a segment in
 // attribute resolution path. AttributeQualifierPattern is capable of

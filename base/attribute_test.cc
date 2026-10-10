@@ -148,5 +148,22 @@ TEST(AttributeQualifierView, TransparentOrder) {
             AttributeQualifierView::OfBool(true));
 }
 
+template <typename From, typename To>
+void TestAttributeQualifierConversion() {
+  EXPECT_EQ(To(From::OfInt(1)), To::OfInt(1));
+  EXPECT_EQ(To(From::OfUint(1)), To::OfUint(1));
+  EXPECT_EQ(To(From::OfString("foo")), To::OfString("foo"));
+  EXPECT_EQ(To(From::OfBool(true)), To::OfBool(true));
+}
+
+TEST(AttributeQualifier, Conversion) {
+  TestAttributeQualifierConversion<AttributeQualifier,
+                                   AttributeQualifierView>();
+  TestAttributeQualifierConversion<AttributeQualifierView,
+                                   AttributeQualifier>();
+  TestAttributeQualifierConversion<AttributeQualifier,
+                                   AttributeQualifierPattern>();
+}
+
 }  // namespace
 }  // namespace cel
