@@ -50,6 +50,7 @@ cc_test(
         "@com_google_absl//absl/flags:flag",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
         "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
         "@com_google_googleapis//google/rpc/context:attribute_context_cc_proto",
         "@com_google_protobuf//:protobuf",

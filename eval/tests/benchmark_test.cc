@@ -14,6 +14,7 @@
 #include "absl/flags/flag.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/match.h"
+#include "absl/types/span.h"
 #include "common/ast_proto.h"
 #include "common/decl.h"
 #include "common/type.h"
@@ -575,9 +576,7 @@ void BM_HasMap(benchmark::State& state) {
 
   std::vector<std::pair<CelValue, CelValue>> map_pairs{
       {CelValue::CreateStringView("path"), CelValue::CreateStringView("path")}};
-  auto cel_map =
-      CreateContainerBackedMap(absl::Span<std::pair<CelValue, CelValue>>(
-          map_pairs.data(), map_pairs.size()));
+  auto cel_map = CreateContainerBackedMap(absl::MakeSpan(map_pairs));
   activation.InsertValue("request", CelValue::CreateMap((*cel_map).get()));
 
   for (auto _ : state) {
