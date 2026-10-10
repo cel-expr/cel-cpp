@@ -2940,7 +2940,7 @@ using RepeatedFieldAccessor =
              Value* absl_nonnull);
 
 absl::StatusOr<RepeatedFieldAccessor> RepeatedFieldAccessorFor(
-    const google::protobuf::FieldDescriptor* absl_nonnull field);
+    const google::protobuf::FieldDescriptor* absl_nonnull field, bool unsafe = false);
 
 }  // namespace common_internal
 
