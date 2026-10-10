@@ -29,6 +29,12 @@ class EvaluatorStack {
  public:
   explicit EvaluatorStack(size_t max_size) { Reserve(max_size); }
 
+  // Construct from a preallocated buffer.
+  EvaluatorStack(void* data, size_t data_len, size_t max_size) {
+    ABSL_DCHECK(data_len >= SizeBytes(max_size));
+    InitUnowned(data, max_size);
+  }
+
   EvaluatorStack(const EvaluatorStack&) = delete;
   EvaluatorStack(EvaluatorStack&&) = delete;
 
@@ -37,7 +43,15 @@ class EvaluatorStack {
       const size_t n = size();
       std::destroy_n(values_begin_, n);
       std::destroy_n(attributes_begin_, n);
-      cel::internal::SizedDelete(data_, SizeBytes(max_size_));
+      ABSL_ANNOTATE_CONTIGUOUS_CONTAINER(values_begin_,
+                                         values_begin_ + max_size_, values_,
+                                         values_begin_ + max_size_);
+      ABSL_ANNOTATE_CONTIGUOUS_CONTAINER(
+          attributes_begin_, attributes_begin_ + max_size_, attributes_,
+          attributes_begin_ + max_size_);
+      if (!stack_buffer_) {
+        cel::internal::SizedDelete(data_, SizeBytes(max_size_));
+      }
     }
   }
 
@@ -298,14 +312,15 @@ class EvaluatorStack {
   // Update the max size of the stack and update capacity if needed.
   void SetMaxSize(size_t size) { Reserve(size); }
 
- private:
-  static size_t AttributesBytesOffset(size_t size) {
-    return cel::internal::AlignUp(sizeof(cel::Value) * size,
-                                  __STDCPP_DEFAULT_NEW_ALIGNMENT__);
+  // Returns the raw buffer size required for `size` elements.
+  static constexpr size_t SizeBytes(size_t size) {
+    return AttributesBytesOffset(size) + (sizeof(AttributeTrail) * size);
   }
 
-  static size_t SizeBytes(size_t size) {
-    return AttributesBytesOffset(size) + (sizeof(AttributeTrail) * size);
+ private:
+  static constexpr size_t AttributesBytesOffset(size_t size) {
+    return cel::internal::AlignUp(sizeof(cel::Value) * size,
+                                  __STDCPP_DEFAULT_NEW_ALIGNMENT__);
   }
 
   void Grow();
@@ -313,12 +328,17 @@ class EvaluatorStack {
   // Preallocate stack.
   void Reserve(size_t size);
 
+  void InitUnowned(void* data, size_t size);
+
   cel::Value* absl_nullability_unknown values_ = nullptr;
   cel::Value* absl_nullability_unknown values_begin_ = nullptr;
   AttributeTrail* absl_nullability_unknown attributes_ = nullptr;
   AttributeTrail* absl_nullability_unknown attributes_begin_ = nullptr;
   cel::Value* absl_nullability_unknown values_end_ = nullptr;
   void* absl_nullability_unknown data_ = nullptr;
+  // Whether the stack is using the preallocated buffer. Skip freeing if we
+  // haven't allocated the buffer.
+  bool stack_buffer_ = false;
   size_t max_size_ = 0;
 };
 

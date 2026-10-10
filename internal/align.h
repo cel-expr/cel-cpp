@@ -35,8 +35,8 @@ AlignmentMask(T alignment) {
 }
 
 template <typename T>
-std::enable_if_t<std::conjunction_v<std::is_integral<T>, std::is_unsigned<T>>,
-                 T>
+constexpr std::enable_if_t<
+    std::conjunction_v<std::is_integral<T>, std::is_unsigned<T>>, T>
 AlignDown(T x, size_t alignment) {
   ABSL_ASSERT(absl::has_single_bit(alignment));
 #if ABSL_HAVE_BUILTIN(__builtin_align_up)
@@ -54,8 +54,8 @@ std::enable_if_t<std::is_pointer_v<T>, T> AlignDown(T x, size_t alignment) {
 }
 
 template <typename T>
-std::enable_if_t<std::conjunction_v<std::is_integral<T>, std::is_unsigned<T>>,
-                 T>
+constexpr std::enable_if_t<
+    std::conjunction_v<std::is_integral<T>, std::is_unsigned<T>>, T>
 AlignUp(T x, size_t alignment) {
   ABSL_ASSERT(absl::has_single_bit(alignment));
 #if ABSL_HAVE_BUILTIN(__builtin_align_up)

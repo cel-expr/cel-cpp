@@ -331,9 +331,9 @@ class PlannerContext {
   absl::Status AddSubplanStep(const cel::Expr& node, ExpressionStep step);
   absl::Status AddSubplanStep(const cel::Expr& node,
                               std::unique_ptr<ExpressionStepLogic> step,
-                              int64_t expr_id = -1) {
-    return AddSubplanStep(
-        node, ExpressionStep::MakeGenericStep(std::move(step), expr_id));
+                              int64_t expr_id = -1, int64_t stack_delta = 1) {
+    return AddSubplanStep(node, ExpressionStep::MakeGenericStep(
+                                    std::move(step), expr_id, stack_delta));
   }
 
   const Resolver& resolver() const { return resolver_; }

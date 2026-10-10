@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -59,6 +60,7 @@
 #include "eval/public/unknown_attribute_set.h"
 #include "eval/public/unknown_set.h"
 #include "eval/testutil/test_message.pb.h"
+#include "extensions/protobuf/ast_converters.h"
 #include "internal/proto_matchers.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
@@ -3015,6 +3017,216 @@ INSTANTIATE_TEST_SUITE_P(
                                     "true", "false", "bool", false},
         VariadicLogicalEvalTestCase{"All_Unknown", "[a, b, c].all(x, x)",
                                     "true", "unknown1", "true", "unknown"}));
+
+TEST(FlatExprBuilderTest, StackSizeEstimationBuiltinsAndGenericSteps) {
+  cel::RuntimeOptions options;
+  options.short_circuiting = false;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  {
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse("1 + 2 + 3 + 4"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    EXPECT_EQ(expr.path().size(), 7);
+    EXPECT_EQ(expr.value_stack_size(), 2);
+  }
+
+  {
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed,
+                         parser::Parse("{'a': 1, 'b': 2}['a']"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    // 'a', 1, 'b', 2, CreateMap(2), 'a', ContainerAccess
+    EXPECT_EQ(expr.path().size(), 7);
+    EXPECT_EQ(expr.value_stack_size(), 4);
+  }
+
+  {
+    ASSERT_OK_AND_ASSIGN(
+        ParsedExpr parsed,
+        parser::Parse("google.api.expr.runtime.TestMessage{int64_value: 1, "
+                      "string_value: 'a'}.int64_value"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    // 1, 'a', CreateStruct(2), Select
+    EXPECT_EQ(expr.path().size(), 4);
+    EXPECT_EQ(expr.value_stack_size(), 2);
+  }
+
+  {
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse("true ? 1 : 2"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    // true, 1, 2, TernaryStep
+    EXPECT_EQ(expr.path().size(), 4);
+    EXPECT_EQ(expr.value_stack_size(), 3);
+  }
+}
+
+TEST(FlatExprBuilderTest, StackSizeEstimationShortCircuiting) {
+  cel::RuntimeOptions options;
+  options.short_circuiting = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  {
+    // Conditionals over-count in linear stack estimation because TernaryJump
+    // and FixedJump have a worst-case delta of 0 and both branches are walked
+    // sequentially without a merge step.
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed,
+                         parser::Parse("(c1 ? 1 : 2) + (c2 ? 3 : 4)"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    // c1, TernaryJump, 1, FixedJump, 2, c2, TernaryJump, 3, FixedJump, 4, +
+    EXPECT_EQ(expr.path().size(), 11);
+    EXPECT_EQ(expr.value_stack_size(), 6);
+  }
+
+  {
+    // Comprehension: [1, 2, 3].all(x, x > 0)
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed,
+                         parser::Parse("[1, 2, 3].all(x, x > 0)"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    EXPECT_EQ(expr.path().size(), 19);
+    EXPECT_EQ(expr.value_stack_size(), 5);
+  }
+
+  {
+    // Mixed logical operators: (a && b) || (c && d)
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed,
+                         parser::Parse("(a && b) || (c && d)"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    // a, AndJump, b, And(2), OrJump, c, AndJump, d, And(2), Or(2)
+    EXPECT_EQ(expr.path().size(), 10);
+    EXPECT_EQ(expr.value_stack_size(), 3);
+  }
+}
+
+TEST(FlatExprBuilderTest, StackSizeEstimationWithLazySubexpressions) {
+  ParsedExpr parsed_expr;
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        expr: {
+          call_expr: {
+            function: "cel.@block"
+            args {
+              list_expr: {
+                elements {
+                  call_expr: {
+                    function: "_+_"
+                    args { const_expr: { int64_value: 1 } }
+                    args { const_expr: { int64_value: 2 } }
+                  }
+                }
+                elements {
+                  call_expr: {
+                    function: "_+_"
+                    args { const_expr: { int64_value: 3 } }
+                    args { const_expr: { int64_value: 4 } }
+                  }
+                }
+              }
+            }
+            args {
+              call_expr: {
+                function: "_+_"
+                args { ident_expr: { name: "@index0" } }
+                args { ident_expr: { name: "@index1" } }
+              }
+            }
+          }
+        }
+      )pb",
+      &parsed_expr));
+
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                       cel::extensions::CreateAstFromParsedExpr(parsed_expr));
+  ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                       builder.flat_expr_builder().CreateExpressionImpl(
+                           std::move(ast), nullptr));
+  // Main program: LazyInit(@index0), LazyInit(@index1), +, ClearSlots -> max 2
+  // Subexpr 1: 1, 2, + -> max 2
+  // Subexpr 2: 3, 4, + -> max 2
+  // Total max stack: 2 + 2 + 2 = 6 (while total steps = 10)
+  EXPECT_EQ(expr.path().size(), 10);
+  EXPECT_EQ(expr.value_stack_size(), 6);
+}
+
+class NoOpStepWithCustomDelta : public ExpressionStepLogic {
+ public:
+  void Evaluate(ExecutionFrame* frame) const override {}
+};
+
+class CustomDeltaInjectorOptimizer : public ProgramOptimizer {
+ public:
+  explicit CustomDeltaInjectorOptimizer(int64_t stack_delta)
+      : stack_delta_(stack_delta) {}
+
+  absl::Status OnPreVisit(PlannerContext& context,
+                          const cel::Expr& node) override {
+    return absl::OkStatus();
+  }
+
+  absl::Status OnPostVisit(PlannerContext& context,
+                           const cel::Expr& node) override {
+    if (node.id() == 1) {
+      return context.AddSubplanStep(
+          node, std::make_unique<NoOpStepWithCustomDelta>(), -1, stack_delta_);
+    }
+    return absl::OkStatus();
+  }
+
+ private:
+  int64_t stack_delta_;
+};
+
+TEST(FlatExprBuilderTest, StackSizeEstimationOverflowAndUnderflowFallback) {
+  for (int64_t bad_delta :
+       {static_cast<int64_t>(std::numeric_limits<int16_t>::max()),
+        static_cast<int64_t>(-10)}) {
+    CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+    ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+    builder.flat_expr_builder().AddProgramOptimizer(
+        [bad_delta](PlannerContext&, const cel::Ast&)
+            -> absl::StatusOr<std::unique_ptr<ProgramOptimizer>> {
+          return std::make_unique<CustomDeltaInjectorOptimizer>(bad_delta);
+        });
+
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse("1 + 2 + 3"));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                         cel::extensions::CreateAstFromParsedExpr(parsed));
+    ASSERT_OK_AND_ASSIGN(FlatExpression expr,
+                         builder.flat_expr_builder().CreateExpressionImpl(
+                             std::move(ast), nullptr));
+    EXPECT_EQ(expr.value_stack_size(), expr.path().size());
+  }
+}
 
 }  // namespace
 

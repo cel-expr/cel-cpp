@@ -472,6 +472,17 @@ absl::flat_hash_set<int32_t> MakeOptionalIndicesSet(
   return optional_indices;
 }
 
+absl::flat_hash_set<size_t> MakeOptionalIndicesSet(
+    const cel::ListExpr& list_expr) {
+  absl::flat_hash_set<size_t> optional_indices;
+  for (size_t i = 0; i < list_expr.elements().size(); ++i) {
+    if (list_expr.elements()[i].optional()) {
+      optional_indices.insert(i);
+    }
+  }
+  return optional_indices;
+}
+
 class FlatExprVisitor : public cel::AstVisitor {
  public:
   enum class CallHandlerResult {
@@ -938,13 +949,13 @@ class FlatExprVisitor : public cel::AstVisitor {
                                 *std::move(field_type), select_expr.test_only(),
                                 options_.enable_empty_wrapper_null_unboxing,
                                 enable_optional_types_),
-          expr.id());
+          expr.id(), /*stack_delta=*/0);
       return;
     }
     AddStep(CreateSelectStep(std::move(field), select_expr.test_only(),
                              options_.enable_empty_wrapper_null_unboxing,
                              enable_optional_types_),
-            expr.id());
+            expr.id(), /*stack_delta=*/0);
   }
 
   // Call node handler group.
@@ -1296,7 +1307,17 @@ class FlatExprVisitor : public cel::AstVisitor {
         }
       }
     }
-    AddStep(CreateCreateListStep(list_expr), expr.id());
+    absl::flat_hash_set<size_t> optional_indices =
+        MakeOptionalIndicesSet(list_expr);
+    for (size_t index : optional_indices) {
+      if (!ValidateOrError(index < list_expr.elements().size(),
+                           "Optional index out of range: ", index,
+                           ", list size: ", list_expr.elements().size())) {
+        return;
+      }
+    }
+    AddStep(CreateCreateListStep(list_expr.elements().size(),
+                                 std::move(optional_indices), expr.id()));
   }
 
   // CreateStruct node handler.
@@ -1318,9 +1339,14 @@ class FlatExprVisitor : public cel::AstVisitor {
     std::vector<std::string> fields =
         std::move(status_or_resolved_fields.value().second);
 
+    size_t num_fields = fields.size();
+    int64_t stack_delta =
+        num_fields <= static_cast<size_t>(std::numeric_limits<int64_t>::max())
+            ? 1 - static_cast<int64_t>(num_fields)
+            : std::numeric_limits<int16_t>::max();
     AddStep(CreateCreateStructStep(std::move(resolved_name), std::move(fields),
                                    MakeOptionalIndicesSet(struct_expr)),
-            expr.id());
+            expr.id(), stack_delta);
   }
 
   void PostVisitMap(const cel::Expr& expr,
@@ -1341,9 +1367,15 @@ class FlatExprVisitor : public cel::AstVisitor {
       }
     }
 
-    AddStep(CreateCreateStructStepForMap(map_expr.entries().size(),
+    size_t num_entries = map_expr.entries().size();
+    int64_t stack_delta =
+        num_entries <=
+                static_cast<size_t>(std::numeric_limits<int64_t>::max() / 2)
+            ? 1 - 2 * static_cast<int64_t>(num_entries)
+            : std::numeric_limits<int16_t>::max();
+    AddStep(CreateCreateStructStepForMap(num_entries,
                                          MakeOptionalIndicesSet(map_expr)),
-            expr.id());
+            expr.id(), stack_delta);
   }
 
   absl::Status progress_status() const { return progress_status_; }
@@ -1406,11 +1438,11 @@ class FlatExprVisitor : public cel::AstVisitor {
   // may free the step at that point.
   template <typename T>
   std::enable_if_t<std::is_base_of_v<ExpressionStepLogic, T>, T*> AddStep(
-      std::unique_ptr<T> step, int64_t expr_id = -1) {
+      std::unique_ptr<T> step, int64_t expr_id = -1, int64_t stack_delta = 1) {
     if (progress_status_.ok() && !PlanningSuppressed()) {
       T* ptr = step.get();
-      program_builder_.AddStep(
-          ExpressionStep::MakeGenericStep(std::move(step), expr_id));
+      program_builder_.AddStep(ExpressionStep::MakeGenericStep(
+          std::move(step), expr_id, stack_delta));
       return ptr;
     }
     return nullptr;
@@ -1418,9 +1450,10 @@ class FlatExprVisitor : public cel::AstVisitor {
 
   template <typename T>
   std::enable_if_t<std::is_base_of_v<ExpressionStepLogic, T>, T*> AddStep(
-      absl::StatusOr<std::unique_ptr<T>> step, int64_t expr_id = -1) {
+      absl::StatusOr<std::unique_ptr<T>> step, int64_t expr_id = -1,
+      int64_t stack_delta = 1) {
     if (step.ok()) {
-      return AddStep(*std::move(step), expr_id);
+      return AddStep(*std::move(step), expr_id, stack_delta);
     } else {
       SetProgressStatusIfError(step.status());
     }
@@ -1659,7 +1692,7 @@ FlatExprVisitor::CallHandlerResult FlatExprVisitor::HandleIndex(
   }
 
   AddStep(CreateContainerAccessStep(call_expr, enable_optional_types_),
-          expr.id());
+          expr.id(), /*stack_delta=*/-1);
   return CallHandlerResult::kIntercepted;
 }
 
@@ -1972,7 +2005,7 @@ void ExhaustiveTernaryCondVisitor::PreVisit(const cel::Expr* expr) {
 }
 
 void ExhaustiveTernaryCondVisitor::PostVisit(const cel::Expr* expr) {
-  visitor_->AddStep(CreateTernaryStep(), expr->id());
+  visitor_->AddStep(CreateTernaryStep(), expr->id(), /*stack_delta=*/-2);
 }
 
 void ComprehensionVisitor::PreVisit(const cel::Expr* expr) {
@@ -2163,6 +2196,52 @@ std::vector<ExecutionPathView> FlattenExpressionTable(
   return subexpression_indexes;
 }
 
+std::optional<int64_t> CheckedDeltaAdd(int64_t current,
+                                       std::optional<int64_t> delta) {
+  if (!delta.has_value()) {
+    return std::nullopt;
+  }
+  if (*delta > 0 && current > std::numeric_limits<int64_t>::max() - *delta) {
+    return std::nullopt;
+  }
+  if (*delta < 0 && current < std::numeric_limits<int64_t>::min() - *delta) {
+    return std::nullopt;
+  }
+  current += *delta;
+  if (current < 0) {
+    return std::nullopt;
+  }
+  return current;
+}
+
+// Conservative estimate of the maximum value stack size needed for the given
+// subexpressions.
+//
+// If overflow occurs, returns fallback_size, which is the total number of
+// steps in the program.
+size_t EstimateMaxStackSize(absl::Span<const ExecutionPathView> subexpressions,
+                            size_t fallback_size) {
+  size_t total_max_stack = 0;
+  for (ExecutionPathView path : subexpressions) {
+    int64_t current = 0;
+    int64_t max_depth = 0;
+    for (const ExpressionStep& step : path) {
+      std::optional<int64_t> next = CheckedDeltaAdd(current, step.StackDelta());
+      if (!next.has_value()) {
+        return fallback_size;
+      }
+      current = *next;
+      max_depth = std::max(max_depth, current);
+    }
+    if (static_cast<uint64_t>(max_depth) >
+        std::numeric_limits<size_t>::max() - total_max_stack) {
+      return fallback_size;
+    }
+    total_max_stack += static_cast<size_t>(max_depth);
+  }
+  return total_max_stack;
+}
+
 absl::Status CheckAstExtensions(
     const std::vector<cel::ExtensionSpec>& extensions) {
   for (const cel::ExtensionSpec& extension : extensions) {
@@ -2260,10 +2339,12 @@ absl::StatusOr<FlatExpression> FlatExprBuilder::CreateExpressionImpl(
   ExecutionPath execution_path;
   std::vector<ExecutionPathView> subexpressions =
       FlattenExpressionTable(program_builder, execution_path);
+  size_t value_stack_size =
+      EstimateMaxStackSize(subexpressions, execution_path.size());
 
   return FlatExpression(std::move(execution_path), std::move(subexpressions),
                         visitor.slot_count(), GetTypeProvider(), options_,
-                        std::move(arena));
+                        std::move(arena), value_stack_size);
 }
 const cel::TypeProvider& FlatExprBuilder::GetTypeProvider() const {
   return use_legacy_type_provider_
