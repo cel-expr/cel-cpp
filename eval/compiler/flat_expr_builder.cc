@@ -282,12 +282,15 @@ size_t SizeHint(const cel::Expr& expr) {
 // macro implementation. It is not exhaustive, so it is unsafe to use with
 // custom comprehensions outside of the standard macros or hand crafted ASTs.
 bool IsOptimizableListAppend(const cel::ComprehensionExpr* comprehension,
-                             bool enable_comprehension_list_append) {
+                             bool enable_comprehension_list_append,
+                             bool short_circuiting = true) {
   if (!enable_comprehension_list_append) {
     return false;
   }
   absl::string_view accu_var = comprehension->accu_var();
-  if (accu_var.empty() ||
+  if (accu_var.empty() || !absl::StartsWith(accu_var, "@") ||
+      !comprehension->has_result() ||
+      !comprehension->result().has_ident_expr() ||
       comprehension->result().ident_expr().name() != accu_var) {
     return false;
   }
@@ -308,7 +311,9 @@ bool IsOptimizableListAppend(const cel::ComprehensionExpr* comprehension,
 
   if (call_expr->function() == cel::builtin::kTernary &&
       call_expr->args().size() == 3) {
-    if (!call_expr->args()[1].has_call_expr()) {
+    if (!short_circuiting || !call_expr->args()[1].has_call_expr() ||
+        !call_expr->args()[2].has_ident_expr() ||
+        call_expr->args()[2].ident_expr().name() != accu_var) {
       return false;
     }
     call_expr = &(call_expr->args()[1].call_expr());
@@ -319,7 +324,8 @@ bool IsOptimizableListAppend(const cel::ComprehensionExpr* comprehension,
          call_expr->args()[0].has_ident_expr() &&
          call_expr->args()[0].ident_expr().name() == accu_var &&
          call_expr->args()[1].has_list_expr() &&
-         call_expr->args()[1].list_expr().elements().size() == 1;
+         call_expr->args()[1].list_expr().elements().size() == 1 &&
+         !call_expr->args()[1].list_expr().elements()[0].optional();
 }
 
 // Assuming `IsOptimizableListAppend()` return true, return a pointer to the
@@ -353,7 +359,8 @@ const cel::Expr* GetOptimizableListAppendOperand(
 // map transformations. It is not exhaustive, so it is unsafe to use with custom
 // comprehensions outside of the standard macros or hand crafted ASTs.
 bool IsOptimizableMapInsert(const cel::ComprehensionExpr* comprehension,
-                            bool enable_comprehension_mutable_map) {
+                            bool enable_comprehension_mutable_map,
+                            bool short_circuiting = true) {
   if (!enable_comprehension_mutable_map) {
     return false;
   }
@@ -361,12 +368,14 @@ bool IsOptimizableMapInsert(const cel::ComprehensionExpr* comprehension,
     return false;
   }
   absl::string_view accu_var = comprehension->accu_var();
-  if (accu_var.empty() || !comprehension->has_result() ||
+  if (accu_var.empty() || !absl::StartsWith(accu_var, "@") ||
+      !comprehension->has_result() ||
       !comprehension->result().has_ident_expr() ||
       comprehension->result().ident_expr().name() != accu_var) {
     return false;
   }
-  if (!comprehension->accu_init().has_map_expr()) {
+  if (!comprehension->accu_init().has_map_expr() ||
+      !comprehension->accu_init().map_expr().entries().empty()) {
     return false;
   }
   if (!comprehension->loop_step().has_call_expr()) {
@@ -376,7 +385,9 @@ bool IsOptimizableMapInsert(const cel::ComprehensionExpr* comprehension,
 
   if (call_expr->function() == cel::builtin::kTernary &&
       call_expr->args().size() == 3) {
-    if (!call_expr->args()[1].has_call_expr()) {
+    if (!short_circuiting || !call_expr->args()[1].has_call_expr() ||
+        !call_expr->args()[2].has_ident_expr() ||
+        call_expr->args()[2].ident_expr().name() != accu_var) {
       return false;
     }
     call_expr = &(call_expr->args()[1].call_expr());
@@ -1141,10 +1152,12 @@ class FlatExprVisitor : public cel::AstVisitor {
          /*subexpression=*/-1,
          /*.is_optimizable_list_append=*/
          IsOptimizableListAppend(&comprehension,
-                                 options_.enable_comprehension_list_append),
+                                 options_.enable_comprehension_list_append,
+                                 options_.short_circuiting),
          /*.is_optimizable_map_insert=*/
          IsOptimizableMapInsert(&comprehension,
-                                options_.enable_comprehension_mutable_map),
+                                options_.enable_comprehension_mutable_map,
+                                options_.short_circuiting),
          /*.is_optimizable_bind=*/is_bind,
          /*.iter_var_in_scope=*/false,
          /*.iter_var2_in_scope=*/false,

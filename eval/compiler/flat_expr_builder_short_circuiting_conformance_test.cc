@@ -11,6 +11,7 @@
 #include "absl/strings/string_view.h"
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
 #include "eval/public/activation.h"
+#include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_expression.h"
 #include "eval/public/cel_value.h"
@@ -37,13 +38,12 @@ using ::testing::SizeIs;
 void BuildAndEval(CelExpressionBuilder* builder, const Expr& expr,
                   const Activation& activation, google::protobuf::Arena* arena,
                   CelValue* result) {
-  ASSERT_OK_AND_ASSIGN(auto expression,
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> expression,
                        builder->CreateExpression(&expr, nullptr));
 
-  auto value = expression->Evaluate(activation, arena);
-  ASSERT_OK(value);
+  ASSERT_OK_AND_ASSIGN(CelValue value, expression->Evaluate(activation, arena));
 
-  *result = *value;
+  *result = value;
 }
 
 class ShortCircuitingTest
@@ -53,15 +53,18 @@ class ShortCircuitingTest
   bool enable_variadic() const { return std::get<1>(GetParam()); }
 
   std::unique_ptr<CelExpressionBuilder> GetBuilder(
-      bool enable_unknowns = false) {
+      bool enable_unknowns = false,
+      bool enable_comprehension_list_append = false) {
     cel::RuntimeOptions options;
     options.short_circuiting = short_circuiting();
+    options.enable_comprehension_list_append = enable_comprehension_list_append;
     if (enable_unknowns) {
       options.unknown_processing =
           cel::UnknownProcessingOptions::kAttributeAndFunction;
     }
     auto result = std::make_unique<CelExpressionBuilderFlatImpl>(
         NewTestingRuntimeEnv(), options);
+    ABSL_CHECK_OK(RegisterBuiltinFunctions(result->GetRegistry()));
     return result;
   }
 
@@ -417,6 +420,69 @@ TEST_P(ShortCircuitingTest, TernaryUnknownAndErrorHandling) {
   const auto& attrs = result.UnknownSetOrDie()->unknown_attributes();
   ASSERT_THAT(attrs, SizeIs(1));
   EXPECT_EQ(attrs.begin()->variable_name(), "cond");
+}
+
+TEST_P(ShortCircuitingTest, FilterComprehension) {
+  Expr expr = ParseExpr("[1, 2, 3, 4].filter(x, x > 2) == [3, 4]");
+  Expr empty_expr = ParseExpr("[1, 2, 3].filter(x, false) == []");
+  Activation activation;
+  google::protobuf::Arena arena;
+
+  for (bool enable_list_append : {false, true}) {
+    std::unique_ptr<CelExpressionBuilder> builder =
+        GetBuilder(/*enable_unknowns=*/false, enable_list_append);
+
+    CelValue result;
+    ASSERT_NO_FATAL_FAILURE(
+        BuildAndEval(builder.get(), expr, activation, &arena, &result));
+    ASSERT_TRUE(result.IsBool()) << result.DebugString();
+    EXPECT_TRUE(result.BoolOrDie());
+
+    ASSERT_NO_FATAL_FAILURE(
+        BuildAndEval(builder.get(), empty_expr, activation, &arena, &result));
+    ASSERT_TRUE(result.IsBool()) << result.DebugString();
+    EXPECT_TRUE(result.BoolOrDie());
+  }
+}
+
+TEST_P(ShortCircuitingTest, MapWithFilterComprehension) {
+  Expr expr = ParseExpr("[1, 2, 3, 4].map(x, x % 2 == 1, x * 10) == [10, 30]");
+  Expr empty_expr = ParseExpr("[1, 2, 3].map(x, false, x * 10) == []");
+  Activation activation;
+  google::protobuf::Arena arena;
+
+  for (bool enable_list_append : {false, true}) {
+    std::unique_ptr<CelExpressionBuilder> builder =
+        GetBuilder(/*enable_unknowns=*/false, enable_list_append);
+
+    CelValue result;
+    ASSERT_NO_FATAL_FAILURE(
+        BuildAndEval(builder.get(), expr, activation, &arena, &result));
+    ASSERT_TRUE(result.IsBool()) << result.DebugString();
+    EXPECT_TRUE(result.BoolOrDie());
+
+    ASSERT_NO_FATAL_FAILURE(
+        BuildAndEval(builder.get(), empty_expr, activation, &arena, &result));
+    ASSERT_TRUE(result.IsBool()) << result.DebugString();
+    EXPECT_TRUE(result.BoolOrDie());
+  }
+}
+
+TEST_P(ShortCircuitingTest, MapComprehension) {
+  Expr expr = ParseExpr("[1, 2, 3].map(x, x * 10) == [10, 20, 30]");
+  Activation activation;
+  google::protobuf::Arena arena;
+
+  for (bool enable_list_append : {false, true}) {
+    std::unique_ptr<CelExpressionBuilder> builder =
+        GetBuilder(/*enable_unknowns=*/false, enable_list_append);
+
+    CelValue result;
+    ASSERT_NO_FATAL_FAILURE(
+        BuildAndEval(builder.get(), expr, activation, &arena, &result));
+    ASSERT_TRUE(result.IsBool()) << result.DebugString();
+    EXPECT_TRUE(result.BoolOrDie());
+  }
 }
 
 std::string TestName(testing::TestParamInfo<std::tuple<bool, bool>> info) {
