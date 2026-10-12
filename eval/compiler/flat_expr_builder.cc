@@ -70,6 +70,7 @@
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_logic.h"
 #include "eval/eval/function_step.h"
+#include "eval/eval/ident_step.h"
 #include "eval/eval/optional_or_step.h"
 #include "eval/eval/select_step.h"
 #include "eval/eval/shadowable_value_step.h"
@@ -105,7 +106,12 @@ class FlatExprVisitor;
 // Helper for bookkeeping variables mapped to indexes.
 class IndexManager {
  public:
-  IndexManager() : next_free_slot_(0), max_slot_count_(0) {}
+  IndexManager()
+      : next_free_slot_(0),
+        max_slot_count_(0),
+        iter_stack_count_(0),
+        max_iter_stack_count_(0),
+        lazy_iter_stack_count_(0) {}
 
   size_t ReserveSlots(size_t n) {
     size_t result = next_free_slot_;
@@ -121,11 +127,30 @@ class IndexManager {
     return next_free_slot_;
   }
 
+  void ReserveIterStack() {
+    ++iter_stack_count_;
+    max_iter_stack_count_ = std::max(max_iter_stack_count_, iter_stack_count_);
+  }
+  void ReleaseIterStack() { --iter_stack_count_; }
+  void AddLazyIterStack() { ++lazy_iter_stack_count_; }
+
   size_t max_slot_count() const { return max_slot_count_; }
+
+  // Returns the maximum number of iterator stack slots required to evaluate the
+  // expression by tracking the maximum comprehension nesting in the main
+  // expression and dedicating a slot for any comprehensions evaluated lazily.
+  // This is not as tight as possible, but is a correct upper bound estimate and
+  // is tight for small expressions.
+  size_t IterStackRequirement() const {
+    return max_iter_stack_count_ + lazy_iter_stack_count_;
+  }
 
  private:
   size_t next_free_slot_;
   size_t max_slot_count_;
+  size_t iter_stack_count_;
+  size_t max_iter_stack_count_;
+  size_t lazy_iter_stack_count_;
 };
 
 // Helper for computing jump offsets.
@@ -844,8 +869,12 @@ class FlatExprVisitor : public cel::AstVisitor {
       return;
     }
 
+    if (PlanningSuppressed()) {
+      return;
+    }
     absl::string_view ident_name = absl::StripPrefix(ident_expr.name(), ".");
-      AddStep(ExpressionStep::MakeIdentifierStep(ident_name, expr.id()));
+    size_t ident_index = AddOrUpdateIdentifier(ident_name);
+    AddStep(ExpressionStep::MakeIdentifierStep(ident_index, expr.id()));
   }
 
   void PreVisitSelect(const cel::Expr& expr,
@@ -1121,19 +1150,32 @@ class FlatExprVisitor : public cel::AstVisitor {
         slot_count = 0;
       }
     }
+
     // If this is in the scope of an optimized bind accu-init, account the slots
     // to the outermost bind-init scope.
     //
     // The init expression is effectively inlined at the first usage in the
     // critical path (which is unknown at plan time), so the used slots need to
     // be dedicated for the entire scope of that bind.
+    bool in_bind_init = false;
     for (ComprehensionStackRecord& record : comprehension_stack_) {
       if (record.in_accu_init && record.is_optimizable_bind) {
         record.slot_count += slot_count;
         slot_count = 0;
+        in_bind_init = true;
         break;
       }
       // If no bind init subexpression, account normally.
+    }
+
+    const bool is_stack_releasable =
+        !in_bind_init && (!block_.has_value() || !block_->in);
+    if (!is_bind) {
+      if (is_stack_releasable) {
+        index_manager_.AddLazyIterStack();
+      } else {
+        index_manager_.ReserveIterStack();
+      }
     }
 
     comprehension_stack_.push_back(
@@ -1146,6 +1188,7 @@ class FlatExprVisitor : public cel::AstVisitor {
          IsOptimizableMapInsert(&comprehension,
                                 options_.enable_comprehension_mutable_map),
          /*.is_optimizable_bind=*/is_bind,
+         /*.is_stack_releasable=*/is_stack_releasable,
          /*.iter_var_in_scope=*/false,
          /*.iter_var2_in_scope=*/false,
          /*.accu_var_in_scope=*/false,
@@ -1172,6 +1215,9 @@ class FlatExprVisitor : public cel::AstVisitor {
     record.visitor->PostVisit(&expr);
 
     index_manager_.ReleaseSlots(record.slot_count);
+    if (record.is_stack_releasable) {
+      index_manager_.ReleaseIterStack();
+    }
     comprehension_stack_.pop_back();
   }
 
@@ -1463,6 +1509,23 @@ class FlatExprVisitor : public cel::AstVisitor {
 
   size_t slot_count() const { return index_manager_.max_slot_count(); }
 
+  size_t iter_stack_count() const {
+    return index_manager_.IterStackRequirement();
+  }
+
+  IdentifierTable BuildIdentifierTable(size_t& total_slot_count) && {
+    IdentifierTable table;
+    table.reserve(identifiers_.size());
+    for (IdentifierRecord& record : identifiers_) {
+      size_t slot_index = Identifier::kNoSlot;
+      if (record.in_comprehension || record.count > 1) {
+        slot_index = total_slot_count++;
+      }
+      table.push_back(Identifier{std::move(record.name), slot_index});
+    }
+    return table;
+  }
+
   void AddOptimizer(std::unique_ptr<ProgramOptimizer> optimizer) {
     program_optimizers_.push_back(std::move(optimizer));
   }
@@ -1482,6 +1545,13 @@ class FlatExprVisitor : public cel::AstVisitor {
   }
 
  private:
+  struct IdentifierRecord {
+    std::string name;
+    size_t ident_index;
+    size_t count = 0;
+    bool in_comprehension = false;
+  };
+
   struct ComprehensionStackRecord {
     const cel::Expr* expr;
     const cel::ComprehensionExpr* comprehension;
@@ -1494,6 +1564,7 @@ class FlatExprVisitor : public cel::AstVisitor {
     bool is_optimizable_list_append;
     bool is_optimizable_map_insert;
     bool is_optimizable_bind;
+    bool is_stack_releasable;
     bool iter_var_in_scope;
     bool iter_var2_in_scope;
     bool accu_var_in_scope;
@@ -1613,6 +1684,8 @@ class FlatExprVisitor : public cel::AstVisitor {
 
   void MaybeResolveType(const cel::Expr& expr);
 
+  size_t AddOrUpdateIdentifier(absl::string_view name);
+
   const Resolver& resolver_;
   const cel::TypeProvider& type_provider_;
   absl::Status progress_status_;
@@ -1641,6 +1714,8 @@ class FlatExprVisitor : public cel::AstVisitor {
   ProgramBuilder& program_builder_;
   PlannerContext& extension_context_;
   IndexManager index_manager_;
+  std::vector<IdentifierRecord> identifiers_;
+  absl::flat_hash_map<std::string, size_t> identifier_map_;
 
   bool enable_optional_types_;
   std::optional<FlatExprVisitor::BlockInfo> block_;
@@ -1785,6 +1860,28 @@ void FlatExprVisitor::MaybeResolveType(const cel::Expr& expr) {
     return;
   }
   SetResolvedType(expr, *type);
+}
+
+size_t FlatExprVisitor::AddOrUpdateIdentifier(absl::string_view name) {
+  auto it = identifier_map_.find(name);
+  if (it == identifier_map_.end()) {
+    size_t index = identifiers_.size();
+    it = identifier_map_.emplace(name, index).first;
+    identifiers_.push_back(
+        IdentifierRecord{std::string(name), index, 0, false});
+  }
+  IdentifierRecord& record = identifiers_[it->second];
+  record.count++;
+  if (record.in_comprehension) {
+    return record.ident_index;
+  }
+  for (const ComprehensionStackRecord& comp : comprehension_stack_) {
+    if (!comp.is_optimizable_bind) {
+      record.in_comprehension = true;
+      break;
+    }
+  }
+  return record.ident_index;
 }
 
 void LogicalCondVisitor::PreVisit(const cel::Expr* expr) {
@@ -2244,7 +2341,12 @@ absl::StatusOr<FlatExpression> FlatExprBuilder::CreateExpressionImpl(
     return visitor.progress_status();
   }
 
-  if (visitor.slot_count() > std::numeric_limits<uint32_t>::max() ||
+  size_t total_slot_count = visitor.slot_count();
+  size_t iterator_stack_size = visitor.iter_stack_count();
+  IdentifierTable identifiers =
+      std::move(visitor).BuildIdentifierTable(total_slot_count);
+
+  if (total_slot_count > std::numeric_limits<uint32_t>::max() ||
       program_builder.ExtractedSubexpressionCount() >
           std::numeric_limits<uint32_t>::max()) {
     // Impractical to trigger (we'd run out of memory first), but assuming this
@@ -2262,8 +2364,9 @@ absl::StatusOr<FlatExpression> FlatExprBuilder::CreateExpressionImpl(
       FlattenExpressionTable(program_builder, execution_path);
 
   return FlatExpression(std::move(execution_path), std::move(subexpressions),
-                        visitor.slot_count(), GetTypeProvider(), options_,
-                        std::move(arena));
+                        total_slot_count, iterator_stack_size,
+                        GetTypeProvider(), options_, std::move(arena),
+                        std::move(identifiers));
 }
 const cel::TypeProvider& FlatExprBuilder::GetTypeProvider() const {
   return use_legacy_type_provider_

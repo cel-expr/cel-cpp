@@ -75,8 +75,9 @@ class ConstantFoldingExtension : public ProgramOptimizer {
       const TypeProvider& type_provider)
       : shared_arena_(std::move(shared_arena)),
         shared_message_factory_(std::move(shared_message_factory)),
-        state_(kDefaultStackLimit, kComprehensionSlotCount, type_provider,
-               descriptor_pool, message_factory, arena) {}
+        state_(kDefaultStackLimit, kComprehensionSlotCount,
+               /*iterator_stack_size=*/0, type_provider, descriptor_pool,
+               message_factory, arena) {}
 
   absl::Status OnPreVisit(google::api::expr::runtime::PlannerContext& context,
                           const Expr& node) override;

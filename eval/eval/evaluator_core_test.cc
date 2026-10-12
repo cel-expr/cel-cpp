@@ -84,7 +84,7 @@ TEST(EvaluatorCoreTest, ExecutionFrameNext) {
   cel::Activation activation;
   FlatExpressionEvaluatorState state(
       path.size(),
-      /*comprehension_slots_size=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
   ExecutionFrame frame(path, activation, options, state);
@@ -111,7 +111,7 @@ TEST(EvaluatorCoreTest, JumpOutOfRangeAborts) {
   cel::Activation activation;
   FlatExpressionEvaluatorState state(
       path.size(),
-      /*comprehension_slots_size=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
   ExecutionFrame frame(path, activation, options, state);
@@ -190,7 +190,7 @@ TEST(EvaluatorCoreTest, SimpleEvaluatorTest) {
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), 0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr, {}));
 
   Activation activation;
   google::protobuf::Arena arena;
@@ -214,7 +214,8 @@ TEST(EvaluatorCoreTest, MakeConstant) {
       [&](const cel::Value& value) -> absl::StatusOr<cel::Value> {
     ExecutionPath path;
     path.push_back(ExpressionStep::MakeConstant(value));
-    FlatExpression expr(std::move(path), 0, type_provider, options);
+    FlatExpression expr(std::move(path), 0, type_provider, options,
+                        /*arena=*/nullptr, {});
     auto state = expr.MakeEvaluatorState(
         cel::internal::GetTestingDescriptorPool(),
         cel::internal::GetTestingMessageFactory(), &arena);
@@ -279,7 +280,7 @@ TEST(EvaluatorCoreTest, TraceFilterById) {
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), 0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr, {}));
 
   Activation activation;
   google::protobuf::Arena arena;

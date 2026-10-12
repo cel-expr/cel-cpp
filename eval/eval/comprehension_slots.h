@@ -150,7 +150,7 @@ class ComprehensionSlots final {
   size_t size() const { return slots_.size(); }
 
  private:
-  absl::FixedArray<ComprehensionSlot, 0> slots_;
+  absl::FixedArray<ComprehensionSlot, 4> slots_;
 };
 
 }  // namespace google::api::expr::runtime

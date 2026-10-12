@@ -81,7 +81,7 @@ TEST(IterativeTest, PartialAttrUnknown) {
 
   FlatExpressionEvaluatorState state(
       /*value_stack_size=*/5,
-      /*comprehension_slot_count=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 
@@ -113,7 +113,7 @@ TEST(IterativeTest, PartialAttrUnknownDisabled) {
 
   FlatExpressionEvaluatorState state(
       /*value_stack_size=*/5,
-      /*comprehension_slot_count=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 
@@ -183,7 +183,7 @@ TEST_P(EqualsTest, Iterative) {
 
   FlatExpressionEvaluatorState state(
       /*value_stack_size=*/5,
-      /*comprehension_slot_count=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 
@@ -328,7 +328,7 @@ TEST_P(InTest, Iterative) {
 
   FlatExpressionEvaluatorState state(
       /*value_stack_size=*/5,
-      /*comprehension_slot_count=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
 

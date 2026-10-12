@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "absl/base/nullability.h"
+#include "absl/container/inlined_vector.h"
 #include "absl/log/absl_check.h"
 #include "common/value.h"
 
@@ -92,7 +93,7 @@ class IteratorStack final {
   }
 
  private:
-  std::vector<Entry> entries_;
+  absl::InlinedVector<Entry, 2> entries_;
   size_t max_size_;
 };
 

@@ -74,7 +74,8 @@ absl::StatusOr<CelValue> RunExpression(
 
       FlatExpression(std::move(path),
                      /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+                     env->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, {}));
   Activation activation;
 
   return cel_expr.Evaluate(activation, arena);
@@ -89,6 +90,7 @@ absl::StatusOr<CelValue> RunExpressionWithCelValues(
   Expr dummy_expr;
 
   Activation activation;
+  IdentifierTable identifiers;
   auto& create_list = dummy_expr.mutable_list_expr();
   int ind = 0;
   for (auto value : values) {
@@ -97,7 +99,8 @@ absl::StatusOr<CelValue> RunExpressionWithCelValues(
     expr0.set_id(ind);
     expr0.mutable_ident_expr().set_name(var_name);
 
-    path.push_back(ExpressionStep::MakeIdentifierStep(var_name));
+    path.push_back(ExpressionStep::MakeIdentifierStep(identifiers.size()));
+    identifiers.push_back(Identifier{var_name});
     activation.InsertValue(var_name, value);
   }
 
@@ -111,9 +114,9 @@ absl::StatusOr<CelValue> RunExpressionWithCelValues(
   }
 
   CelExpressionFlatImpl cel_expr(
-      env,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr, std::move(identifiers)));
 
   return cel_expr.Evaluate(activation, arena);
 }
@@ -145,7 +148,7 @@ TEST(CreateListStepTest, TestCreateListStackUnderflow) {
   CelExpressionFlatImpl cel_expr(
       env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr, {}));
   Activation activation;
 
   google::protobuf::Arena arena;
