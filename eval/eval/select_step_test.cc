@@ -290,26 +290,6 @@ TEST_F(SelectStepTest, MapPresenseIsErrorTest) {
   EXPECT_EQ(result.ErrorOrDie()->code(), absl::StatusCode::kInvalidArgument);
 }
 
-TEST_F(SelectStepTest, MapPresenseIsTrueWithUnknownTest) {
-  UnknownSet unknown_set;
-  std::string key1 = "key1";
-  std::vector<std::pair<CelValue, CelValue>> key_values{
-      {CelValue::CreateString(&key1),
-       CelValue::CreateUnknownSet(&unknown_set)}};
-
-  auto map_value = CreateContainerBackedMap(
-                       absl::Span<std::pair<CelValue, CelValue>>(key_values))
-                       .value();
-
-  RunExpressionOptions options;
-  options.enable_unknowns = true;
-
-  ASSERT_OK_AND_ASSIGN(CelValue result,
-                       RunExpression(map_value.get(), "key1", true, options));
-  ASSERT_TRUE(result.IsBool());
-  EXPECT_EQ(result.BoolOrDie(), true);
-}
-
 TEST_P(SelectStepConformanceTest, FieldIsNotPresentInProtoTest) {
   TestMessage message;
 

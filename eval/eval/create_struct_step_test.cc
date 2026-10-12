@@ -229,34 +229,6 @@ TEST(CreateCreateStructStepTest, TestMessageCreateErrorRecursive) {
               StatusIs(absl::StatusCode::kCancelled));
 }
 
-// Test message creation if unknown argument is passed
-TEST(CreateCreateStructStepTest, TestMessageCreateWithUnknown) {
-  absl_nonnull std::shared_ptr<const RuntimeEnv> env = NewTestingRuntimeEnv();
-  Arena arena;
-  TestMessage test_msg;
-  UnknownSet unknown_set;
-
-  auto eval_status =
-      RunExpression(env, "bool_value", CelValue::CreateUnknownSet(&unknown_set),
-                    &arena, true, /*enable_recursive_planning=*/false);
-  ASSERT_THAT(eval_status, IsOk());
-  ASSERT_TRUE(eval_status->IsUnknownSet());
-}
-
-// Test message creation if unknown argument is passed
-TEST(CreateCreateStructStepTest, TestMessageCreateWithUnknownRecursive) {
-  absl_nonnull std::shared_ptr<const RuntimeEnv> env = NewTestingRuntimeEnv();
-  Arena arena;
-  TestMessage test_msg;
-  UnknownSet unknown_set;
-
-  auto eval_status =
-      RunExpression(env, "bool_value", CelValue::CreateUnknownSet(&unknown_set),
-                    &arena, true, /*enable_recursive_planning=*/true);
-  ASSERT_THAT(eval_status, IsOk());
-  ASSERT_TRUE(eval_status->IsUnknownSet()) << eval_status->DebugString();
-}
-
 // Test that fields of type bool are set correctly
 TEST_P(CreateCreateStructStepTest, TestSetBoolField) {
   TestMessage test_msg;

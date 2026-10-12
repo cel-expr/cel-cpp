@@ -111,6 +111,39 @@ cc_test(
 )
 
 cc_test(
+    name = "modern_unknown_test",
+    srcs = [
+        "modern_unknown_test.cc",
+    ],
+    deps = [
+        "//base:attributes",
+        "//common:value",
+        "//extensions:bindings_ext",
+        "//extensions:comprehensions_v2_macros",
+        "//internal:testing",
+        "//internal:testing_descriptor_pool",
+        "//internal:testing_message_factory",
+        "//parser",
+        "//parser:options",
+        "//parser:parser_interface",
+        "//runtime",
+        "//runtime:activation",
+        "//runtime:constant_folding",
+        "//runtime:optional_types",
+        "//runtime:reference_resolver",
+        "//runtime:runtime_options",
+        "//runtime:standard_runtime_builder_factory",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_protobuf//:protobuf",
+        "@com_google_protobuf//:struct_cc_proto",
+    ],
+)
+
+cc_test(
     name = "allocation_benchmark_test",
     size = "small",
     srcs = [
