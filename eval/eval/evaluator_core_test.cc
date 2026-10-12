@@ -142,6 +142,13 @@ TEST(EvaluatorCoreTest, TestStepDataAccessors) {
   EXPECT_EQ(GetIfTernaryJumpStep(static_cast<ExpressionStep*>(nullptr)),
             nullptr);
 
+  ExpressionStep ident_step = ExpressionStep::MakeIdentifierStep(1, 2, 3);
+  ASSERT_NE(GetIfIdentStep(ident_step), nullptr);
+  EXPECT_EQ(GetIfIdentStep(ident_step)->ident_index, 1);
+  EXPECT_EQ(GetIfIdentStep(ident_step)->slot_index, 2);
+  EXPECT_NE(GetIfIdentStep(&ident_step), nullptr);
+  EXPECT_EQ(GetIfIdentStep(static_cast<ExpressionStep*>(nullptr)), nullptr);
+
   ExpressionStep comp_cond = ExpressionStep::MakeComprehensionCondStep();
   EXPECT_NE(GetIfComprehensionCondStep(comp_cond), nullptr);
 
@@ -190,7 +197,7 @@ TEST(EvaluatorCoreTest, SimpleEvaluatorTest) {
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), 0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr, {}));
 
   Activation activation;
   google::protobuf::Arena arena;
@@ -214,7 +221,8 @@ TEST(EvaluatorCoreTest, MakeConstant) {
       [&](const cel::Value& value) -> absl::StatusOr<cel::Value> {
     ExecutionPath path;
     path.push_back(ExpressionStep::MakeConstant(value));
-    FlatExpression expr(std::move(path), 0, type_provider, options);
+    FlatExpression expr(std::move(path), 0, type_provider, options,
+                        /*arena=*/nullptr, {});
     auto state = expr.MakeEvaluatorState(
         cel::internal::GetTestingDescriptorPool(),
         cel::internal::GetTestingMessageFactory(), &arena);
@@ -279,7 +287,7 @@ TEST(EvaluatorCoreTest, TraceFilterById) {
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), 0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr, {}));
 
   Activation activation;
   google::protobuf::Arena arena;

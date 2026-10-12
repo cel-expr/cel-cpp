@@ -11,12 +11,15 @@
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "base/builtins.h"
 #include "base/type_provider.h"
 #include "common/ast.h"
 #include "common/expr.h"
 #include "eval/eval/cel_expression_flat_impl.h"
 #include "eval/eval/evaluator_core.h"
+#include "eval/eval/expression_step_logic.h"
+#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_expr_builder_factory.h"
@@ -75,18 +78,21 @@ CelValue EvaluateAttributeHelper(
   container_expr.mutable_ident_expr().set_name("container");
   key_expr.mutable_ident_expr().set_name("key");
 
-    path.push_back(ExpressionStep::MakeIdentifierStep("container", 1));
-    path.push_back(ExpressionStep::MakeIdentifierStep("key", 2));
-    path.push_back(ExpressionStep::MakeGenericStep(
-        std::move(CreateContainerAccessStep(call).value()), 3));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0, 1));
+  path.push_back(ExpressionStep::MakeIdentifierStep(1, 2));
+  absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> access_step =
+      CreateContainerAccessStep(call);
+  ABSL_CHECK_OK(access_step);  // Crash OK
+  path.push_back(ExpressionStep::MakeGenericStep(*std::move(access_step), 3));
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
   options.enable_heterogeneous_equality = false;
   CelExpressionFlatImpl cel_expr(
-      env,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path), /*comprehension_slot_count=*/2,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr,
+                          IdentifierTable{{"container", 0}, {"key", 1}}));
   Activation activation;
 
   activation.InsertValue("container", container);

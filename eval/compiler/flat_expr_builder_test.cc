@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,8 +42,12 @@
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
 #include "eval/compiler/constant_folding.h"
 #include "eval/compiler/qualified_reference_resolver.h"
+#include "eval/eval/cel_expression_flat_impl.h"
+#include "eval/eval/evaluator_core.h"
+#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/ast_rewrite.h"
+#include "eval/public/base_activation.h"
 #include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_expr_builder_factory.h"
@@ -3146,6 +3151,107 @@ TEST(FlatExprBuilderTest, ListAppendComprehensionWithTargetFailsPlanning) {
   EXPECT_THAT(
       builder.CreateExpression(&parsed_expr.expr(), &parsed_expr.source_info()),
       StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
+class CountingActivation : public BaseActivation {
+ public:
+  void InsertInt(absl::string_view name, int64_t val) {
+    values_[name] = CelValue::CreateInt64(val);
+  }
+
+  void InsertBool(absl::string_view name, bool val) {
+    values_[name] = CelValue::CreateBool(val);
+  }
+
+  std::vector<const CelFunction*> FindFunctionOverloads(
+      absl::string_view) const override {
+    return {};
+  }
+
+  std::optional<CelValue> FindValue(absl::string_view name,
+                                    google::protobuf::Arena*) const override {
+    lookup_counts_[name]++;
+    auto it = values_.find(name);
+    if (it != values_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  int LookupCount(absl::string_view name) const {
+    auto it = lookup_counts_.find(name);
+    return it != lookup_counts_.end() ? it->second : 0;
+  }
+
+ private:
+  absl::flat_hash_map<std::string, CelValue> values_;
+  mutable absl::flat_hash_map<std::string, int> lookup_counts_;
+};
+
+TEST(FlatExprBuilderTest, IdentifierTableRepeatedRootIdentifierReceivesSlot) {
+  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, parser::Parse("x + y + x"));
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  ASSERT_THAT(flat_expr.identifiers(), SizeIs(2));
+  EXPECT_EQ(flat_expr.identifiers()[0].name, "x");
+  EXPECT_EQ(flat_expr.identifiers()[0].slot_index, 0);
+  EXPECT_EQ(flat_expr.identifiers()[1].name, "y");
+  EXPECT_EQ(flat_expr.identifiers()[1].slot_index, 1);
+  EXPECT_EQ(flat_expr.comprehension_slots_size(), 2);
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 0);
+
+  CountingActivation activation;
+  activation.InsertInt("x", 10);
+  activation.InsertInt("y", 20);
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  EXPECT_THAT(result, test::IsCelInt64(40));
+  EXPECT_EQ(activation.LookupCount("x"), 1);
+  EXPECT_EQ(activation.LookupCount("y"), 1);
+}
+
+TEST(FlatExprBuilderTest,
+     IdentifierTableInComprehensionReceivesSlotAboveComprehensionSlots) {
+  ASSERT_OK_AND_ASSIGN(
+      ParsedExpr parsed_expr,
+      parser::Parse("[1, 2, 3].all(i, i < limit) && single_var"));
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  // Local comprehension variables (i, @result) are not in the root identifier
+  // table; only "limit" and "single_var" are present.
+  ASSERT_THAT(flat_expr.identifiers(), SizeIs(2));
+  EXPECT_EQ(flat_expr.identifiers()[0].name, "limit");
+  // Comprehension uses 2 slots (accu_var at 0, iter_var at 1), so "limit" gets
+  // slot 2 and "single_var" gets slot 3.
+  EXPECT_EQ(flat_expr.identifiers()[0].slot_index, 2);
+  EXPECT_EQ(flat_expr.identifiers()[1].name, "single_var");
+  EXPECT_EQ(flat_expr.identifiers()[1].slot_index, 3);
+  EXPECT_EQ(flat_expr.comprehension_slots_size(), 4);
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 1);
+
+  CountingActivation activation;
+  activation.InsertInt("limit", 5);
+  activation.InsertBool("single_var", true);
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  EXPECT_THAT(result, test::IsCelBool(true));
+  EXPECT_EQ(activation.LookupCount("limit"), 1);
+  EXPECT_EQ(activation.LookupCount("single_var"), 1);
+  EXPECT_EQ(activation.LookupCount("i"), 0);
 }
 
 }  // namespace

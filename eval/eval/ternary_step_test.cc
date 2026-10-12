@@ -9,6 +9,7 @@
 #include "base/type_provider.h"
 #include "eval/eval/cel_expression_flat_impl.h"
 #include "eval/eval/evaluator_core.h"
+#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_value.h"
 #include "internal/testing.h"
@@ -36,9 +37,9 @@ class LogicStepTest : public testing::TestWithParam<bool> {
                              CelValue* result, bool enable_unknown) {
     ExecutionPath path;
 
-    path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
-    path.push_back(ExpressionStep::MakeIdentifierStep("name1"));
-    path.push_back(ExpressionStep::MakeIdentifierStep("name2"));
+    path.push_back(ExpressionStep::MakeIdentifierStep(0));
+    path.push_back(ExpressionStep::MakeIdentifierStep(1));
+    path.push_back(ExpressionStep::MakeIdentifierStep(2));
     path.push_back(ExpressionStep::MakeGenericStep(CreateTernaryStep(), 4));
 
     cel::RuntimeOptions options;
@@ -47,9 +48,11 @@ class LogicStepTest : public testing::TestWithParam<bool> {
           cel::UnknownProcessingOptions::kAttributeOnly;
     }
     CelExpressionFlatImpl impl(
-        env_,
-        FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                       env_->type_registry.GetComposedTypeProvider(), options));
+        env_, FlatExpression(
+                  std::move(path), /*comprehension_slot_count=*/3,
+                  env_->type_registry.GetComposedTypeProvider(), options,
+                  /*arena=*/nullptr,
+                  IdentifierTable{{"name0", 0}, {"name1", 1}, {"name2", 2}}));
 
     Activation activation;
     std::string value("test");

@@ -85,8 +85,7 @@ class SelectStepTest : public testing::Test {
         CreateSelectStep(select.field(), select.test_only(),
                          options.enable_wrapper_type_null_unboxing));
 
-    path.push_back(
-        ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+    path.push_back(ExpressionStep::MakeIdentifierStep(0, expr0.id()));
     path.push_back(
         ExpressionStep::MakeGenericStep(std::move(step1), expr.id()));
 
@@ -98,9 +97,10 @@ class SelectStepTest : public testing::Test {
     // Force the creation of a message factory at the env level.
     static_cast<void>(env_->MutableMessageFactory());
     CelExpressionFlatImpl cel_expr(
-        env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
+        env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
                              env_->type_registry.GetComposedTypeProvider(),
-                             runtime_options));
+                             runtime_options, /*arena=*/nullptr,
+                             IdentifierTable{{ident.name(), 0}}));
     Activation activation;
     activation.InsertValue("target", target);
 
@@ -273,14 +273,15 @@ TEST_F(SelectStepTest, MapPresenseIsErrorTest) {
                        /*enable_wrapper_type_null_unboxing=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0, expr0.id()));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1), expr1.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step2), select_expr.id()));
   CelExpressionFlatImpl cel_expr(
-      env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
+      env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
                            env_->type_registry.GetComposedTypeProvider(),
-                           cel::RuntimeOptions{}));
+                           cel::RuntimeOptions{}, /*arena=*/nullptr,
+                           IdentifierTable{{ident.name(), 0}}));
   Activation activation;
   activation.InsertValue("target",
                          CelProtoWrapper::CreateMessage(&message, &arena_));
@@ -708,7 +709,7 @@ TEST_P(SelectStepConformanceTest, CelErrorAsArgument) {
       CreateSelectStep(select.field(), select.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0, expr0.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
@@ -720,8 +721,9 @@ TEST_P(SelectStepConformanceTest, CelErrorAsArgument) {
   }
   CelExpressionFlatImpl cel_expr(
       env_,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env_->type_registry.GetComposedTypeProvider(), options));
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{ident.name(), 0}}));
   Activation activation;
   activation.InsertValue("message", CelValue::CreateError(&error));
 
@@ -749,14 +751,15 @@ TEST_F(SelectStepTest, DisableMissingAttributeOK) {
       CreateSelectStep(select.field(), select.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0, expr0.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
   CelExpressionFlatImpl cel_expr(
-      env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
+      env_, FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
                            env_->type_registry.GetComposedTypeProvider(),
-                           cel::RuntimeOptions{}));
+                           cel::RuntimeOptions{}, /*arena=*/nullptr,
+                           IdentifierTable{{ident.name(), 0}}));
   Activation activation;
   activation.InsertValue("message",
                          CelProtoWrapper::CreateMessage(&message, &arena_));
@@ -791,7 +794,7 @@ TEST_F(SelectStepTest, UnrecoverableUnknownValueProducesError) {
       CreateSelectStep(select.field(), select.test_only(),
                        /*enable_wrapper_type_null_unboxing=*/false));
 
-  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0, expr0.id()));
   path.push_back(
       ExpressionStep::MakeGenericStep(std::move(step1), dummy_expr.id()));
 
@@ -799,8 +802,9 @@ TEST_F(SelectStepTest, UnrecoverableUnknownValueProducesError) {
   options.enable_missing_attribute_errors = true;
   CelExpressionFlatImpl cel_expr(
       env_,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env_->type_registry.GetComposedTypeProvider(), options));
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{ident.name(), 0}}));
   Activation activation;
   activation.InsertValue("message",
                          CelProtoWrapper::CreateMessage(&message, &arena_));
@@ -840,7 +844,7 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
 
   ASSERT_THAT(step1_status, IsOk());
 
-  path.push_back(ExpressionStep::MakeIdentifierStep(ident.name(), expr0.id()));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0, expr0.id()));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(*step1_status),
                                                  dummy_expr.id()));
 
@@ -848,8 +852,9 @@ TEST_F(SelectStepTest, UnknownPatternResolvesToUnknown) {
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
   CelExpressionFlatImpl cel_expr(
       env_,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env_->type_registry.GetComposedTypeProvider(), options));
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{ident.name(), 0}}));
 
   {
     std::vector<CelAttributePattern> unknown_patterns;
@@ -947,7 +952,7 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
                       /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   if (GetParam()) {
@@ -955,8 +960,9 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepTest) {
   }
   CelExpressionFlatImpl cel_expr(
       env_,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env_->type_registry.GetComposedTypeProvider(), options));
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
 
   TestAllTypes message;
   message.set_single_int64(42);
@@ -985,7 +991,7 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
                       /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   if (GetParam()) {
@@ -993,8 +999,9 @@ TEST_P(SelectStepConformanceTest, TypedSelectStepPropagatesUnknown) {
   }
   CelExpressionFlatImpl cel_expr(
       env_,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env_->type_registry.GetComposedTypeProvider(), options));
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
 
   UnknownSet unknown_set(UnknownAttributeSet({CelAttribute("message", {})}));
   Activation activation;
@@ -1020,14 +1027,15 @@ TEST_F(SelectStepTest, TypedSelectStepUnknownPatternResolvesToUnknown) {
                       /*enable_optional_types=*/false));
 
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
   CelExpressionFlatImpl cel_expr(
       env_,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env_->type_registry.GetComposedTypeProvider(), options));
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
 
   TestAllTypes message;
   message.set_single_int64(42);

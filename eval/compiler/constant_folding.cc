@@ -201,18 +201,18 @@ absl::Status ConstantFoldingExtension::OnPostVisit(PlannerContext& context,
     // This subexpression is already optimized out or suppressed.
     return absl::OkStatus();
   }
-  // copy string to managed handle if backed by the original program.
+  // Ensure that string constants are copied to the constant folding arena
   Value value;
   if (node.has_const_expr()) {
     CEL_ASSIGN_OR_RETURN(value,
                          ConvertConstant(node.const_expr(), state_.arena()));
   } else {
-    ExecutionFrame frame(subplan, empty_, context.options(), state_);
     state_.Reset();
     // Update stack size to accommodate sub expression.
     // This only results in a vector resize if the new maxsize is greater than
     // the current capacity.
     state_.value_stack().SetMaxSize(subplan.size());
+    ExecutionFrame frame(subplan, empty_, context.options(), state_);
 
     auto result = frame.Evaluate();
     // If this would be a runtime error, then don't adjust the program plan, but

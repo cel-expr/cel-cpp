@@ -1,15 +1,17 @@
 #include "eval/eval/ident_step.h"
 
+#include <cstddef>
 #include <string>
 #include <utility>
 
+#include "absl/base/optimization.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "common/value.h"
 #include "eval/eval/attribute_trail.h"
+#include "eval/eval/comprehension_slots.h"
 #include "eval/eval/evaluator_core.h"
-#include "eval/eval/expression_step_logic.h"
 #include "eval/internal/errors.h"
 #include "internal/status_macros.h"
 
@@ -40,7 +42,7 @@ absl::Status LookupIdent(absl::string_view name, ExecutionFrameBase& frame,
   }
 
   CEL_ASSIGN_OR_RETURN(
-      auto found, frame.activation().FindVariable(name, frame.descriptor_pool(),
+      bool found, frame.activation().FindVariable(name, frame.descriptor_pool(),
                                                   frame.message_factory(),
                                                   frame.arena(), &result));
 
@@ -58,16 +60,27 @@ absl::Status LookupIdent(absl::string_view name, ExecutionFrameBase& frame,
 
 }  // namespace
 
-void EvaluateIdentifierStep(absl::string_view identifier,
-                            ExecutionFrame& frame) {
+void EvaluateIdentifierStep(const IdentStepInfo& step, ExecutionFrame& frame) {
+  ComprehensionSlot* slot = frame.comprehension_slots().Get(step.slot_index);
+  if (slot->Has()) {
+    frame.value_stack().Push(slot->value(), slot->attribute());
+    return;
+  }
+  if (ABSL_PREDICT_FALSE(step.ident_index >= frame.identifiers().size())) {
+    frame.Abort(absl::InternalError(
+        absl::StrCat("Identifier index out of range: ", step.ident_index)));
+    return;
+  }
+  const Identifier& ident = frame.identifiers()[step.ident_index];
   frame.value_stack().Push(cel::NullValue());
   if (absl::Status status =
-          LookupIdent(identifier, frame, frame.value_stack().Peek(),
+          LookupIdent(ident.name, frame, frame.value_stack().Peek(),
                       frame.value_stack().PeekAttribute());
       !status.ok()) {
     frame.Abort(std::move(status));
     return;
   }
+  slot->Set(frame.value_stack().Peek(), frame.value_stack().PeekAttribute());
 }
 
 }  // namespace google::api::expr::runtime
