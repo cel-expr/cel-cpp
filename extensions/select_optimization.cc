@@ -241,7 +241,7 @@ absl::StatusOr<size_t> ListIndexFromQualifier(const AttributeQualifier& qual) {
   int64_t value = -1;
   switch (qual.kind()) {
     case Kind::kInt:
-      value = *qual.GetInt64Key();
+      value = *qual.AsInt();
       break;
     default:
       // TODO(uncreated-issue/51): type-checker will reject an unsigned literal, but
@@ -261,11 +261,11 @@ absl::StatusOr<Value> MapKeyFromQualifier(const AttributeQualifier& qual,
                                           google::protobuf::Arena* absl_nonnull arena) {
   switch (qual.kind()) {
     case Kind::kInt:
-      return cel::IntValue(*qual.GetInt64Key());
+      return cel::IntValue(*qual.AsInt());
     case Kind::kUint:
-      return cel::UintValue(*qual.GetUint64Key());
+      return cel::UintValue(*qual.AsUint());
     case Kind::kBool:
-      return cel::BoolValue(*qual.GetBoolKey());
+      return cel::BoolValue(*qual.AsBool());
     case Kind::kString:
       // Safe as `qual` is valid for the lifetime of the expression/program.
       return StringValue::WrapUnsafe(*qual.GetStringKey());
@@ -913,8 +913,8 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
   absl::c_move(operand_subplan, std::back_inserter(path));
 
   path.push_back(ExpressionStep::MakeGenericStep(
-      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)),
-      node.id()));
+      std::make_unique<StackMachineImpl>(node.id(), std::move(impl)), node.id(),
+      /*stack_delta=*/0));
 
   return context.ReplaceSubplan(node, std::move(path));
 }

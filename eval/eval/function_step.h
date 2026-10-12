@@ -40,6 +40,9 @@ std::unique_ptr<EagerFunctionStep> CreateFunctionStep(
 
 // Common base class for EagerFunctionStep and LazyFunctionStep.
 class FunctionStepBase {
+ public:
+  size_t num_arguments() const { return num_arguments_; }
+
  private:
   friend class EagerFunctionStep;
   friend class LazyFunctionStep;

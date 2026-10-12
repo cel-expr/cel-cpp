@@ -62,9 +62,7 @@ absl::StatusOr<CelValue> RunExpression(
         cel::interop_internal::CreateIntValue(value)));
   }
 
-  CEL_ASSIGN_OR_RETURN(auto step, CreateCreateListStep(create_list));
-  path.push_back(
-      ExpressionStep::MakeGenericStep(std::move(step), dummy_expr.id()));
+  path.push_back(CreateCreateListStep(values.size(), {}, dummy_expr.id()));
   cel::RuntimeOptions options;
   if (enable_unknowns) {
     options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
@@ -101,9 +99,7 @@ absl::StatusOr<CelValue> RunExpressionWithCelValues(
     activation.InsertValue(var_name, value);
   }
 
-  CEL_ASSIGN_OR_RETURN(auto step0, CreateCreateListStep(create_list));
-  path.push_back(
-      ExpressionStep::MakeGenericStep(std::move(step0), dummy_expr.id()));
+  path.push_back(CreateCreateListStep(values.size(), {}, dummy_expr.id()));
 
   cel::RuntimeOptions options;
   if (enable_unknowns) {
@@ -137,9 +133,7 @@ TEST(CreateListStepTest, TestCreateListStackUnderflow) {
   auto& expr0 = create_list.mutable_elements().emplace_back().mutable_expr();
   expr0.mutable_const_expr().set_int64_value(1);
 
-  ASSERT_OK_AND_ASSIGN(auto step0, CreateCreateListStep(create_list));
-  path.push_back(
-      ExpressionStep::MakeGenericStep(std::move(step0), dummy_expr.id()));
+  path.push_back(CreateCreateListStep(1, {}, dummy_expr.id()));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl cel_expr(

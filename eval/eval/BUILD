@@ -36,6 +36,7 @@ cc_library(
     name = "evaluator_core",
     srcs = [
         "comprehension_step.cc",
+        "create_list_step.cc",
         "equality_steps.cc",
         "evaluator_core.cc",
         "function_step.cc",
@@ -45,6 +46,7 @@ cc_library(
     ],
     hdrs = [
         "comprehension_step.h",
+        "create_list_step.h",
         "equality_steps.h",
         "evaluator_core.h",
         "function_step.h",
@@ -65,6 +67,7 @@ cc_library(
         "//common:expr",
         "//common:function_descriptor",
         "//common:kind",
+        "//common:optional_ref",
         "//common:value",
         "//common:value_kind",
         "//eval/internal:errors",
@@ -83,6 +86,7 @@ cc_library(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
@@ -303,29 +307,6 @@ cc_library(
 )
 
 cc_library(
-    name = "create_list_step",
-    srcs = [
-        "create_list_step.cc",
-    ],
-    hdrs = [
-        "create_list_step.h",
-    ],
-    deps = [
-        ":attribute_utility",
-        ":evaluator_core",
-        ":expression_step_base",
-        ":expression_step_logic",
-        "//common:expr",
-        "//common:value",
-        "//internal:status_macros",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
-    ],
-)
-
-cc_library(
     name = "create_struct_step",
     srcs = [
         "create_struct_step.cc",
@@ -439,6 +420,7 @@ cc_test(
     deps = [
         ":cel_expression_flat_impl",
         ":evaluator_core",
+        ":expression_step_logic",
         "//base:data",
         "//common:value",
         "//eval/compiler:cel_expression_builder_flat_impl",
@@ -450,9 +432,12 @@ cc_test(
         "//internal:testing_descriptor_pool",
         "//internal:testing_message_factory",
         "//runtime:activation",
+        "//runtime:function_overload_reference",
+        "//runtime:function_registry",
         "//runtime:runtime_options",
         "//runtime/internal:runtime_env_testing",
         "//runtime/internal:runtime_type_provider",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/status",
         "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
         "@com_google_protobuf//:protobuf",
@@ -658,7 +643,6 @@ cc_test(
     ],
     deps = [
         ":cel_expression_flat_impl",
-        ":create_list_step",
         ":evaluator_core",
         "//base:attributes",
         "//base:data",
