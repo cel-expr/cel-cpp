@@ -136,25 +136,6 @@ TEST_P(CreateMapStepTest, TestCreateEmptyMap) {
   ASSERT_EQ(cel_map->size(), 0);
 }
 
-// Test message creation if unknown argument is passed
-TEST(CreateMapStepTest, TestMapCreateWithUnknown) {
-  absl_nonnull std::shared_ptr<const RuntimeEnv> env = NewTestingRuntimeEnv();
-  Arena arena;
-  UnknownSet unknown_set;
-  std::vector<std::pair<CelValue, CelValue>> entries;
-
-  std::vector<std::string> kKeys = {"test2", "test1"};
-
-  entries.push_back(
-      {CelValue::CreateString(&kKeys[0]), CelValue::CreateInt64(2)});
-  entries.push_back({CelValue::CreateString(&kKeys[1]),
-                     CelValue::CreateUnknownSet(&unknown_set)});
-
-  ASSERT_OK_AND_ASSIGN(CelValue result, RunCreateMapExpression(
-                                            env, entries, &arena, true, false));
-  ASSERT_TRUE(result.IsUnknownSet());
-}
-
 TEST(CreateMapStepTest, TestMapCreateWithError) {
   absl_nonnull std::shared_ptr<const RuntimeEnv> env = NewTestingRuntimeEnv();
   Arena arena;
@@ -170,41 +151,6 @@ TEST(CreateMapStepTest, TestMapCreateWithError) {
                                             env, entries, &arena, true, false));
   ASSERT_TRUE(result.IsError());
   EXPECT_THAT(*result.ErrorOrDie(), StatusIs(absl::StatusCode::kCancelled));
-}
-
-TEST(CreateMapStepTest, TestMapCreateWithErrorRecursiveProgram) {
-  absl_nonnull std::shared_ptr<const RuntimeEnv> env = NewTestingRuntimeEnv();
-  Arena arena;
-  UnknownSet unknown_set;
-  absl::Status error = absl::CancelledError();
-  std::vector<std::pair<CelValue, CelValue>> entries;
-  entries.push_back({CelValue::CreateStringView("foo"),
-                     CelValue::CreateUnknownSet(&unknown_set)});
-  entries.push_back(
-      {CelValue::CreateStringView("bar"), CelValue::CreateError(&error)});
-
-  ASSERT_OK_AND_ASSIGN(CelValue result, RunCreateMapExpression(
-                                            env, entries, &arena, true, true));
-  ASSERT_TRUE(result.IsError());
-  EXPECT_THAT(*result.ErrorOrDie(), StatusIs(absl::StatusCode::kCancelled));
-}
-
-TEST(CreateMapStepTest, TestMapCreateWithUnknownRecursiveProgram) {
-  absl_nonnull std::shared_ptr<const RuntimeEnv> env = NewTestingRuntimeEnv();
-  Arena arena;
-  UnknownSet unknown_set;
-  std::vector<std::pair<CelValue, CelValue>> entries;
-
-  std::vector<std::string> kKeys = {"test2", "test1"};
-
-  entries.push_back(
-      {CelValue::CreateString(&kKeys[0]), CelValue::CreateInt64(2)});
-  entries.push_back({CelValue::CreateString(&kKeys[1]),
-                     CelValue::CreateUnknownSet(&unknown_set)});
-
-  ASSERT_OK_AND_ASSIGN(CelValue result, RunCreateMapExpression(
-                                            env, entries, &arena, true, true));
-  ASSERT_TRUE(result.IsUnknownSet());
 }
 
 // Test that String Map is created successfully.

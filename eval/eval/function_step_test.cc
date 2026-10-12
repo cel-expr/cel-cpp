@@ -12,6 +12,8 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/attribute.h"
+#include "base/attribute_set.h"
 #include "base/type_provider.h"
 #include "common/constant.h"
 #include "common/expr.h"
@@ -162,7 +164,8 @@ class SinkFunction : public CelFunction {
 
 // Create and initialize a registry with some default functions.
 void AddDefaults(CelFunctionRegistry& registry) {
-  static UnknownSet* unknown_set = new UnknownSet();
+  static UnknownSet* unknown_set =
+      new UnknownSet(cel::AttributeSet({cel::Attribute("foo")}));
   EXPECT_TRUE(registry
                   .Register(std::make_unique<ConstFunction>(
                       CelValue::CreateInt64(3), "Const3"))
@@ -863,7 +866,7 @@ TEST(FunctionStepTestUnknownFunctionResults, UnknownVsErrorPrecedenceTest) {
 
   CelError error0 = absl::CancelledError();
   CelValue error_value = CelValue::CreateError(&error0);
-  UnknownSet unknown_set;
+  UnknownSet unknown_set(cel::AttributeSet({cel::Attribute("foo")}));
   CelValue unknown_value = CelValue::CreateUnknownSet(&unknown_set);
 
   ASSERT_OK(registry.Register(
@@ -960,7 +963,7 @@ class NullFunction : public CelFunction {
 
 TEST(FunctionStepStrictnessTest,
      IfFunctionStrictAndGivenUnknownSkipsInvocation) {
-  UnknownSet unknown_set;
+  UnknownSet unknown_set(cel::AttributeSet({cel::Attribute("foo")}));
   CelFunctionRegistry registry;
   ASSERT_THAT(registry.Register(std::make_unique<ConstFunction>(
                   CelValue::CreateUnknownSet(&unknown_set), "ConstUnknown")),
@@ -991,7 +994,7 @@ TEST(FunctionStepStrictnessTest,
 }
 
 TEST(FunctionStepStrictnessTest, IfFunctionNonStrictAndGivenUnknownInvokesIt) {
-  UnknownSet unknown_set;
+  UnknownSet unknown_set(cel::AttributeSet({cel::Attribute("foo")}));
   CelFunctionRegistry registry;
   ASSERT_THAT(registry.Register(std::make_unique<ConstFunction>(
                   CelValue::CreateUnknownSet(&unknown_set), "ConstUnknown")),
