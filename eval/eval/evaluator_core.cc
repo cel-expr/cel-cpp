@@ -222,16 +222,16 @@ FlatExpressionEvaluatorState FlatExpression::MakeEvaluatorState(
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     google::protobuf::Arena* absl_nonnull arena) const {
   return FlatExpressionEvaluatorState(path_.size(), comprehension_slots_size_,
-                                      type_provider_, descriptor_pool,
-                                      message_factory, arena);
+                                      iterator_stack_size_, type_provider_,
+                                      descriptor_pool, message_factory, arena);
 }
 
 FlatExpressionEvaluatorState FlatExpression::MakeEvaluatorState(
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nullable message_factory) const {
   return FlatExpressionEvaluatorState(path_.size(), comprehension_slots_size_,
-                                      type_provider_, descriptor_pool,
-                                      message_factory);
+                                      iterator_stack_size_, type_provider_,
+                                      descriptor_pool, message_factory);
 }
 
 absl::StatusOr<cel::Value> FlatExpression::EvaluateWithCallback(
@@ -241,7 +241,7 @@ absl::StatusOr<cel::Value> FlatExpression::EvaluateWithCallback(
   state.Reset();
 
   ExecutionFrame frame(subexpressions_, activation, options_, state,
-                       std::move(listener), embedder_context);
+                       std::move(listener), embedder_context, identifiers_);
 
   return frame.Evaluate(frame.callback());
 }

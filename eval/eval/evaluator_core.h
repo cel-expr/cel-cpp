@@ -19,11 +19,11 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/base/attributes.h"
+#include "absl/base/no_destructor.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/log/absl_check.h"
@@ -32,6 +32,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/attribute.h"
 #include "base/type_provider.h"
 #include "common/value.h"
 #include "common/value_kind.h"
@@ -290,16 +291,15 @@ class ExpressionStep {
     return step;
   }
 
-  static ExpressionStep MakeIdentifierStep(absl::string_view identifier,
+  static ExpressionStep MakeIdentifierStep(size_t ident_index,
                                            int64_t id = -1) {
     ExpressionStep step(ExpressionStepKind::kIdentifier, id);
-    step.u_.identifier = new std::string(identifier);
+    step.u_.ident_index = ident_index;
     return step;
   }
 
-  static ExpressionStep MakeIdentStep(absl::string_view identifier,
-                                      int64_t id = -1) {
-    return MakeIdentifierStep(identifier, id);
+  static ExpressionStep MakeIdentStep(size_t ident_index, int64_t id = -1) {
+    return MakeIdentifierStep(ident_index, id);
   }
 
   static ExpressionStep MakeFastInStep(int64_t id = -1) {
@@ -405,7 +405,7 @@ class ExpressionStep {
     FixedJumpStepInfo fixed_jump_step;
     EagerFunctionStep* eager_function_step;
     LazyFunctionStep* lazy_function_step;
-    std::string* identifier;
+    size_t ident_index;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -430,14 +430,11 @@ class FlatExpressionEvaluatorState {
  public:
   FlatExpressionEvaluatorState(
       size_t value_stack_size, size_t comprehension_slot_count,
-      const cel::TypeProvider& type_provider,
+      size_t iterator_stack_size, const cel::TypeProvider& type_provider,
       const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
       google::protobuf::MessageFactory* absl_nullable message_factory = nullptr)
       : value_stack_(value_stack_size),
-        // We currently use comprehension_slot_count because it is less of an
-        // over estimate than value_stack_size. In future we should just
-        // calculate the correct capacity.
-        iterator_stack_(comprehension_slot_count),
+        iterator_stack_(iterator_stack_size),
         comprehension_slots_(comprehension_slot_count),
         type_provider_(type_provider),
         descriptor_pool_(descriptor_pool),
@@ -445,15 +442,12 @@ class FlatExpressionEvaluatorState {
 
   FlatExpressionEvaluatorState(
       size_t value_stack_size, size_t comprehension_slot_count,
-      const cel::TypeProvider& type_provider,
+      size_t iterator_stack_size, const cel::TypeProvider& type_provider,
       const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena)
       : value_stack_(value_stack_size),
-        // We currently use comprehension_slot_count because it is less of an
-        // over estimate than value_stack_size. In future we should just
-        // calculate the correct capacity.
-        iterator_stack_(comprehension_slot_count),
+        iterator_stack_(iterator_stack_size),
         comprehension_slots_(comprehension_slot_count),
         type_provider_(type_provider),
         descriptor_pool_(descriptor_pool),
@@ -692,7 +686,8 @@ class ExecutionFrame : public ExecutionFrameBase {
       ExecutionPathView flat, const cel::ActivationInterface& activation,
       const cel::RuntimeOptions& options, FlatExpressionEvaluatorState& state,
       EvaluationListener callback = EvaluationListener(),
-      const cel::EmbedderContext* absl_nullable embedder_context = nullptr)
+      const cel::EmbedderContext* absl_nullable embedder_context = nullptr,
+      const IdentifierTable& identifiers = EmptyIdentifierTable())
       : ExecutionFrameBase(activation, std::move(callback), options,
                            state.type_provider(), state.descriptor_pool(),
                            state.message_factory(), state.arena(),
@@ -701,14 +696,16 @@ class ExecutionFrame : public ExecutionFrameBase {
         execution_path_(flat),
         value_stack_(&state.value_stack()),
         iterator_stack_(&state.iterator_stack()),
-        subexpressions_(&execution_path_, 1) {}
+        subexpressions_(&execution_path_, 1),
+        identifiers_(&identifiers) {}
 
   ExecutionFrame(
       absl::Span<const ExecutionPathView> subexpressions,
       const cel::ActivationInterface& activation,
       const cel::RuntimeOptions& options, FlatExpressionEvaluatorState& state,
       EvaluationListener callback = EvaluationListener(),
-      const cel::EmbedderContext* absl_nullable embedder_context = nullptr)
+      const cel::EmbedderContext* absl_nullable embedder_context = nullptr,
+      const IdentifierTable& identifiers = EmptyIdentifierTable())
       : ExecutionFrameBase(activation, std::move(callback), options,
                            state.type_provider(), state.descriptor_pool(),
                            state.message_factory(), state.arena(),
@@ -717,7 +714,8 @@ class ExecutionFrame : public ExecutionFrameBase {
         execution_path_(subexpressions[0]),
         value_stack_(&state.value_stack()),
         iterator_stack_(&state.iterator_stack()),
-        subexpressions_(subexpressions) {
+        subexpressions_(subexpressions),
+        identifiers_(&identifiers) {
     ABSL_DCHECK(!subexpressions.empty());
   }
 
@@ -779,6 +777,8 @@ class ExecutionFrame : public ExecutionFrameBase {
     return *iterator_stack_;
   }
 
+  const IdentifierTable& identifiers() const { return *identifiers_; }
+
   bool enable_attribute_tracking() const {
     return attribute_tracking_enabled();
   }
@@ -816,6 +816,11 @@ class ExecutionFrame : public ExecutionFrameBase {
   }
 
  private:
+  static const IdentifierTable& EmptyIdentifierTable() {
+    static const absl::NoDestructor<IdentifierTable> kEmpty;
+    return *kEmpty;
+  }
+
   struct SubFrame {
     size_t return_pc;
     size_t slot_index;
@@ -843,6 +848,7 @@ class ExecutionFrame : public ExecutionFrameBase {
   EvaluatorStack* absl_nonnull const value_stack_;
   cel::runtime_internal::IteratorStack* absl_nonnull const iterator_stack_;
   absl::Span<const ExecutionPathView> subexpressions_;
+  const IdentifierTable* absl_nonnull identifiers_;
   std::vector<SubFrame> call_stack_;
 };
 
@@ -855,26 +861,32 @@ class FlatExpression {
   FlatExpression(ExecutionPath path, size_t comprehension_slots_size,
                  const cel::TypeProvider& type_provider,
                  const cel::RuntimeOptions& options,
-                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena = nullptr)
+                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena,
+                 IdentifierTable identifiers)
       : path_(std::move(path)),
         subexpressions_({path_}),
         comprehension_slots_size_(comprehension_slots_size),
+        iterator_stack_size_(comprehension_slots_size),
         type_provider_(type_provider),
         options_(options),
-        arena_(std::move(arena)) {}
+        arena_(std::move(arena)),
+        identifiers_(std::move(identifiers)) {}
 
   FlatExpression(ExecutionPath path,
                  std::vector<ExecutionPathView> subexpressions,
-                 size_t comprehension_slots_size,
+                 size_t comprehension_slots_size, size_t iterator_stack_size,
                  const cel::TypeProvider& type_provider,
                  const cel::RuntimeOptions& options,
-                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena = nullptr)
+                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena,
+                 IdentifierTable identifiers)
       : path_(std::move(path)),
         subexpressions_(std::move(subexpressions)),
         comprehension_slots_size_(comprehension_slots_size),
+        iterator_stack_size_(iterator_stack_size),
         type_provider_(type_provider),
         options_(options),
-        arena_(std::move(arena)) {}
+        arena_(std::move(arena)),
+        identifiers_(std::move(identifiers)) {}
 
   // Move-only
   FlatExpression(FlatExpression&&) = default;
@@ -910,9 +922,13 @@ class FlatExpression {
     return subexpressions_;
   }
 
+  const IdentifierTable& identifiers() const { return identifiers_; }
+
   const cel::RuntimeOptions& options() const { return options_; }
 
   size_t comprehension_slots_size() const { return comprehension_slots_size_; }
+
+  size_t iterator_stack_size() const { return iterator_stack_size_; }
 
   const cel::TypeProvider& type_provider() const { return type_provider_; }
 
@@ -920,11 +936,13 @@ class FlatExpression {
   ExecutionPath path_;
   std::vector<ExecutionPathView> subexpressions_;
   size_t comprehension_slots_size_;
+  size_t iterator_stack_size_;
   const cel::TypeProvider& type_provider_;
   cel::RuntimeOptions options_;
   // Arena used during planning phase, may hold constant values so should be
   // kept alive.
   absl_nullable std::shared_ptr<google::protobuf::Arena> arena_;
+  IdentifierTable identifiers_;
 };
 
 // Helper functions for checking ExpressionStep kinds. Used for program
@@ -974,9 +992,6 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kOtherConstant:
       delete u_.other_val;
       break;
-    case ExpressionStepKind::kIdentifier:
-      delete u_.identifier;
-      break;
     case ExpressionStepKind::kEagerFunction:
       delete u_.eager_function_step;
       break;
@@ -1006,6 +1021,7 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kBooleanAndJump:
     case ExpressionStepKind::kTernaryJump:
     case ExpressionStepKind::kFixedJump:
+    case ExpressionStepKind::kIdentifier:
     case ExpressionStepKind::kFastIn:
     case ExpressionStepKind::kFastEqual:
     case ExpressionStepKind::kFastNotEqual:
@@ -1178,7 +1194,7 @@ inline void ExpressionStep::Evaluate(ExecutionFrame& frame) const {
       frame.JumpToOrAbort(u_.fixed_jump_step.offset);
       break;
     case ExpressionStepKind::kIdentifier:
-      EvaluateIdentifierStep(*u_.identifier, frame);
+      EvaluateIdentifierStep(u_.ident_index, frame);
       break;
     case ExpressionStepKind::kEagerFunction:
       u_.eager_function_step->Evaluate(frame);

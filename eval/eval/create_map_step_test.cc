@@ -30,6 +30,7 @@
 #include "common/expr.h"
 #include "eval/eval/cel_expression_flat_impl.h"
 #include "eval/eval/evaluator_core.h"
+#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/unknown_set.h"
@@ -54,7 +55,7 @@ using ::google::protobuf::Arena;
 
 absl::StatusOr<ExecutionPath> CreateStackMachineProgram(
     const std::vector<std::pair<CelValue, CelValue>>& values,
-    Activation& activation) {
+    Activation& activation, IdentifierTable& identifiers) {
   ExecutionPath path;
 
   Expr expr1;
@@ -69,8 +70,10 @@ absl::StatusOr<ExecutionPath> CreateStackMachineProgram(
     std::string key_name = absl::StrCat("key", index);
     std::string value_name = absl::StrCat("value", index);
 
-    path.push_back(ExpressionStep::MakeIdentifierStep(key_name));
-    path.push_back(ExpressionStep::MakeIdentifierStep(value_name));
+    path.push_back(ExpressionStep::MakeIdentifierStep(identifiers.size()));
+    identifiers.push_back(Identifier{key_name});
+    path.push_back(ExpressionStep::MakeIdentifierStep(identifiers.size()));
+    identifiers.push_back(Identifier{value_name});
 
     activation.InsertValue(key_name, item.first);
     activation.InsertValue(value_name, item.second);
@@ -93,18 +96,20 @@ absl::StatusOr<CelValue> RunCreateMapExpression(
     const std::vector<std::pair<CelValue, CelValue>>& values,
     google::protobuf::Arena* arena, bool enable_unknowns, bool enable_recursive_program) {
   Activation activation;
+  IdentifierTable identifiers;
 
   ExecutionPath path;
-  CEL_ASSIGN_OR_RETURN(path, CreateStackMachineProgram(values, activation));
+  CEL_ASSIGN_OR_RETURN(
+      path, CreateStackMachineProgram(values, activation, identifiers));
   cel::RuntimeOptions options;
   if (enable_unknowns) {
     options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
   }
 
   CelExpressionFlatImpl cel_expr(
-      env,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr, std::move(identifiers)));
   return cel_expr.Evaluate(activation, arena);
 }
 

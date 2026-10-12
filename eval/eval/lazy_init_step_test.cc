@@ -46,7 +46,8 @@ class LazyInitStepTest : public testing::Test {
  public:
   LazyInitStepTest()
       : type_provider_(cel::internal::GetTestingDescriptorPool()),
-        evaluator_state_(kValueStack, kComprehensionSlotCount, type_provider_,
+        evaluator_state_(kValueStack, kComprehensionSlotCount,
+                         /*iterator_stack_size=*/0, type_provider_,
                          cel::internal::GetTestingDescriptorPool(),
                          cel::internal::GetTestingMessageFactory(), &arena_) {}
 

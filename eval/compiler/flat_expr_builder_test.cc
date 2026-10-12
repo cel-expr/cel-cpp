@@ -41,7 +41,11 @@
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
 #include "eval/compiler/constant_folding.h"
 #include "eval/compiler/qualified_reference_resolver.h"
+#include "eval/eval/cel_expression_flat_impl.h"
+#include "eval/eval/evaluator_core.h"
+#include "eval/eval/ident_step.h"
 #include "eval/public/activation.h"
+#include "eval/public/base_activation.h"
 #include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_expr_builder_factory.h"
@@ -3015,6 +3019,151 @@ INSTANTIATE_TEST_SUITE_P(
                                     "true", "false", "bool", false},
         VariadicLogicalEvalTestCase{"All_Unknown", "[a, b, c].all(x, x)",
                                     "true", "unknown1", "true", "unknown"}));
+
+class CountingActivation : public BaseActivation {
+ public:
+  void InsertInt(absl::string_view name, int64_t val) {
+    values_[name] = CelValue::CreateInt64(val);
+  }
+
+  void InsertBool(absl::string_view name, bool val) {
+    values_[name] = CelValue::CreateBool(val);
+  }
+
+  std::vector<const CelFunction*> FindFunctionOverloads(
+      absl::string_view) const override {
+    return {};
+  }
+
+  absl::optional<CelValue> FindValue(absl::string_view name,
+                                     google::protobuf::Arena*) const override {
+    lookup_counts_[name]++;
+    auto it = values_.find(name);
+    if (it != values_.end()) {
+      return it->second;
+    }
+    return absl::nullopt;
+  }
+
+  int LookupCount(absl::string_view name) const {
+    auto it = lookup_counts_.find(name);
+    return it != lookup_counts_.end() ? it->second : 0;
+  }
+
+ private:
+  absl::flat_hash_map<std::string, CelValue> values_;
+  mutable absl::flat_hash_map<std::string, int> lookup_counts_;
+};
+
+TEST(FlatExprBuilderTest, IdentifierTableRepeatedRootIdentifierReceivesSlot) {
+  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, parser::Parse("x + y + x"));
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  ASSERT_THAT(flat_expr.identifiers(), SizeIs(2));
+  EXPECT_EQ(flat_expr.identifiers()[0].name, "x");
+  EXPECT_EQ(flat_expr.identifiers()[0].slot_index, 0);
+  EXPECT_EQ(flat_expr.identifiers()[1].name, "y");
+  EXPECT_EQ(flat_expr.identifiers()[1].slot_index, Identifier::kNoSlot);
+  EXPECT_EQ(flat_expr.comprehension_slots_size(), 1);
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 0);
+
+  CountingActivation activation;
+  activation.InsertInt("x", 10);
+  activation.InsertInt("y", 20);
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  EXPECT_THAT(result, test::IsCelInt64(40));
+  EXPECT_EQ(activation.LookupCount("x"), 1);
+  EXPECT_EQ(activation.LookupCount("y"), 1);
+}
+
+TEST(FlatExprBuilderTest,
+     IdentifierTableInComprehensionReceivesSlotAboveComprehensionSlots) {
+  ASSERT_OK_AND_ASSIGN(
+      ParsedExpr parsed_expr,
+      parser::Parse("[1, 2, 3].all(i, i < limit) && single_var"));
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  // Local comprehension variables (i, @result) are not in the root identifier
+  // table; only "limit" and "single_var" are present.
+  ASSERT_THAT(flat_expr.identifiers(), SizeIs(2));
+  EXPECT_EQ(flat_expr.identifiers()[0].name, "limit");
+  // Comprehension uses 2 slots (accu_var at 0, iter_var at 1), so "limit" gets
+  // slot 2.
+  EXPECT_EQ(flat_expr.identifiers()[0].slot_index, 2);
+  EXPECT_EQ(flat_expr.identifiers()[1].name, "single_var");
+  EXPECT_EQ(flat_expr.identifiers()[1].slot_index, Identifier::kNoSlot);
+  EXPECT_EQ(flat_expr.comprehension_slots_size(), 3);
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 1);
+
+  CountingActivation activation;
+  activation.InsertInt("limit", 5);
+  activation.InsertBool("single_var", true);
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  EXPECT_THAT(result, test::IsCelBool(true));
+  EXPECT_EQ(activation.LookupCount("limit"), 1);
+  EXPECT_EQ(activation.LookupCount("single_var"), 1);
+  EXPECT_EQ(activation.LookupCount("i"), 0);
+}
+
+TEST(FlatExprBuilderTest, IdentifierTableInBindComprehensionNotSlotted) {
+  ParsedExpr parsed_expr;
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        expr: {
+          comprehension_expr: {
+            iter_var: "#unused"
+            iter_range: { list_expr: {} }
+            accu_var: "bound_var"
+            accu_init: { ident_expr: { name: "x" } }
+            loop_condition: { const_expr: { bool_value: false } }
+            loop_step: { ident_expr: { name: "bound_var" } }
+            result: {
+              call_expr: {
+                function: "_+_"
+                args: { ident_expr: { name: "bound_var" } }
+                args: { ident_expr: { name: "y" } }
+              }
+            }
+          }
+        }
+      )pb",
+      &parsed_expr));
+
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  ASSERT_THAT(flat_expr.identifiers(), SizeIs(2));
+  EXPECT_EQ(flat_expr.identifiers()[0].name, "x");
+  EXPECT_EQ(flat_expr.identifiers()[0].slot_index, Identifier::kNoSlot);
+  EXPECT_EQ(flat_expr.identifiers()[1].name, "y");
+  EXPECT_EQ(flat_expr.identifiers()[1].slot_index, Identifier::kNoSlot);
+  // Only the 1 bind slot is allocated; neither single-use root identifier gets
+  // a slot.
+  EXPECT_EQ(flat_expr.comprehension_slots_size(), 1);
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 0);
+}
 
 }  // namespace
 

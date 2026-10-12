@@ -75,18 +75,19 @@ CelValue EvaluateAttributeHelper(
   container_expr.mutable_ident_expr().set_name("container");
   key_expr.mutable_ident_expr().set_name("key");
 
-    path.push_back(ExpressionStep::MakeIdentifierStep("container", 1));
-    path.push_back(ExpressionStep::MakeIdentifierStep("key", 2));
-    path.push_back(ExpressionStep::MakeGenericStep(
-        std::move(CreateContainerAccessStep(call).value()), 3));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0, 1));
+  path.push_back(ExpressionStep::MakeIdentifierStep(1, 2));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::move(CreateContainerAccessStep(call).value()), 3));
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
   options.enable_heterogeneous_equality = false;
   CelExpressionFlatImpl cel_expr(
-      env,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr,
+                          IdentifierTable{{"container"}, {"key"}}));
   Activation activation;
 
   activation.InsertValue("container", container);

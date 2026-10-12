@@ -32,20 +32,21 @@ using ::testing::Eq;
 
 TEST(IdentStepTest, TestIdentStep) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr,
+                          IdentifierTable{{"name0"}}));
 
   Activation activation;
   Arena arena;
   std::string value("test");
 
   activation.InsertValue("name0", CelValue::CreateString(&value));
-  auto status0 = impl.Evaluate(activation, &arena);
+  absl::StatusOr<CelValue> status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
@@ -54,21 +55,72 @@ TEST(IdentStepTest, TestIdentStep) {
   EXPECT_THAT(result.StringOrDie().value(), Eq("test"));
 }
 
+TEST(IdentStepTest, TestIdentStepWithSlotCachesLookup) {
+  ExecutionPath path;
+  // Evaluate "name0" twice and check equality (or return the second after
+  // popping the first viaComprehensionFinish / ReadSlot). Here we read the
+  // identifier step twice and then read slot 1 directly.
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
+  path.push_back(ExpressionStep::MakeAssignSlotAndPopStep(0));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
+
+  auto env = NewTestingRuntimeEnv();
+  CelExpressionFlatImpl impl(
+      env, FlatExpression(std::move(path), /*comprehension_slot_count=*/2,
+                          env->type_registry.GetComposedTypeProvider(),
+                          cel::RuntimeOptions{}, /*arena=*/nullptr,
+                          IdentifierTable{{"name0", /*slot_index=*/1}}));
+
+  class CountingActivation : public BaseActivation {
+   public:
+    CountingActivation(int* counter, const std::string* val)
+        : counter_(counter), val_(val) {}
+    std::vector<const CelFunction*> FindFunctionOverloads(
+        absl::string_view) const override {
+      return {};
+    }
+    absl::optional<CelValue> FindValue(absl::string_view name,
+                                       Arena*) const override {
+      if (name == "name0") {
+        (*counter_)++;
+        return CelValue::CreateString(val_);
+      }
+      return absl::nullopt;
+    }
+
+   private:
+    int* counter_;
+    const std::string* val_;
+  };
+
+  Arena arena;
+  int lookup_calls = 0;
+  std::string value("cached_value");
+  CountingActivation activation(&lookup_calls, &value);
+
+  absl::StatusOr<CelValue> status0 = impl.Evaluate(activation, &arena);
+  ASSERT_THAT(status0, IsOk());
+  ASSERT_TRUE(status0->IsString());
+  EXPECT_THAT(status0->StringOrDie().value(), Eq("cached_value"));
+  EXPECT_EQ(lookup_calls, 1);
+}
+
 TEST(IdentStepTest, TestIdentStepNameNotFound) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr,
+                          IdentifierTable{{"name0"}}));
 
   Activation activation;
   Arena arena;
   std::string value("test");
 
-  auto status0 = impl.Evaluate(activation, &arena);
+  absl::StatusOr<CelValue> status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
@@ -77,22 +129,22 @@ TEST(IdentStepTest, TestIdentStepNameNotFound) {
 
 TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
-      env,
-      FlatExpression(std::move(path),
-                     /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path),
+                          /*comprehension_slot_count=*/0,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr, IdentifierTable{{"name0"}}));
 
   Activation activation;
   Arena arena;
   std::string value("test");
 
   activation.InsertValue("name0", CelValue::CreateString(&value));
-  auto status0 = impl.Evaluate(activation, &arena);
+  absl::StatusOr<CelValue> status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
@@ -111,7 +163,7 @@ TEST(IdentStepTest, DisableMissingAttributeErrorsOK) {
 
 TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
 
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kDisabled;
@@ -119,17 +171,17 @@ TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
 
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
-      env,
-      FlatExpression(std::move(path),
-                     /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path),
+                          /*comprehension_slot_count=*/0,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr, IdentifierTable{{"name0"}}));
 
   Activation activation;
   Arena arena;
   std::string value("test");
 
   activation.InsertValue("name0", CelValue::CreateString(&value));
-  auto status0 = impl.Evaluate(activation, &arena);
+  absl::StatusOr<CelValue> status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
@@ -149,17 +201,17 @@ TEST(IdentStepTest, TestIdentStepMissingAttributeErrors) {
 
 TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
 
   // Expression with unknowns enabled.
   cel::RuntimeOptions options;
   options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
   auto env = NewTestingRuntimeEnv();
   CelExpressionFlatImpl impl(
-      env,
-      FlatExpression(std::move(path),
-                     /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path),
+                          /*comprehension_slot_count=*/0,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr, IdentifierTable{{"name0"}}));
 
   Activation activation;
   Arena arena;
@@ -170,7 +222,7 @@ TEST(IdentStepTest, TestIdentStepUnknownAttribute) {
   unknown_patterns.push_back(CelAttributePattern("name_bad", {}));
 
   ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns), IsOk());
-  auto status0 = impl.Evaluate(activation, &arena);
+  absl::StatusOr<CelValue> status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
 
   CelValue result = status0.value();
