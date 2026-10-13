@@ -186,11 +186,6 @@ _TESTS_TO_SKIP = [
     "type_deductions/type_decay/type_nested_list_decay",
     "type_deductions/type_decay/type_free_param_list_concat",
 
-    # Future features for CEL 1.0
-    # TODO(issues/119): Strong typing support for enums, specified but not implemented.
-    "enums/strong_proto2",
-    "enums/strong_proto3",
-
     # These depend on legacy US/ timezones. It's spotty if these are included with a normally
     # configured timezone database.
     "timestamps/timestamp_selectors_tz/getDayOfMonth_name_pos",
@@ -215,12 +210,7 @@ _TESTS_TO_SKIP_PARSE_ONLY = [
 
 _TESTS_TO_SKIP_MODERN = _TESTS_TO_SKIP
 
-_TESTS_TO_SKIP_MODERN_DASHBOARD = [
-    # Future features for CEL 1.0
-    # TODO(issues/119): Strong typing support for enums, specified but not implemented.
-    "enums/strong_proto2",
-    "enums/strong_proto3",
-]
+_TESTS_TO_SKIP_MODERN_DASHBOARD = []
 
 _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP + [
     # Legacy value does not support optional_type.
@@ -243,11 +233,6 @@ _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP + [
 ]
 
 _TESTS_TO_SKIP_LEGACY_DASHBOARD = [
-    # Future features for CEL 1.0
-    # TODO(issues/119): Strong typing support for enums, specified but not implemented.
-    "enums/strong_proto2",
-    "enums/strong_proto3",
-
     # Legacy value does not support optional_type.
     "optionals/optionals",
 ]
