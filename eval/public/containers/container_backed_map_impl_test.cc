@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "absl/status/status.h"
+#include "absl/types/span.h"
 #include "eval/public/cel_value.h"
 #include "internal/testing.h"
 
@@ -22,10 +23,7 @@ TEST(ContainerBackedMapImplTest, TestMapInt64) {
       {CelValue::CreateInt64(1), CelValue::CreateInt64(2)},
       {CelValue::CreateInt64(2), CelValue::CreateInt64(3)}};
 
-  auto cel_map =
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size()))
-          .value();
+  auto cel_map = CreateContainerBackedMap(absl::MakeSpan(args)).value();
 
   ASSERT_THAT(cel_map, Not(IsNull()));
 
@@ -56,10 +54,7 @@ TEST(ContainerBackedMapImplTest, TestMapUint64) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateUint64(1), CelValue::CreateInt64(2)},
       {CelValue::CreateUint64(2), CelValue::CreateInt64(3)}};
-  auto cel_map =
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size()))
-          .value();
+  auto cel_map = CreateContainerBackedMap(absl::MakeSpan(args)).value();
 
   ASSERT_THAT(cel_map, Not(IsNull()));
 
@@ -94,10 +89,7 @@ TEST(ContainerBackedMapImplTest, TestMapString) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateString(&kKey1), CelValue::CreateInt64(2)},
       {CelValue::CreateString(&kKey2), CelValue::CreateInt64(3)}};
-  auto cel_map =
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size()))
-          .value();
+  auto cel_map = CreateContainerBackedMap(absl::MakeSpan(args)).value();
 
   ASSERT_THAT(cel_map, Not(IsNull()));
 

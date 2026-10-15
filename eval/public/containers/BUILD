@@ -113,6 +113,7 @@ cc_test(
         "//eval/public:cel_value",
         "//internal:testing",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/types:span",
     ],
 )
 

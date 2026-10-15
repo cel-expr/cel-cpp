@@ -578,9 +578,7 @@ TEST_P(CreateCreateStructStepTest, TestSetStringMapField) {
   entries.push_back(
       {CelValue::CreateString(&kKeys[1]), CelValue::CreateInt64(1)});
 
-  auto cel_map =
-      *CreateContainerBackedMap(absl::Span<std::pair<CelValue, CelValue>>(
-          entries.data(), entries.size()));
+  auto cel_map = *CreateContainerBackedMap(absl::MakeSpan(entries));
 
   ASSERT_NO_FATAL_FAILURE(RunExpressionAndGetMessage(
       env_, "string_int32_map", CelValue::CreateMap(cel_map.get()), &arena_,
@@ -604,9 +602,7 @@ TEST_P(CreateCreateStructStepTest, TestSetInt64MapField) {
   entries.push_back(
       {CelValue::CreateInt64(kKeys[1]), CelValue::CreateInt64(2)});
 
-  auto cel_map =
-      *CreateContainerBackedMap(absl::Span<std::pair<CelValue, CelValue>>(
-          entries.data(), entries.size()));
+  auto cel_map = *CreateContainerBackedMap(absl::MakeSpan(entries));
 
   ASSERT_NO_FATAL_FAILURE(RunExpressionAndGetMessage(
       env_, "int64_int32_map", CelValue::CreateMap(cel_map.get()), &arena_,
@@ -630,9 +626,7 @@ TEST_P(CreateCreateStructStepTest, TestSetUInt64MapField) {
   entries.push_back(
       {CelValue::CreateUint64(kKeys[1]), CelValue::CreateInt64(2)});
 
-  auto cel_map =
-      *CreateContainerBackedMap(absl::Span<std::pair<CelValue, CelValue>>(
-          entries.data(), entries.size()));
+  auto cel_map = *CreateContainerBackedMap(absl::MakeSpan(entries));
 
   ASSERT_NO_FATAL_FAILURE(RunExpressionAndGetMessage(
       env_, "uint64_int32_map", CelValue::CreateMap(cel_map.get()), &arena_,

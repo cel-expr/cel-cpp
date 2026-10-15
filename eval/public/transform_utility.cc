@@ -11,6 +11,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/containers/container_backed_list_impl.h"
 #include "eval/public/containers/container_backed_map_impl.h"
@@ -157,9 +158,7 @@ absl::StatusOr<CelValue> ValueToCelValue(const Value& value,
         key_values.push_back(std::pair<CelValue, CelValue>(map_key, map_value));
       }
       CEL_ASSIGN_OR_RETURN(
-          auto cel_map,
-          CreateContainerBackedMap(absl::Span<std::pair<CelValue, CelValue>>(
-              key_values.data(), key_values.size())));
+          auto cel_map, CreateContainerBackedMap(absl::MakeSpan(key_values)));
       auto* cel_map_ptr = cel_map.release();
       arena->Own(cel_map_ptr);
       return CelValue::CreateMap(cel_map_ptr);

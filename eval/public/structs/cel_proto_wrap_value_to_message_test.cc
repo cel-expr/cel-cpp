@@ -411,10 +411,8 @@ TEST_F(CelProtoWrapValueToMessageTest, WrapStruct) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateString(CelValue::StringHolder(&kField1)),
        CelValue::CreateBool(true)}};
-  ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<CelMap> cel_map,
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelMap> cel_map,
+                       CreateContainerBackedMap(absl::MakeSpan(args)));
   auto cel_value = CelValue::CreateMap(cel_map.get());
 
   Value json;
@@ -431,10 +429,8 @@ TEST_F(CelProtoWrapValueToMessageTest, WrapStruct) {
 TEST_F(CelProtoWrapValueToMessageTest, WrapFailureStructBadKeyType) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateInt64(1L), CelValue::CreateBool(true)}};
-  ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<CelMap> cel_map,
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelMap> cel_map,
+                       CreateContainerBackedMap(absl::MakeSpan(args)));
   auto cel_value = CelValue::CreateMap(cel_map.get());
 
   Value json;
@@ -447,10 +443,8 @@ TEST_F(CelProtoWrapValueToMessageTest, WrapFailureStructBadValueType) {
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateString(CelValue::StringHolder(&kField1)),
        MessageToCelValue(&bad_value)}};
-  ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<CelMap> cel_map,
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelMap> cel_map,
+                       CreateContainerBackedMap(absl::MakeSpan(args)));
   auto cel_value = CelValue::CreateMap(cel_map.get());
   Value json;
   ExpectNotWrapped(cel_value, json);
@@ -522,10 +516,8 @@ TEST_F(CelProtoWrapValueToMessageTest, WrapMapWithFieldMaskToAny) {
 
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateString(CelValue::StringHolder(&kField)), value}};
-  ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<CelMap> cel_map,
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelMap> cel_map,
+                       CreateContainerBackedMap(absl::MakeSpan(args)));
   CelValue cel_value = CelValue::CreateMap(cel_map.get());
 
   Struct expected_struct;
@@ -581,10 +573,8 @@ TEST_F(CelProtoWrapValueToMessageTest, WrapMapWithEmptyToAny) {
 
   std::vector<std::pair<CelValue, CelValue>> args = {
       {CelValue::CreateString(CelValue::StringHolder(&kField)), value}};
-  ASSERT_OK_AND_ASSIGN(
-      std::unique_ptr<CelMap> cel_map,
-      CreateContainerBackedMap(
-          absl::Span<std::pair<CelValue, CelValue>>(args.data(), args.size())));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelMap> cel_map,
+                       CreateContainerBackedMap(absl::MakeSpan(args)));
   auto cel_value = CelValue::CreateMap(cel_map.get());
 
   Struct expected_struct;
