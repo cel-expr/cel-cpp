@@ -44,7 +44,7 @@ absl::StatusOr<CelValue> RunShadowableExpression(
   CelExpressionFlatImpl impl(
       env, FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
                           env->type_registry.GetComposedTypeProvider(),
-                          cel::RuntimeOptions{}));
+                          cel::RuntimeOptions{}, /*arena=*/nullptr, {}));
   return impl.Evaluate(activation, arena);
 }
 

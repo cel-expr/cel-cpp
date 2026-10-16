@@ -50,8 +50,9 @@ class ListKeysStepTest : public testing::Test {
     auto env = NewTestingRuntimeEnv();
     return std::make_unique<CelExpressionFlatImpl>(
         env,
-        FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                       env->type_registry.GetComposedTypeProvider(), options));
+        FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                       env->type_registry.GetComposedTypeProvider(), options,
+                       /*arena=*/nullptr, IdentifierTable{{"var", 0}}));
   }
 
  private:
@@ -75,7 +76,7 @@ MATCHER_P(CelStringValue, val, "") {
 
 TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("var"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   auto init_step =
       std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
   init_step->set_error_jump_offset(1);
@@ -115,7 +116,7 @@ TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
 
 TEST_F(ListKeysStepTest, ErrorPassedThrough) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("var"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   auto init_step =
       std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
   init_step->set_error_jump_offset(1);
@@ -140,7 +141,7 @@ TEST_F(ListKeysStepTest, ErrorPassedThrough) {
 
 TEST_F(ListKeysStepTest, UnknownSetPassedThrough) {
   ExecutionPath path;
-  path.push_back(ExpressionStep::MakeIdentifierStep("var"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   auto init_step =
       std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
   init_step->set_error_jump_offset(1);

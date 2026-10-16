@@ -39,8 +39,8 @@ class LogicStepTest : public testing::TestWithParam<bool> {
   absl::Status EvaluateLogic(CelValue arg0, CelValue arg1, bool is_or,
                              CelValue* result, bool enable_unknown) {
     ExecutionPath path;
-    path.push_back(ExpressionStep::MakeIdentifierStep("name0"));
-    path.push_back(ExpressionStep::MakeIdentifierStep("name1"));
+    path.push_back(ExpressionStep::MakeIdentifierStep(0));
+    path.push_back(ExpressionStep::MakeIdentifierStep(1));
     path.push_back(
         (is_or) ? ExpressionStep::MakeBooleanOrStep(/*num_args=*/2, /*id=*/2)
                 : ExpressionStep::MakeBooleanAndStep(/*num_args=*/2, /*id=*/2));
@@ -53,8 +53,10 @@ class LogicStepTest : public testing::TestWithParam<bool> {
     }
     CelExpressionFlatImpl impl(
         env_,
-        FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                       env_->type_registry.GetComposedTypeProvider(), options));
+        FlatExpression(std::move(path), /*comprehension_slot_count=*/2,
+                       env_->type_registry.GetComposedTypeProvider(), options,
+                       /*arena=*/nullptr,
+                       IdentifierTable{{"name0", 0}, {"name1", 1}}));
 
     Activation activation;
     activation.InsertValue("name0", arg0);

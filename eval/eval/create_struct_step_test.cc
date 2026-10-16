@@ -73,7 +73,7 @@ absl::StatusOr<ExecutionPath> MakeStackMachinePath(absl::string_view field) {
                                       {std::string(field)},
                                       /*optional_indices=*/{});
 
-  path.push_back(ExpressionStep::MakeIdentifierStep("message"));
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
   path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
 
   return path;
@@ -103,9 +103,9 @@ absl::StatusOr<CelValue> RunExpression(
   CEL_ASSIGN_OR_RETURN(path, MakeStackMachinePath(field));
 
   CelExpressionFlatImpl cel_expr(
-      env,
-      FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env->type_registry.GetComposedTypeProvider(), options));
+      env, FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                          env->type_registry.GetComposedTypeProvider(), options,
+                          /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
   Activation activation;
   activation.InsertValue("message", value);
 
@@ -189,7 +189,8 @@ TEST_P(CreateCreateStructStepTest, TestEmptyMessageCreation) {
   CelExpressionFlatImpl cel_expr(
       env_,
       FlatExpression(std::move(path), /*comprehension_slot_count=*/0,
-                     env_->type_registry.GetComposedTypeProvider(), options));
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, {}));
   Activation activation;
 
   ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr.Evaluate(activation, &arena_));

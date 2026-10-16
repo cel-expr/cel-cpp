@@ -44,9 +44,13 @@
 namespace google::api::expr::runtime {
 
 void FlatExpressionEvaluatorState::Reset() {
+  if (!dirty_) {
+    return;
+  }
   value_stack_.Clear();
   iterator_stack_.Clear();
   comprehension_slots_.Reset();
+  dirty_ = false;
 }
 
 const ExpressionStep* ExecutionFrame::NextSlow() {
@@ -239,9 +243,8 @@ absl::StatusOr<cel::Value> FlatExpression::EvaluateWithCallback(
     const cel::EmbedderContext* absl_nullable embedder_context,
     EvaluationListener listener, FlatExpressionEvaluatorState& state) const {
   state.Reset();
-
   ExecutionFrame frame(subexpressions_, activation, options_, state,
-                       std::move(listener), embedder_context);
+                       std::move(listener), embedder_context, identifiers_);
 
   return frame.Evaluate(frame.callback());
 }
@@ -356,6 +359,13 @@ TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step) {
 FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step) {
   if (step.header_.kind == ExpressionStepKind::kFixedJump) {
     return &step.u_.fixed_jump_step;
+  }
+  return nullptr;
+}
+
+IdentStepInfo* GetIfIdentStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kIdentifier) {
+    return &step.u_.ident_step;
   }
   return nullptr;
 }
