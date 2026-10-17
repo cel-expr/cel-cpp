@@ -47,7 +47,7 @@ TEST(TypeInfo, Ostream) {
   out << cel::TypeId<Type1>();
   auto string = out.str();
   EXPECT_THAT(string, Not(IsEmpty()));
-  EXPECT_THAT(string, SizeIs(std::strlen(string.c_str())));
+  EXPECT_THAT(string, SizeIs(string.size()));
 }
 
 TEST(TypeInfo, AbslStringify) {
