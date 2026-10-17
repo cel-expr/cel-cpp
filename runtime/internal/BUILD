@@ -226,21 +226,3 @@ cc_library(
         "@com_google_protobuf//:protobuf",
     ],
 )
-
-cc_library(
-    name = "attribute_matcher",
-    hdrs = ["attribute_matcher.h"],
-    deps = ["//base:attributes"],
-)
-
-cc_library(
-    name = "activation_attribute_matcher_access",
-    srcs = ["activation_attribute_matcher_access.cc"],
-    hdrs = ["activation_attribute_matcher_access.h"],
-    deps = [
-        ":attribute_matcher",
-        "//eval/public:activation",
-        "//runtime:activation",
-        "@com_google_absl//absl/base:nullability",
-    ],
-)

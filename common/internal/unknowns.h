@@ -263,13 +263,6 @@ class UnknownTree {
     ABSL_DCHECK(arena != nullptr);
   }
 
-  void MaybeReset(google::protobuf::Arena* absl_nonnull arena) {
-    ABSL_DCHECK(arena != nullptr);
-    if (arena_ != arena) {
-      Reset(arena);
-    }
-  }
-
   void Reset(google::protobuf::Arena* absl_nonnull arena) {
     ABSL_DCHECK(arena != nullptr);
     arena_ = arena;
