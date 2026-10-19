@@ -2,6 +2,7 @@ load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
 
 DEFAULT_VISIBILITY = [
+    "//abuse:__subpackages__",
     "//eval:__subpackages__",
     "//runtime:__subpackages__",
     "//extensions:__subpackages__",
