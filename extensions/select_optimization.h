@@ -44,6 +44,12 @@ struct SelectOptimizationOptions {
   // optimization is already applied by a compiler / static optimizer, this
   // option has no effect.
   int min_field_depth_for_optimization = 0;
+
+  // Whether to try to cache field descriptor lookups for the select
+  // optimization at plan time.
+  //
+  // This is temporary to make the change rollback safe for existing users.
+  bool enable_field_descriptor_caching = true;
 };
 
 // Enable select optimization on the given RuntimeBuilder, replacing long

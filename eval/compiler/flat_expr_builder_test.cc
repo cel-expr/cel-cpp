@@ -18,7 +18,6 @@
 #include <functional>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -36,22 +35,12 @@
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "base/builtins.h"
-#include "checker/validation_result.h"
-#include "common/ast.h"
-#include "common/decl.h"
-#include "common/expr.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
-#include "common/type.h"
 #include "common/value.h"
-#include "compiler/compiler.h"
-#include "compiler/compiler_factory.h"
-#include "compiler/standard_library.h"
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
 #include "eval/compiler/constant_folding.h"
-#include "eval/compiler/flat_expr_builder_extensions.h"
 #include "eval/compiler/qualified_reference_resolver.h"
-#include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_logic.h"
 #include "eval/public/activation.h"
 #include "eval/public/ast_rewrite.h"
@@ -3417,22 +3406,33 @@ TEST(FlatExprBuilderTest, ListAppendComprehensionWithTargetFailsPlanning) {
 }
 
 TEST(FlatExprBuilderTest, ProgramOptimizerResolvesTypesWhenRequested) {
-  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
-      NewTestingRuntimeEnv();
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::CompilerBuilder> compiler_builder,
-                       cel::NewCompilerBuilder(env->descriptor_pool));
-  ASSERT_THAT(compiler_builder->AddLibrary(cel::StandardCompilerLibrary()),
-              IsOk());
-  ASSERT_THAT(compiler_builder->GetCheckerBuilder().AddVariable(
-                  cel::MakeVariableDecl("x", cel::IntType())),
-              IsOk());
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Compiler> compiler,
-                       compiler_builder->Build());
-  ASSERT_OK_AND_ASSIGN(cel::ValidationResult validation_result,
-                       compiler->Compile("x == 1"));
-  ASSERT_TRUE(validation_result.IsValid());
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
-                       validation_result.ReleaseAst());
+  CheckedExpr expr;
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        type_map {
+          key: 1
+          value { primitive: BOOL }
+        }
+        type_map {
+          key: 2
+          value { primitive: INT64 }
+        }
+        expr {
+          id: 1
+          call_expr {
+            function: "_==_"
+            args {
+              id: 2
+              ident_expr { name: "x" }
+            }
+            args {
+              id: 3
+              const_expr { int64_value: 1 }
+            }
+          }
+        }
+      )pb",
+      &expr));
 
   class TypeRecordingOptimizer : public ProgramOptimizer {
    public:
@@ -3467,7 +3467,7 @@ TEST(FlatExprBuilderTest, ProgramOptimizerResolvesTypesWhenRequested) {
 
   cel::RuntimeOptions options;
   options.enable_typed_field_access = false;
-  CelExpressionBuilderFlatImpl builder(env, options);
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
   ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
 
   absl::flat_hash_map<int64_t, cel::Type> pre_visit_types;
@@ -3480,17 +3480,14 @@ TEST(FlatExprBuilderTest, ProgramOptimizerResolvesTypesWhenRequested) {
                                                         post_visit_types);
       });
 
-  ASSERT_OK_AND_ASSIGN(FlatExpression flat_expr,
-                       builder.flat_expr_builder().CreateExpressionImpl(
-                           std::move(ast), /*issues=*/nullptr));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&expr));
   EXPECT_THAT(pre_visit_types,
-              testing::UnorderedElementsAre(testing::Pair(1, cel::IntType()),
-                                            testing::Pair(2, cel::BoolType()),
-                                            testing::Pair(3, cel::IntType())));
+              testing::UnorderedElementsAre(testing::Pair(1, cel::BoolType()),
+                                            testing::Pair(2, cel::IntType())));
   EXPECT_THAT(post_visit_types,
-              testing::UnorderedElementsAre(testing::Pair(1, cel::IntType()),
-                                            testing::Pair(2, cel::BoolType()),
-                                            testing::Pair(3, cel::IntType())));
+              testing::UnorderedElementsAre(testing::Pair(1, cel::BoolType()),
+                                            testing::Pair(2, cel::IntType())));
 }
 
 }  // namespace
