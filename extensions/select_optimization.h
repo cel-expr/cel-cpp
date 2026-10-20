@@ -49,7 +49,7 @@ struct SelectOptimizationOptions {
   // optimization at plan time.
   //
   // This is temporary to make the change rollback safe for existing users.
-  bool enable_field_descriptor_caching = false;
+  bool enable_field_descriptor_caching = true;
 };
 
 // Enable select optimization on the given RuntimeBuilder, replacing long
