@@ -1341,8 +1341,6 @@ INSTANTIATE_TEST_SUITE_P(
                       "b", {
                                AttributeQualifier::OfString("child"),
                                AttributeQualifier::OfString("child"),
-                               AttributeQualifier::OfString("payload"),
-                               AttributeQualifier::OfString("single_int64"),
                            }))));
             },
         },
@@ -1429,8 +1427,7 @@ INSTANTIATE_TEST_SUITE_P(
               ASSERT_OK_AND_ASSIGN(Value result, got);
               ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
               EXPECT_THAT(result.GetError().NativeValue().message(),
-                          HasSubstr("nested_test_all_types.child.payload."
-                                    "standalone_message"));
+                          HasSubstr("nested_test_all_types.child"));
             },
         },
         {

@@ -115,6 +115,7 @@ std::string UnknownTree::ToString(
   if (is_wildcard) {
     std::string result = ToString(matcher->parent());
     key.AppendJoinString(&result);
+    return result;
   }
   return ToString(matcher);
 }

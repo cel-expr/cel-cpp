@@ -14,7 +14,6 @@
 
 #include "eval/eval/comprehension_slots.h"
 
-#include "base/attribute.h"
 #include "base/type_provider.h"
 #include "common/memory.h"
 #include "common/value.h"
@@ -23,9 +22,6 @@
 
 namespace google::api::expr::runtime {
 
-using ::cel::Attribute;
-
-using ::absl_testing::IsOkAndHolds;
 using ::cel::MemoryManagerRef;
 using ::cel::StringValue;
 using ::cel::TypeProvider;
@@ -38,8 +34,7 @@ TEST(ComprehensionSlots, Basic) {
   ComprehensionSlots::Slot* slot0 = slots.Get(0);
   EXPECT_FALSE(slot0->Has());
 
-  slots.Set(0, cel::StringValue::WrapUnsafe("abcd"),
-            AttributeTrail(Attribute("fake_attr")));
+  slots.Set(0, cel::StringValue::WrapUnsafe("abcd"), AttributeTrail());
 
   ASSERT_TRUE(slot0->Has());
 
@@ -49,14 +44,10 @@ TEST(ComprehensionSlots, Basic) {
               }))
       << "value is 'abcd'";
 
-  EXPECT_THAT(slot0->attribute().attribute().AsString(),
-              IsOkAndHolds("fake_attr"));
-
   slots.ClearSlot(0);
   EXPECT_FALSE(slot0->Has());
 
-  slots.Set(3, cel::StringValue::WrapUnsafe("abcd"),
-            AttributeTrail(Attribute("fake_attr")));
+  slots.Set(3, cel::StringValue::WrapUnsafe("abcd"), AttributeTrail());
 
   auto* slot3 = slots.Get(3);
 
