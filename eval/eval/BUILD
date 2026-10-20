@@ -35,6 +35,7 @@ package_group(
 cc_library(
     name = "evaluator_core",
     srcs = [
+        "bitset_steps.cc",
         "comprehension_step.cc",
         "create_list_step.cc",
         "equality_steps.cc",
@@ -45,6 +46,7 @@ cc_library(
         "logic_step.cc",
     ],
     hdrs = [
+        "bitset_steps.h",
         "comprehension_step.h",
         "create_list_step.h",
         "equality_steps.h",
@@ -353,6 +355,40 @@ cc_library(
     name = "equality_steps",
     deps = [
         ":evaluator_core",
+    ],
+)
+
+cc_library(
+    name = "bitset_steps",
+    deps = [
+        ":evaluator_core",
+    ],
+)
+
+cc_test(
+    name = "bitset_steps_test",
+    srcs = [
+        "bitset_steps_test.cc",
+    ],
+    deps = [
+        ":attribute_trail",
+        ":evaluator_core",
+        ":expression_step_logic",
+        "//base:attributes",
+        "//common:value",
+        "//common:value_kind",
+        "//common:value_testing",
+        "//internal:testing",
+        "//internal:testing_descriptor_pool",
+        "//internal:testing_message_factory",
+        "//runtime:activation",
+        "//runtime:runtime_options",
+        "//runtime/internal:runtime_type_provider",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 

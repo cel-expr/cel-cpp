@@ -45,7 +45,7 @@ struct ConformanceServiceOptions {
   bool modern;
   bool arena;
   bool recursive;
-  bool select_optimization;
+  bool extended_optimizations;
   bool enable_variadic_logical_operators = false;
   bool enable_pratt_parser = true;
 };
