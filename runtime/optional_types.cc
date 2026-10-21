@@ -29,6 +29,11 @@
 #include "base/function_adapter.h"
 #include "common/type.h"
 #include "common/value.h"
+#include "eval/compiler/cel_expression_builder_flat_impl.h"
+#include "eval/compiler/flat_expr_builder.h"
+#include "eval/public/cel_expression.h"
+#include "eval/public/cel_function_registry.h"
+#include "eval/public/cel_type_registry.h"
 #include "internal/casts.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
@@ -104,20 +109,40 @@ absl::StatusOr<Value> SelectOptionalFieldStruct(
   return OptionalValue::Of(std::move(field), arena);
 }
 
+// Finds `key` in `map`. With kCheckHas, the key must also pass MapValue::Has,
+// since legacy maps may return values for absent keys.
+template <bool kCheckHas>
+absl::StatusOr<absl::optional<Value>> FindMapValue(
+    const MapValue& map, const Value& key,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  if constexpr (kCheckHas) {
+    CEL_ASSIGN_OR_RETURN(Value has,
+                         map.Has(key, descriptor_pool, message_factory, arena));
+    if (auto has_bool = has.AsBool(); has_bool && !has_bool->NativeValue()) {
+      return absl::nullopt;
+    }
+  }
+  return map.Find(key, descriptor_pool, message_factory, arena);
+}
+
+template <bool kCheckHas>
 absl::StatusOr<Value> SelectOptionalFieldMap(
     const MapValue& map, const StringValue& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     google::protobuf::Arena* absl_nonnull arena) {
   absl::optional<Value> value;
-  CEL_ASSIGN_OR_RETURN(value,
-                       map.Find(key, descriptor_pool, message_factory, arena));
+  CEL_ASSIGN_OR_RETURN(value, FindMapValue<kCheckHas>(map, key, descriptor_pool,
+                                                      message_factory, arena));
   if (value) {
     return OptionalValue::Of(std::move(*value), arena);
   }
   return OptionalValue::None();
 }
 
+template <bool kCheckHas>
 absl::StatusOr<Value> SelectOptionalField(
     const OpaqueValue& opaque_value, const StringValue& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
@@ -129,8 +154,8 @@ absl::StatusOr<Value> SelectOptionalField(
     }
     auto container = optional_value->Value();
     if (auto map_value = container.AsMap(); map_value) {
-      return SelectOptionalFieldMap(*map_value, key, descriptor_pool,
-                                    message_factory, arena);
+      return SelectOptionalFieldMap<kCheckHas>(*map_value, key, descriptor_pool,
+                                               message_factory, arena);
     }
     if (auto struct_value = container.AsStruct(); struct_value) {
       return SelectOptionalFieldStruct(*struct_value, key, descriptor_pool,
@@ -141,6 +166,7 @@ absl::StatusOr<Value> SelectOptionalField(
       runtime_internal::CreateNoMatchingOverloadError("_[?_]"), arena);
 }
 
+template <bool kCheckHas>
 absl::StatusOr<Value> MapOptIndexOptionalValue(
     const MapValue& map, const Value& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
@@ -151,32 +177,34 @@ absl::StatusOr<Value> MapOptIndexOptionalValue(
     // Try int/uint.
     auto number = internal::Number::FromDouble(double_key->NativeValue());
     if (number.LosslessConvertibleToInt()) {
-      CEL_ASSIGN_OR_RETURN(value,
-                           map.Find(IntValue{number.AsInt()}, descriptor_pool,
-                                    message_factory, arena));
+      CEL_ASSIGN_OR_RETURN(value, FindMapValue<kCheckHas>(
+                                      map, IntValue{number.AsInt()},
+                                      descriptor_pool, message_factory, arena));
       if (value) {
         return OptionalValue::Of(std::move(*value), arena);
       }
     }
     if (number.LosslessConvertibleToUint()) {
-      CEL_ASSIGN_OR_RETURN(value,
-                           map.Find(UintValue{number.AsUint()}, descriptor_pool,
-                                    message_factory, arena));
+      CEL_ASSIGN_OR_RETURN(value, FindMapValue<kCheckHas>(
+                                      map, UintValue{number.AsUint()},
+                                      descriptor_pool, message_factory, arena));
       if (value) {
         return OptionalValue::Of(std::move(*value), arena);
       }
     }
   } else {
-    CEL_ASSIGN_OR_RETURN(
-        value, map.Find(key, descriptor_pool, message_factory, arena));
+    CEL_ASSIGN_OR_RETURN(value,
+                         FindMapValue<kCheckHas>(map, key, descriptor_pool,
+                                                 message_factory, arena));
     if (value) {
       return OptionalValue::Of(std::move(*value), arena);
     }
     if (auto int_key = key.AsInt(); int_key && int_key->NativeValue() >= 0) {
       CEL_ASSIGN_OR_RETURN(
           value,
-          map.Find(UintValue{static_cast<uint64_t>(int_key->NativeValue())},
-                   descriptor_pool, message_factory, arena));
+          FindMapValue<kCheckHas>(
+              map, UintValue{static_cast<uint64_t>(int_key->NativeValue())},
+              descriptor_pool, message_factory, arena));
       if (value) {
         return OptionalValue::Of(std::move(*value), arena);
       }
@@ -186,8 +214,9 @@ absl::StatusOr<Value> MapOptIndexOptionalValue(
                    static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
       CEL_ASSIGN_OR_RETURN(
           value,
-          map.Find(IntValue{static_cast<int64_t>(uint_key->NativeValue())},
-                   descriptor_pool, message_factory, arena));
+          FindMapValue<kCheckHas>(
+              map, IntValue{static_cast<int64_t>(uint_key->NativeValue())},
+              descriptor_pool, message_factory, arena));
       if (value) {
         return OptionalValue::Of(std::move(*value), arena);
       }
@@ -211,6 +240,7 @@ absl::StatusOr<Value> ListOptIndexOptionalInt(
   return OptionalValue::Of(std::move(element), arena);
 }
 
+template <bool kCheckHas>
 absl::StatusOr<Value> OptionalOptIndexOptionalValue(
     const OpaqueValue& opaque_value, const Value& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
@@ -222,8 +252,8 @@ absl::StatusOr<Value> OptionalOptIndexOptionalValue(
     }
     auto container = optional_value->Value();
     if (auto map_value = container.AsMap(); map_value) {
-      return MapOptIndexOptionalValue(*map_value, key, descriptor_pool,
-                                      message_factory, arena);
+      return MapOptIndexOptionalValue<kCheckHas>(
+          *map_value, key, descriptor_pool, message_factory, arena);
     }
     if (auto list_value = container.AsList(); list_value) {
       if (auto int_value = key.AsInt(); int_value) {
@@ -293,6 +323,7 @@ absl::StatusOr<Value> ListUnwrapOpt(
   return std::move(*builder).Build();
 }
 
+template <bool kCheckHas>
 absl::Status RegisterOptionalTypeFunctions(FunctionRegistry& registry,
                                            const RuntimeOptions& options) {
   if (!options.enable_qualified_type_identifiers) {
@@ -335,17 +366,17 @@ absl::Status RegisterOptionalTypeFunctions(FunctionRegistry& registry,
       BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue,
                             StringValue>::CreateDescriptor("_?._", false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue, StringValue>::
-          WrapFunction(&SelectOptionalFieldMap)));
+          WrapFunction(&SelectOptionalFieldMap<kCheckHas>)));
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue,
                             StringValue>::CreateDescriptor("_?._", false),
-      BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue,
-                            StringValue>::WrapFunction(&SelectOptionalField)));
+      BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue, StringValue>::
+          WrapFunction(&SelectOptionalField<kCheckHas>)));
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue,
                             Value>::CreateDescriptor("_[?_]", false),
-      BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue,
-                            Value>::WrapFunction(&MapOptIndexOptionalValue)));
+      BinaryFunctionAdapter<absl::StatusOr<Value>, MapValue, Value>::
+          WrapFunction(&MapOptIndexOptionalValue<kCheckHas>)));
   CEL_RETURN_IF_ERROR(registry.Register(
       BinaryFunctionAdapter<absl::StatusOr<Value>, ListValue,
                             int64_t>::CreateDescriptor("_[?_]", false),
@@ -355,7 +386,7 @@ absl::Status RegisterOptionalTypeFunctions(FunctionRegistry& registry,
       BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue,
                             Value>::CreateDescriptor("_[?_]", false),
       BinaryFunctionAdapter<absl::StatusOr<Value>, OpaqueValue, Value>::
-          WrapFunction(&OptionalOptIndexOptionalValue)));
+          WrapFunction(&OptionalOptIndexOptionalValue<kCheckHas>)));
   CEL_RETURN_IF_ERROR(registry.Register(
       UnaryFunctionAdapter<absl::StatusOr<Value>, ListValue>::CreateDescriptor(
           "optional.unwrap", false),
@@ -384,10 +415,25 @@ absl::Status RegisterOptionalTypeFunctions(FunctionRegistry& registry,
 absl::Status EnableOptionalTypes(RuntimeBuilder& builder) {
   auto& runtime = cel::internal::down_cast<runtime_internal::RuntimeImpl&>(
       runtime_internal::RuntimeFriendAccess::GetMutableRuntime(builder));
-  CEL_RETURN_IF_ERROR(RegisterOptionalTypeFunctions(
+  CEL_RETURN_IF_ERROR(RegisterOptionalTypeFunctions</*kCheckHas=*/false>(
       builder.function_registry(), runtime.expr_builder().options()));
   CEL_RETURN_IF_ERROR(builder.type_registry().RegisterType(OptionalType()));
   runtime.expr_builder().enable_optional_types();
+  return absl::OkStatus();
+}
+
+absl::Status EnableOptionalTypes(
+    google::api::expr::runtime::CelExpressionBuilder& builder) {
+  google::api::expr::runtime::FlatExprBuilder& expr_builder =
+      cel::internal::down_cast<
+          google::api::expr::runtime::CelExpressionBuilderFlatImpl&>(builder)
+          .flat_expr_builder();
+  CEL_RETURN_IF_ERROR(RegisterOptionalTypeFunctions</*kCheckHas=*/true>(
+      builder.GetRegistry()->InternalGetRegistry(), expr_builder.options()));
+  CEL_RETURN_IF_ERROR(
+      builder.GetTypeRegistry()->InternalGetModernRegistry().RegisterType(
+          OptionalType()));
+  expr_builder.enable_optional_types();
   return absl::OkStatus();
 }
 
