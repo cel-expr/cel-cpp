@@ -29,6 +29,12 @@ absl::optional<CelValue> Activation::FindValue(absl::string_view name,
 absl::Status Activation::InsertFunction(std::unique_ptr<CelFunction> function) {
   auto& overloads = function_map_[function->descriptor().name()];
   for (const auto& overload : overloads) {
+    if (function->descriptor().has_overload_id() &&
+        overload->descriptor().overload_id() ==
+            function->descriptor().overload_id()) {
+      return absl::InvalidArgumentError(
+          "Overload ID already defined in activation");
+    }
     if (overload->descriptor().ShapeMatches(function->descriptor())) {
       return absl::InvalidArgumentError(
           "Function with same shape already defined in activation");

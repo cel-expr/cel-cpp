@@ -73,6 +73,33 @@ MATCHER_P(IsOptionalType, inner_type, "") {
   return false;
 }
 
+TEST(OptionalDeclarationsTest, VersionedCheckerScope) {
+  size_t cells = 0;
+  for (int version : {0, 1, 2, -1}) {
+    ASSERT_OK_AND_ASSIGN(auto builder, CreateTypeCheckerBuilder(
+                                           GetSharedTestingDescriptorPool()));
+    ASSERT_OK(builder->AddLibrary(StandardCheckerLibrary()));
+    ASSERT_OK(builder->AddLibrary(version < 0
+                                      ? OptionalCheckerLibrary()
+                                      : OptionalCheckerLibrary(version)));
+    ASSERT_OK_AND_ASSIGN(auto checker, std::move(*builder).Build());
+    int index = 0;
+    for (const char* expression :
+         {"int(true)", "optional.unwrap([optional.of(1),optional.none()])",
+          "[optional.of(1),optional.none()].unwrapOpt()", "[1].first()",
+          "[1].last()"}) {
+      SCOPED_TRACE(version);
+      SCOPED_TRACE(expression);
+      ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst(expression));
+      ASSERT_OK_AND_ASSIGN(auto result, checker->Check(std::move(ast)));
+      EXPECT_EQ(result.IsValid(), index >= 3 && (version < 0 || version >= 2));
+      ++index;
+      ++cells;
+    }
+  }
+  EXPECT_EQ(cells, 20);
+}
+
 TEST(OptionalTest, OptSelectDoesNotAnnotateFieldType) {
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<TypeCheckerBuilder> builder,

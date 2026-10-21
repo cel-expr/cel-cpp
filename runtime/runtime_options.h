@@ -203,6 +203,15 @@ struct RuntimeOptions {
   // not what the planner expected (e.g. a map that was declared as a proto or
   // a different message with matching field names).
   bool enable_typed_field_access = true;
+
+  // Enable type-level function overload resolution.
+  //
+  // Check actual values, required container contents and shared generic
+  // bindings during overload resolution. False (default) checks only kinds.
+  // Builders and function steps capture this option. It is available on
+  // expression surfaces accepting RuntimeOptions, including legacy ones, but
+  // is not exposed through InterpreterOptions/ConvertToRuntimeOptions.
+  bool enable_type_level_overload = false;
 };
 // LINT.ThenChange(//depot/google3/eval/public/cel_options.h)
 

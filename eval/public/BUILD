@@ -729,6 +729,7 @@ cc_test(
         ":cel_function",
         "//eval/eval:attribute_trail",
         "//eval/eval:evaluator_core",
+        "//eval/internal:adapter_activation_impl",
         "//extensions/protobuf:memory_manager",
         "//internal:status_macros",
         "//internal:testing",

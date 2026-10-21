@@ -5,6 +5,7 @@
 
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
+#include "common/function_descriptor.h"
 #include "common/value.h"
 #include "eval/internal/interop.h"
 #include "eval/public/cel_value.h"
@@ -24,8 +25,8 @@ bool CelFunction::MatchArguments(absl::Span<const CelValue> arguments) const {
   }
   for (size_t i = 0; i < types_size; i++) {
     const auto& value = arguments[i];
-    CelValue::Type arg_type = descriptor().types()[i];
-    if (value.type() != arg_type && arg_type != CelValue::Type::kAny) {
+    CelValue::Type arg_type = descriptor().kinds()[i];
+    if (!cel::common_internal::FunctionKindMatches(arg_type, value.type())) {
       return false;
     }
   }
@@ -41,8 +42,9 @@ bool CelFunction::MatchArguments(absl::Span<const cel::Value> arguments) const {
   }
   for (size_t i = 0; i < types_size; i++) {
     const auto& value = arguments[i];
-    CelValue::Type arg_type = descriptor().types()[i];
-    if (value->kind() != arg_type && arg_type != CelValue::Type::kAny) {
+    CelValue::Type arg_type = descriptor().kinds()[i];
+    if (!cel::common_internal::FunctionKindMatches(
+            arg_type, cel::ValueKindToKind(value.kind()))) {
       return false;
     }
   }

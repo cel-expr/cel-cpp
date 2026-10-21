@@ -31,6 +31,7 @@
 #include "common/value_testing.h"
 #include "internal/testing.h"
 #include "runtime/function.h"
+#include "runtime/function_registry.h"
 
 namespace cel {
 namespace {
@@ -285,7 +286,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorInt) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kInt64));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kInt64));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDouble) {
@@ -296,7 +297,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDouble) {
   EXPECT_EQ(desc.name(), "Mult2");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_TRUE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kDouble));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kDouble));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorUint) {
@@ -307,7 +308,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorUint) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kUint64));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kUint64));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBool) {
@@ -318,7 +319,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBool) {
   EXPECT_EQ(desc.name(), "Not");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kBool));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kBool));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorTimestamp) {
@@ -329,7 +330,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorTimestamp) {
   EXPECT_EQ(desc.name(), "AddMinute");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kTimestamp));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kTimestamp));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDuration) {
@@ -341,7 +342,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorDuration) {
   EXPECT_EQ(desc.name(), "AddFiveSeconds");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kDuration));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kDuration));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorString) {
@@ -352,7 +353,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorString) {
   EXPECT_EQ(desc.name(), "Prepend");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kString));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kString));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBytes) {
@@ -363,7 +364,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorBytes) {
   EXPECT_EQ(desc.name(), "Prepend");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kBytes));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kBytes));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorAny) {
@@ -374,7 +375,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorAny) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_TRUE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kAny));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kAny));
 }
 
 TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorNonStrict) {
@@ -386,7 +387,7 @@ TEST_F(FunctionAdapterTest, UnaryFunctionAdapterCreateDescriptorNonStrict) {
   EXPECT_EQ(desc.name(), "Increment");
   EXPECT_FALSE(desc.is_strict());
   EXPECT_FALSE(desc.receiver_style());
-  EXPECT_THAT(desc.types(), ElementsAre(Kind::kAny));
+  EXPECT_THAT(desc.kinds(), ElementsAre(Kind::kAny));
 }
 
 TEST_F(FunctionAdapterTest, BinaryFunctionAdapterWrapFunctionInt) {
@@ -877,6 +878,231 @@ TEST_F(FunctionAdapterTest, NaryFunctionAdapterWrapFunction5ArgsBadArgCount) {
   EXPECT_THAT(fn->Invoke(args, test_invoke_context()),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("unexpected number of arguments")));
+}
+
+template <typename Adapter>
+void CheckDescriptorResults(size_t arity) {
+  const auto verify = [arity](const cel::FunctionDescriptor& descriptor,
+                              bool receiver, bool strict, bool contextual,
+                              absl::string_view id) {
+    EXPECT_EQ(descriptor.name(), "f");
+    EXPECT_EQ(descriptor.types().size(), arity);
+    EXPECT_EQ(descriptor.overload_id(), id);
+    EXPECT_EQ(descriptor.receiver_style(), receiver);
+    EXPECT_EQ(descriptor.is_strict(), strict);
+    EXPECT_EQ(descriptor.is_contextual(), contextual);
+  };
+  verify(Adapter::CreateDescriptor("f", false), false, true, false, "");
+  verify(Adapter::CreateDescriptor("f", true), true, true, false, "");
+  verify(Adapter::CreateDescriptor("f", false, false), false, false, false, "");
+  verify(Adapter::CreateDescriptor("f", true, true), true, true, false, "");
+  verify(Adapter::CreateDescriptor("f", 0), false, true, false, "");
+  verify(Adapter::CreateDescriptor("f", 1), true, true, false, "");
+  verify(Adapter::CreateDescriptor("f", 1, true), true, true, false, "");
+  verify(
+      Adapter::CreateDescriptor("f", 0, FunctionDescriptorOptions{false, true}),
+      false, false, true, "");
+  verify(Adapter::CreateDescriptor("f", 0, false), false, false, false, "");
+  verify(Adapter::CreateDescriptor("f", 1, 0), true, false, false, "");
+  const char* pointer = "id";
+  char mutable_array[] = "id";
+  char* mutable_pointer = mutable_array;
+  constexpr char const_array[] = "id";
+  const std::string string = "id";
+  const absl::string_view view = "id";
+  const auto id_forms = [&](auto&& id) {
+    verify(Adapter::CreateDescriptor("f", id, false), false, true, false, "id");
+    verify(Adapter::CreateDescriptor("f", id, true, {false, true}), true, false,
+           true, "id");
+  };
+  id_forms("id");
+  id_forms(pointer);
+  id_forms(mutable_array);
+  id_forms(mutable_pointer);
+  id_forms(const_array);
+  id_forms(string);
+  id_forms(view);
+}
+
+template <typename Adapter, typename F>
+void CheckRegistrationForms(F fn, size_t arity,
+                            const Function::InvokeContext& context) {
+  const auto check = [&](auto register_fn, bool receiver, bool strict,
+                         bool contextual, absl::string_view id) {
+    FunctionRegistry registry;
+    ASSERT_OK(register_fn(registry));
+    auto functions = registry.ListFunctions();
+    ASSERT_EQ(functions.size(), 1);
+    ASSERT_EQ(functions.at("f").size(), 1);
+    const FunctionDescriptor& descriptor = *functions.at("f")[0];
+    EXPECT_EQ(descriptor.overload_id(), id);
+    EXPECT_EQ(descriptor.types().size(), arity);
+    EXPECT_EQ(descriptor.receiver_style(), receiver);
+    EXPECT_EQ(descriptor.is_strict(), strict);
+    EXPECT_EQ(descriptor.is_contextual(), contextual);
+    auto overloads = registry.FindStaticOverloadsByArity("f", receiver, arity);
+    ASSERT_EQ(overloads.size(), 1);
+    EXPECT_THAT(overloads[0].implementation.Invoke(
+                    std::vector<Value>(arity, IntValue(1)), context),
+                absl_testing::IsOkAndHolds(test::IntValueIs(9)));
+  };
+  check([&](auto& r) { return Adapter::Register("f", false, fn, r); }, false,
+        true, false, "");
+  check([&](auto& r) { return Adapter::Register("f", true, fn, r, false); },
+        true, false, false, "");
+  check(
+      [&](auto& r) {
+        return Adapter::Register("f", true, fn, r,
+                                 FunctionDescriptorOptions{true, true});
+      },
+      true, true, true, "");
+  check([&](auto& r) { return Adapter::Register("f", "id", false, fn, r); },
+        false, true, false, "id");
+  check(
+      [&](auto& r) {
+        return Adapter::Register("f", "id", true, fn, r,
+                                 FunctionDescriptorOptions{false, true});
+      },
+      true, false, true, "id");
+  check([&](auto& r) { return Adapter::RegisterGlobalOverload("f", fn, r); },
+        false, true, false, "");
+  check(
+      [&](auto& r) {
+        return Adapter::RegisterGlobalOverload("f", "id", fn, r);
+      },
+      false, true, false, "id");
+  check([&](auto& r) { return Adapter::RegisterMemberOverload("f", fn, r); },
+        true, true, false, "");
+  check(
+      [&](auto& r) {
+        return Adapter::RegisterMemberOverload("f", "id", fn, r);
+      },
+      true, true, false, "id");
+  check([&](auto& r) { return Adapter::RegisterNonStrictOverload("f", fn, r); },
+        false, false, false, "");
+  check(
+      [&](auto& r) {
+        return Adapter::RegisterNonStrictOverload("f", "id", fn, r);
+      },
+      false, false, false, "id");
+  const auto id_forms = [&](auto&& id) {
+    check([&](auto& r) { return Adapter::Register("f", id, false, fn, r); },
+          false, true, false, "id");
+    check(
+        [&](auto& r) {
+          return Adapter::Register("f", id, true, fn, r,
+                                   FunctionDescriptorOptions{false, true});
+        },
+        true, false, true, "id");
+    check(
+        [&](auto& r) {
+          return Adapter::RegisterGlobalOverload("f", id, fn, r);
+        },
+        false, true, false, "id");
+    check(
+        [&](auto& r) {
+          return Adapter::RegisterMemberOverload("f", id, fn, r);
+        },
+        true, true, false, "id");
+    check(
+        [&](auto& r) {
+          return Adapter::RegisterNonStrictOverload("f", id, fn, r);
+        },
+        false, false, false, "id");
+  };
+  const char* pointer = "id";
+  char array[] = "id";
+  char* mutable_pointer = array;
+  const char const_array[] = "id";
+  const std::string string = "id";
+  const absl::string_view view = "id";
+  id_forms("id");
+  id_forms(pointer);
+  id_forms(mutable_pointer);
+  id_forms(const_array);
+  id_forms(array);
+  id_forms(string);
+  id_forms(view);
+}
+
+TEST_F(FunctionAdapterTest, DescriptorAndRegistrationCompatibility) {
+  CheckDescriptorResults<NullaryFunctionAdapter<int64_t>>(0);
+  CheckRegistrationForms<NullaryFunctionAdapter<int64_t>>(
+      []() { return int64_t{9}; }, 0, test_invoke_context());
+  CheckDescriptorResults<UnaryFunctionAdapter<int64_t, int64_t>>(1);
+  CheckRegistrationForms<UnaryFunctionAdapter<int64_t, int64_t>>(
+      [](int64_t) { return int64_t{9}; }, 1, test_invoke_context());
+  CheckDescriptorResults<BinaryFunctionAdapter<int64_t, int64_t, int64_t>>(2);
+  CheckRegistrationForms<BinaryFunctionAdapter<int64_t, int64_t, int64_t>>(
+      [](int64_t, int64_t) { return int64_t{9}; }, 2, test_invoke_context());
+  CheckDescriptorResults<
+      TernaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t>>(3);
+  CheckRegistrationForms<
+      TernaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t>>(
+      [](int64_t, int64_t, int64_t) { return int64_t{9}; }, 3,
+      test_invoke_context());
+  CheckDescriptorResults<
+      QuaternaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t, int64_t>>(
+      4);
+  CheckRegistrationForms<
+      QuaternaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t, int64_t>>(
+      [](int64_t, int64_t, int64_t, int64_t) { return int64_t{9}; }, 4,
+      test_invoke_context());
+  CheckDescriptorResults<NaryFunctionAdapter<int64_t>>(0);
+  CheckRegistrationForms<NaryFunctionAdapter<int64_t>>(
+      []() { return int64_t{9}; }, 0, test_invoke_context());
+  CheckDescriptorResults<NaryFunctionAdapter<int64_t, int64_t>>(1);
+  CheckRegistrationForms<NaryFunctionAdapter<int64_t, int64_t>>(
+      [](int64_t) { return int64_t{9}; }, 1, test_invoke_context());
+  CheckDescriptorResults<NaryFunctionAdapter<int64_t, int64_t, int64_t>>(2);
+  CheckRegistrationForms<NaryFunctionAdapter<int64_t, int64_t, int64_t>>(
+      [](int64_t, int64_t) { return int64_t{9}; }, 2, test_invoke_context());
+  CheckDescriptorResults<
+      NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t>>(3);
+  CheckRegistrationForms<
+      NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t>>(
+      [](int64_t, int64_t, int64_t) { return int64_t{9}; }, 3,
+      test_invoke_context());
+  CheckDescriptorResults<
+      NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t, int64_t>>(4);
+  CheckRegistrationForms<
+      NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t, int64_t>>(
+      [](int64_t, int64_t, int64_t, int64_t) { return int64_t{9}; }, 4,
+      test_invoke_context());
+  CheckDescriptorResults<NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t,
+                                             int64_t, int64_t>>(5);
+  CheckRegistrationForms<NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t,
+                                             int64_t, int64_t>>(
+      [](int64_t, int64_t, int64_t, int64_t, int64_t) { return int64_t{9}; }, 5,
+      test_invoke_context());
+  CheckDescriptorResults<
+      NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                          int64_t, int64_t, int64_t>>(8);
+  CheckRegistrationForms<
+      NaryFunctionAdapter<int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+                          int64_t, int64_t, int64_t>>(
+      [](int64_t, int64_t, int64_t, int64_t, int64_t, int64_t, int64_t,
+         int64_t) { return int64_t{9}; },
+      8, test_invoke_context());
+}
+
+TEST(FunctionAdapterCompatibilityTest, LegacyAndTypedShapeForms) {
+  cel::FunctionDescriptor zero("f", false, {});
+  cel::FunctionDescriptor one("f", false, {cel::Kind::kInt});
+  EXPECT_TRUE(zero.ShapeMatches(false, {}));
+  EXPECT_FALSE(one.ShapeMatches(false, {}));
+  EXPECT_TRUE(one.ShapeMatches(false, {cel::Kind::kInt}));
+  EXPECT_FALSE(one.ShapeMatches(false, {cel::Kind::kString}));
+  EXPECT_TRUE(one.ShapeMatches(false, {cel::IntType()}));
+  EXPECT_FALSE(one.ShapeMatches(false, {cel::StringType()}));
+  std::vector<Kind> kinds{Kind::kInt};
+  std::vector<Type> types{IntType()};
+  EXPECT_TRUE(one.ShapeMatches(false, kinds));
+  EXPECT_TRUE(one.ShapeMatches(false, types));
+  EXPECT_TRUE(one.ShapeMatches(false, absl::Span<const Kind>(kinds)));
+  EXPECT_TRUE(one.ShapeMatches(false, absl::Span<const Type>(types)));
+  EXPECT_TRUE(one.ShapeMatches(false, {Type(Kind::kInt)}));
+  EXPECT_FALSE(one.ShapeMatches(false, {Kind::kInt, Kind::kString}));
 }
 
 }  // namespace

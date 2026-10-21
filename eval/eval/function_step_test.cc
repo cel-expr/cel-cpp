@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -17,7 +18,9 @@
 #include "base/type_provider.h"
 #include "common/constant.h"
 #include "common/expr.h"
+#include "common/function_descriptor.h"
 #include "common/kind.h"
+#include "common/type.h"
 #include "common/value.h"
 #include "eval/eval/cel_expression_flat_impl.h"
 #include "eval/eval/evaluator_core.h"
@@ -32,10 +35,13 @@
 #include "eval/public/structs/cel_proto_wrapper.h"
 #include "eval/public/testing/matchers.h"
 #include "eval/testutil/test_message.pb.h"
+#include "google/protobuf/arena.h"
 #include "internal/testing.h"
+#include "runtime/activation.h"
+#include "runtime/function.h"
+#include "runtime/function_registry.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/runtime_options.h"
-#include "google/protobuf/arena.h"
 
 namespace google::api::expr::runtime {
 
@@ -50,6 +56,203 @@ using ::cel::TypeProvider;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::testing::Eq;
 using ::testing::Not;
+
+template <typename Step, typename Overloads>
+constexpr bool StepConstructorContract() {
+  constexpr auto valid = [](auto* value) {
+    using Count = std::remove_pointer_t<decltype(value)>;
+    return !std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                    bool, int64_t, Count> &&
+           !std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                    bool, int64_t, Count&> &&
+           !std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                    bool, int64_t, const Count&>;
+  };
+  return std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                 bool, int64_t> &&
+         std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                 bool, int64_t, bool> &&
+         std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                 bool, int64_t, bool&> &&
+         std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                 bool, int64_t, const bool&> &&
+         valid(static_cast<size_t*>(nullptr)) &&
+         valid(static_cast<int*>(nullptr)) &&
+         valid(static_cast<unsigned*>(nullptr)) &&
+         !std::is_constructible_v<Step, Overloads, const std::string&, size_t,
+                                  bool, int64_t, size_t, bool>;
+}
+static_assert(
+    StepConstructorContract<EagerFunctionStep,
+                            std::vector<cel::FunctionOverloadReference>>());
+static_assert(
+    StepConstructorContract<
+        LazyFunctionStep, std::vector<cel::FunctionRegistry::LazyOverload>>());
+
+class StepMarker final : public cel::Function {
+ public:
+  StepMarker(int64_t marker, int* calls) : marker_(marker), calls_(calls) {}
+  absl::StatusOr<cel::Value> Invoke(absl::Span<const cel::Value>,
+                                    const InvokeContext&) const override {
+    ++*calls_;
+    return cel::IntValue(marker_);
+  }
+
+ private:
+  int64_t marker_;
+  int* calls_;
+};
+
+enum class StepForm {
+  kFactoryDefault,
+  kFactoryCount,
+  kFactoryBoolCount,
+  kFactoryFalse,
+  kFactoryTrue,
+  kConstructorDefault,
+  kConstructorFalse,
+  kConstructorTrue
+};
+
+TEST(FunctionStepApiTest, CountSlotsAndConstructorModesPreserveFallback) {
+  for (bool lazy : {false, true})
+    for (StepForm form :
+         {StepForm::kFactoryDefault, StepForm::kFactoryCount,
+          StepForm::kFactoryBoolCount, StepForm::kFactoryFalse,
+          StepForm::kFactoryTrue, StepForm::kConstructorDefault,
+          StepForm::kConstructorFalse, StepForm::kConstructorTrue})
+      for (size_t count : {size_t{0}, size_t{1}})
+        for (bool mixed : {false, true}) {
+          auto env = NewTestingRuntimeEnv();
+          google::protobuf::Arena arena;
+          cel::Activation activation;
+          int first = 0, second = 0;
+          cel::FunctionDescriptor i("choose", "i", false,
+                                    {cel::ListType(&arena, cel::IntType())});
+          cel::FunctionDescriptor s("choose", "s", false,
+                                    {cel::ListType(&arena, cel::StringType())});
+          if (lazy) {
+            ASSERT_OK(env->function_registry.RegisterLazyFunction(i));
+            ASSERT_OK(env->function_registry.RegisterLazyFunction(s));
+            ASSERT_TRUE(activation.InsertFunction(
+                i, std::make_unique<StepMarker>(11, &first)));
+            ASSERT_TRUE(activation.InsertFunction(
+                s, std::make_unique<StepMarker>(22, &second)));
+          } else {
+            ASSERT_OK(env->function_registry.Register(
+                i, std::make_unique<StepMarker>(11, &first)));
+            ASSERT_OK(env->function_registry.Register(
+                s, std::make_unique<StepMarker>(22, &second)));
+          }
+          auto values = cel::NewListValueBuilder(&arena);
+          if (mixed) ASSERT_OK(values->Add(cel::IntValue(1)));
+          ASSERT_OK(values->Add(cel::StringValue::From("s", &arena)));
+          activation.InsertOrAssignValue("x", std::move(*values).Build());
+          CallExpr call;
+          call.set_function("choose");
+          call.mutable_args().emplace_back();
+          ExecutionPath path;
+          path.push_back(ExpressionStep::MakeIdentifierStep("x", 1));
+          if (lazy) {
+            auto overloads = env->function_registry.FindLazyOverloadsByArity(
+                "choose", false, 1);
+            std::unique_ptr<LazyFunctionStep> step;
+            switch (form) {
+              case StepForm::kFactoryDefault:
+                step = CreateLazyFunctionStep(call, 2, std::move(overloads));
+                break;
+              case StepForm::kFactoryCount:
+                step = CreateLazyFunctionStep(call, 2, std::move(overloads),
+                                              count);
+                break;
+              case StepForm::kFactoryBoolCount:
+                step =
+                    CreateLazyFunctionStep(call, 2, std::move(overloads), true);
+                break;
+              case StepForm::kFactoryFalse:
+                step = CreateLazyFunctionStep(call, 2, std::move(overloads),
+                                              count, false);
+                break;
+              case StepForm::kFactoryTrue:
+                step = CreateLazyFunctionStep(call, 2, std::move(overloads),
+                                              count, true);
+                break;
+              case StepForm::kConstructorDefault:
+                step = std::make_unique<LazyFunctionStep>(
+                    std::move(overloads), "choose", 1, false, 2);
+                break;
+              case StepForm::kConstructorFalse:
+                step = std::make_unique<LazyFunctionStep>(
+                    std::move(overloads), "choose", 1, false, 2, false);
+                break;
+              case StepForm::kConstructorTrue:
+                step = std::make_unique<LazyFunctionStep>(
+                    std::move(overloads), "choose", 1, false, 2, true);
+                break;
+            }
+            path.push_back(
+                ExpressionStep::MakeLazyFunctionStep(std::move(step), 2));
+          } else {
+            auto overloads = env->function_registry.FindStaticOverloadsByArity(
+                "choose", false, 1);
+            std::unique_ptr<EagerFunctionStep> step;
+            switch (form) {
+              case StepForm::kFactoryDefault:
+                step = CreateFunctionStep(call, 2, std::move(overloads));
+                break;
+              case StepForm::kFactoryCount:
+                step = CreateFunctionStep(call, 2, std::move(overloads), count);
+                break;
+              case StepForm::kFactoryBoolCount:
+                step = CreateFunctionStep(call, 2, std::move(overloads), true);
+                break;
+              case StepForm::kFactoryFalse:
+                step = CreateFunctionStep(call, 2, std::move(overloads), count,
+                                          false);
+                break;
+              case StepForm::kFactoryTrue:
+                step = CreateFunctionStep(call, 2, std::move(overloads), count,
+                                          true);
+                break;
+              case StepForm::kConstructorDefault:
+                step = std::make_unique<EagerFunctionStep>(
+                    std::move(overloads), "choose", 1, false, 2);
+                break;
+              case StepForm::kConstructorFalse:
+                step = std::make_unique<EagerFunctionStep>(
+                    std::move(overloads), "choose", 1, false, 2, false);
+                break;
+              case StepForm::kConstructorTrue:
+                step = std::make_unique<EagerFunctionStep>(
+                    std::move(overloads), "choose", 1, false, 2, true);
+                break;
+            }
+            path.push_back(
+                ExpressionStep::MakeEagerFunctionStep(std::move(step), 2));
+          }
+          FlatExpression flat(std::move(path), 0,
+                              env->type_registry.GetComposedTypeProvider(),
+                              cel::RuntimeOptions());
+          auto state = flat.MakeEvaluatorState(
+              env->descriptor_pool.get(), env->MutableMessageFactory(), &arena);
+          ASSERT_OK_AND_ASSIGN(
+              auto result,
+              flat.EvaluateWithCallback(activation, nullptr, {}, state));
+          const bool type_mode = form == StepForm::kFactoryTrue ||
+                                 form == StepForm::kConstructorTrue;
+          if (type_mode && mixed) {
+            ASSERT_TRUE(result.IsError());
+            EXPECT_THAT(result.GetError().NativeValue().message(),
+                        testing::HasSubstr("No matching overload"));
+            EXPECT_EQ(first + second, 0);
+          } else {
+            ASSERT_TRUE(result.IsInt());
+            EXPECT_EQ(result.GetInt().NativeValue(), type_mode ? 22 : 11);
+            EXPECT_EQ(first, type_mode ? 0 : 1);
+            EXPECT_EQ(second, type_mode ? 1 : 0);
+          }
+        }
+}
 
 int GetExprId() {
   static int id = 0;

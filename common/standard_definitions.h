@@ -304,6 +304,7 @@ struct StandardOverloadIds {
   static constexpr absl::string_view kIntToUint = "int64_to_uint64";
   static constexpr absl::string_view kStringToUint = "string_to_uint64";
   // to_int
+  static constexpr absl::string_view kBoolToInt = "bool_to_int64";
   static constexpr absl::string_view kUintToInt = "uint64_to_int64";
   static constexpr absl::string_view kDoubleToInt = "double_to_int64";
   static constexpr absl::string_view kIntToInt = "int64_to_int64";

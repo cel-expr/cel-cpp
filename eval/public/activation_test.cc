@@ -6,6 +6,7 @@
 
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/ident_step.h"
+#include "eval/internal/adapter_activation_impl.h"
 #include "eval/public/cel_attribute.h"
 #include "eval/public/cel_function.h"
 #include "extensions/protobuf/memory_manager.h"
@@ -22,8 +23,8 @@ namespace {
 
 using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
-using ::cel::extensions::ProtoMemoryManager;
 using ::cel::expr::Expr;
+using ::cel::extensions::ProtoMemoryManager;
 using ::google::protobuf::Arena;
 using ::testing::ElementsAre;
 using ::testing::Eq;
@@ -51,6 +52,102 @@ class ConstCelFunction : public CelFunction {
     return absl::OkStatus();
   }
 };
+
+TEST(ActivationTest, DuplicateIdInsertionPreservesOriginal) {
+  Activation activation;
+  cel::FunctionDescriptor first("choose", "shared", false, {cel::IntType()});
+  ASSERT_OK(
+      activation.InsertFunction(std::make_unique<ConstCelFunction>(first)));
+  cel::interop_internal::AdapterActivationImpl adapted(activation);
+  auto original = adapted.FindFunctionOverloadById("choose", "shared");
+  ASSERT_TRUE(original);
+  const auto* original_descriptor = &original->descriptor;
+  const auto* implementation = &original->implementation;
+  for (const auto& descriptor :
+       {cel::FunctionDescriptor("choose", "shared", false, {cel::DoubleType()}),
+        cel::FunctionDescriptor("choose", "shared", true, {cel::DoubleType()}),
+        cel::FunctionDescriptor("choose", "shared", false, {})}) {
+    EXPECT_FALSE(
+        activation
+            .InsertFunction(std::make_unique<ConstCelFunction>(descriptor))
+            .ok());
+    EXPECT_THAT(activation.FindFunctionOverloads("choose"),
+                ::testing::SizeIs(1));
+    auto found = adapted.FindFunctionOverloadById("choose", "shared");
+    ASSERT_TRUE(found);
+    EXPECT_EQ(&found->descriptor, original_descriptor);
+    EXPECT_EQ(&found->implementation, implementation);
+  }
+  ASSERT_OK(activation.InsertFunction(std::make_unique<ConstCelFunction>(
+      cel::FunctionDescriptor("other", "shared", false, {}))));
+  for (int i = 0; i < 200; ++i) {
+    ASSERT_OK(activation.InsertFunction(std::make_unique<ConstCelFunction>(
+        cel::FunctionDescriptor("g" + std::to_string(i), "id", false, {}))));
+  }
+  Activation moved(std::move(activation));
+  Activation assigned;
+  assigned = std::move(moved);
+  cel::interop_internal::AdapterActivationImpl moved_adapter(assigned);
+  auto found = moved_adapter.FindFunctionOverloadById("choose", "shared");
+  ASSERT_TRUE(found);
+  EXPECT_EQ(&found->descriptor, original_descriptor);
+  EXPECT_EQ(&found->implementation, implementation);
+  ASSERT_OK(assigned.InsertFunction(std::make_unique<ConstCelFunction>(
+      cel::FunctionDescriptor("empty", false, {cel::Kind::kInt}))));
+  ASSERT_OK(assigned.InsertFunction(std::make_unique<ConstCelFunction>(
+      cel::FunctionDescriptor("empty", false, {cel::Kind::kString}))));
+  EXPECT_FALSE(moved_adapter.FindFunctionOverloadById("empty", ""));
+  EXPECT_THAT(assigned.FindFunctionOverloads("empty"), ::testing::SizeIs(2));
+  EXPECT_TRUE(assigned.RemoveFunctionEntries(first));
+  EXPECT_FALSE(moved_adapter.FindFunctionOverloadById("choose", "shared"));
+  EXPECT_THAT(assigned.FindFunctionOverloads("choose"), IsEmpty());
+}
+
+TEST(ActivationTest, PublicKindGuardsAcceptDynamicParameters) {
+  ConstCelFunction nullary(cel::FunctionDescriptor("f", false, {}));
+  EXPECT_TRUE(nullary.MatchArguments(absl::Span<const CelValue>()));
+  EXPECT_TRUE(nullary.MatchArguments(absl::Span<const cel::Value>()));
+  EXPECT_FALSE(
+      nullary.MatchArguments(std::vector<CelValue>{CelValue::CreateInt64(1)}));
+  EXPECT_FALSE(
+      nullary.MatchArguments(std::vector<cel::Value>{cel::IntValue(1)}));
+  for (cel::Kind expected :
+       {cel::Kind::kAny, cel::Kind::kDyn, cel::Kind::kTypeParam,
+        cel::Kind::kInt, cel::Kind::kString}) {
+    ConstCelFunction function(cel::FunctionDescriptor("f", false, {expected}));
+    const std::vector<CelValue> legacy{CelValue::CreateInt64(1)};
+    const std::vector<cel::Value> modern{cel::IntValue(1)};
+    EXPECT_EQ(function.MatchArguments(legacy), expected != cel::Kind::kString);
+    EXPECT_EQ(function.MatchArguments(modern), expected != cel::Kind::kString);
+    EXPECT_FALSE(function.MatchArguments(absl::Span<const CelValue>()));
+    EXPECT_FALSE(function.MatchArguments(absl::Span<const cel::Value>()));
+    ConstCelFunction multiple(cel::FunctionDescriptor(
+        "f", false, {expected, cel::Kind::kInt, cel::Kind::kBool}));
+    std::vector<CelValue> legacy_many{CelValue::CreateInt64(1),
+                                      CelValue::CreateInt64(2),
+                                      CelValue::CreateBool(true)};
+    std::vector<cel::Value> modern_many{cel::IntValue(1), cel::IntValue(2),
+                                        cel::BoolValue(true)};
+    EXPECT_EQ(multiple.MatchArguments(legacy_many),
+              expected != cel::Kind::kString);
+    EXPECT_EQ(multiple.MatchArguments(modern_many),
+              expected != cel::Kind::kString);
+    legacy_many.back() = CelValue::CreateInt64(3);
+    modern_many.back() = cel::IntValue(3);
+    EXPECT_FALSE(multiple.MatchArguments(legacy_many));
+    EXPECT_FALSE(multiple.MatchArguments(modern_many));
+    legacy_many.pop_back();
+    modern_many.pop_back();
+    EXPECT_FALSE(multiple.MatchArguments(legacy_many));
+    EXPECT_FALSE(multiple.MatchArguments(modern_many));
+    legacy_many.push_back(CelValue::CreateBool(true));
+    legacy_many.push_back(CelValue::CreateInt64(4));
+    modern_many.push_back(cel::BoolValue(true));
+    modern_many.push_back(cel::IntValue(4));
+    EXPECT_FALSE(multiple.MatchArguments(legacy_many));
+    EXPECT_FALSE(multiple.MatchArguments(modern_many));
+  }
+}
 
 TEST(ActivationTest, CheckValueInsertFindAndRemove) {
   Activation activation;

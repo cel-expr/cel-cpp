@@ -35,6 +35,7 @@
 #include "absl/types/span.h"
 #include "absl/types/variant.h"
 #include "absl/utility/utility.h"
+#include "common/kind.h"
 #include "common/type_kind.h"
 #include "common/types/any_type.h"   // IWYU pragma: export
 #include "common/types/bool_type.h"  // IWYU pragma: export
@@ -108,6 +109,11 @@ class Type final {
   Type(Type&&) = default;
   Type& operator=(const Type&) = default;
   Type& operator=(Type&&) = default;
+
+  // Implicit conversion from Kind to Type.
+  // This allows std::vector<Kind> to be implicitly converted to std::vector<Type>.
+  // NOLINTNEXTLINE(google-explicit-constructor)
+  Type(Kind kind);
 
   template <typename T,
             typename = std::enable_if_t<common_internal::IsTypeAlternativeV<

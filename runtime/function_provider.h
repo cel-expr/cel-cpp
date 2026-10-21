@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_CEL_CPP_RUNTIME_FUNCTION_PROVIDER_H_
 #define THIRD_PARTY_CEL_CPP_RUNTIME_FUNCTION_PROVIDER_H_
 
+#include "absl/functional/function_ref.h"
 #include "absl/status/statusor.h"
 #include "common/function_descriptor.h"
 #include "runtime/activation_interface.h"
@@ -39,6 +40,25 @@ class FunctionProvider {
   virtual absl::StatusOr<absl::optional<FunctionOverloadReference>> GetFunction(
       const FunctionDescriptor& descriptor,
       const ActivationInterface& activation) const = 0;
+
+  // Applies actual argument guards before selecting an implementation. The
+  // predicate is synchronous and must not be retained. Providers that enumerate
+  // alternatives override this operation to filter before counting ambiguity.
+  // Existing singular providers remain source compatible through this default.
+  virtual absl::StatusOr<absl::optional<FunctionOverloadReference>>
+  GetFunctionMatching(
+      const FunctionDescriptor& descriptor,
+      const ActivationInterface& activation,
+      absl::FunctionRef<absl::StatusOr<bool>(const FunctionOverloadReference&)>
+          predicate) const {
+    auto result = GetFunction(descriptor, activation);
+    if (!result.ok()) return result.status();
+    if (!result->has_value()) return absl::nullopt;
+    auto accepted = predicate(**result);
+    if (!accepted.ok()) return accepted.status();
+    if (!*accepted) return absl::nullopt;
+    return *result;
+  }
 };
 
 }  // namespace cel::runtime_internal

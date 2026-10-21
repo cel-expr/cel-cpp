@@ -29,6 +29,9 @@ using ProtoWrapperTypeOptions = cel::ProtoWrapperTypeOptions;
 
 // LINT.IfChange
 // Interpreter options for controlling evaluation and builtin functions.
+// Type-level overload checking is supplied through RuntimeOptions and captured
+// by builders/steps. It is not exposed by InterpreterOptions or populated by
+// ConvertToRuntimeOptions; legacy activation support is a separate concern.
 struct InterpreterOptions {
   // Level of unknown support enabled.
   UnknownProcessingOptions unknown_processing =

@@ -244,3 +244,45 @@ cc_library(
         "@com_google_absl//absl/base:nullability",
     ],
 )
+
+cc_library(
+    name = "function_matching",
+    srcs = ["function_matching.cc"],
+    hdrs = ["function_matching.h"],
+    deps = [
+        "//common:function_descriptor",
+        "//common:type",
+        "//common:value",
+        "//internal:status_macros",
+        "//runtime:function",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "function_matching_test",
+    srcs = ["function_matching_test.cc"],
+    deps = [
+        ":function_matching",
+        ":function_matching_test_util",
+        "//common:function_descriptor",
+        "//common:type",
+        "//common:value",
+        "//common:value_testing",
+        "//internal:testing",
+        "//runtime:function",
+        "@com_google_absl//absl/strings:cord",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "function_matching_test_util",
+    testonly = True,
+    hdrs = ["function_matching_test_util.h"],
+    deps = [
+        "//common:value",
+        "@com_google_absl//absl/strings:cord",
+    ],
+)

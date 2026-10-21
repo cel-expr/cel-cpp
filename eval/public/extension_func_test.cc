@@ -69,13 +69,13 @@ class ExtensionTest : public ::testing::Test {
 
   void TestStringStartsWith(const std::string& test_string,
                             const std::string& prefix, bool result) {
-    TestStringInclusion("startsWith", {true, false}, test_string, prefix,
+    TestStringInclusion("startsWith", {true}, test_string, prefix,
                         result);
   }
 
   void TestStringEndsWith(const std::string& test_string,
                           const std::string& prefix, bool result) {
-    TestStringInclusion("endsWith", {true, false}, test_string, prefix, result);
+    TestStringInclusion("endsWith", {true}, test_string, prefix, result);
   }
 
   // Helper method to test timestamp() function

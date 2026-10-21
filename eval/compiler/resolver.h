@@ -78,9 +78,19 @@ class Resolver {
       absl::string_view name, bool receiver_style,
       const std::vector<cel::Kind>& types, int64_t expr_id = -1) const;
 
+  std::vector<cel::FunctionRegistry::LazyOverload> FindLazyOverloadsByTypes(
+      absl::string_view name, bool receiver_style,
+      const std::vector<cel::Type>& types, int64_t expr_id = -1) const;
+
   std::vector<cel::FunctionRegistry::LazyOverload> FindLazyOverloads(
       absl::string_view name, bool receiver_style, size_t arity,
       int64_t expr_id = -1) const;
+
+  // Find a specific lazy overload by name and overload_id.
+  // Returns empty optional if not found.
+  // Considers namespace prefixes when searching.
+  absl::optional<cel::FunctionRegistry::LazyOverload> FindLazyOverloadById(
+      absl::string_view name, absl::string_view overload_id) const;
 
   // FindOverloads returns the set, possibly empty, of eager function overloads
   // matching the given function signature.
@@ -88,9 +98,19 @@ class Resolver {
       absl::string_view name, bool receiver_style,
       const std::vector<cel::Kind>& types, int64_t expr_id = -1) const;
 
+  std::vector<cel::FunctionOverloadReference> FindOverloadsByTypes(
+      absl::string_view name, bool receiver_style,
+      const std::vector<cel::Type>& types, int64_t expr_id = -1) const;
+
   std::vector<cel::FunctionOverloadReference> FindOverloads(
       absl::string_view name, bool receiver_style, size_t arity,
       int64_t expr_id = -1) const;
+
+  // Find a specific static overload by name and overload_id.
+  // Returns empty optional if not found.
+  // Considers namespace prefixes when searching.
+  absl::optional<cel::FunctionOverloadReference> FindOverloadById(
+      absl::string_view name, absl::string_view overload_id) const;
 
   // FullyQualifiedNames returns the set of fully qualified names which may be
   // derived from the base_name within the specified expression container.

@@ -1139,6 +1139,124 @@ TEST(FlatExprBuilderTest, CheckedExprWithReferenceMapFunction) {
   EXPECT_TRUE(result.BoolOrDie());
 }
 
+TEST(FlatExprBuilderTest, CheckedOverloadIdsAndTypeLevelFallback) {
+  class FixedResultFunction final : public CelFunction {
+   public:
+    FixedResultFunction(cel::FunctionDescriptor descriptor, int64_t result)
+        : CelFunction(std::move(descriptor)), result_(result) {}
+
+    absl::Status Evaluate(absl::Span<const CelValue>, CelValue* result,
+                          google::protobuf::Arena*) const override {
+      *result = CelValue::CreateInt64(result_);
+      return absl::OkStatus();
+    }
+
+   private:
+    int64_t result_;
+  };
+
+  for (bool lazy : {false, true}) {
+    SCOPED_TRACE(lazy);
+    for (bool type_level_overload : {false, true}) {
+      SCOPED_TRACE(type_level_overload);
+      for (absl::string_view expression :
+           {"choose(['value'])", "choose([])",
+            "choose(message.repeated_string)"}) {
+        SCOPED_TRACE(expression);
+        google::protobuf::Arena arena;
+        cel::RuntimeOptions options;
+        options.enable_type_level_overload = type_level_overload;
+        options.enable_typed_field_access = true;
+        CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+        builder.set_container("overload_test");
+        auto& registry = builder.GetRegistry()->InternalGetRegistry();
+        cel::FunctionDescriptor int_descriptor(
+            "overload_test.choose", "choose_list_int", false,
+            std::vector<cel::Type>{cel::ListType(&arena, cel::IntType())});
+        cel::FunctionDescriptor string_descriptor(
+            "overload_test.choose", "choose_list_string", false,
+            std::vector<cel::Type>{cel::ListType(&arena, cel::StringType())});
+
+        Activation activation;
+        if (lazy) {
+          ASSERT_OK(registry.RegisterLazyFunction(int_descriptor));
+          ASSERT_OK(registry.RegisterLazyFunction(string_descriptor));
+          ASSERT_OK(activation.InsertFunction(
+              std::make_unique<FixedResultFunction>(int_descriptor, 1)));
+          ASSERT_OK(activation.InsertFunction(
+              std::make_unique<FixedResultFunction>(string_descriptor, 2)));
+        } else {
+          using Adapter =
+              cel::UnaryFunctionAdapter<int64_t, const cel::ListValue&>;
+          ASSERT_OK(registry.Register(
+              int_descriptor, Adapter::WrapFunction(
+                                  [](const cel::ListValue&) -> int64_t {
+                                    return 1;
+                                  })));
+          ASSERT_OK(registry.Register(
+              string_descriptor, Adapter::WrapFunction(
+                                     [](const cel::ListValue&) -> int64_t {
+                                       return 2;
+                                     })));
+        }
+
+        ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+        CheckedExpr checked;
+        *checked.mutable_expr() = parsed.expr();
+        *checked.mutable_source_info() = parsed.source_info();
+        checked.mutable_expr()->mutable_call_expr()->set_function(
+            "overload_test.choose");
+        auto& reference =
+            (*checked.mutable_reference_map())[checked.expr().id()];
+        reference.add_overload_id("choose_list_string");
+        ASSERT_TRUE(reference.name().empty());
+
+        if (expression == "choose(message.repeated_string)") {
+          TestAllTypes message;
+          message.add_repeated_string("value");
+          activation.InsertValue(
+              "message", CelProtoWrapper::CreateMessage(
+                             cel::runtime_internal::MakeTestingEnvDynamicProto(
+                                 message, &arena),
+                             &arena));
+          const auto& operand =
+              checked.expr().call_expr().args(0).select_expr().operand();
+          (*checked.mutable_type_map())[operand.id()].set_message_type(
+              TestAllTypes::descriptor()->full_name());
+        }
+
+        // Checked IDs select the string overload even when both runtime kinds
+        // match, including when an empty list cannot disambiguate the types.
+        ASSERT_OK_AND_ASSIGN(auto checked_program,
+                             builder.CreateExpression(&checked));
+        ASSERT_OK_AND_ASSIGN(CelValue checked_result,
+                             checked_program->Evaluate(activation, &arena));
+        EXPECT_THAT(checked_result, test::IsCelInt64(2));
+
+        // Parse-only and unknown IDs retain the same fallback behavior. Kind
+        // matching chooses the first list overload, while Type matching can
+        // inspect nonempty string elements to select the second overload.
+        int64_t fallback_result =
+            type_level_overload && expression != "choose([])" ? 2 : 1;
+        ASSERT_OK_AND_ASSIGN(
+            auto parsed_program,
+            builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+        ASSERT_OK_AND_ASSIGN(CelValue parsed_result,
+                             parsed_program->Evaluate(activation, &arena));
+        EXPECT_THAT(parsed_result, test::IsCelInt64(fallback_result));
+
+        reference.clear_overload_id();
+        reference.add_overload_id("unregistered_overload");
+        ASSERT_OK_AND_ASSIGN(auto fallback_program,
+                             builder.CreateExpression(&checked));
+        ASSERT_OK_AND_ASSIGN(CelValue unknown_id_result,
+                             fallback_program->Evaluate(activation, &arena));
+        EXPECT_THAT(unknown_id_result, test::IsCelInt64(fallback_result));
+      }
+    }
+  }
+}
+
 TEST(FlatExprBuilderTest, CheckedExprActivationMissesReferences) {
   CheckedExpr expr;
   // <foo.var1> && <bar>.<var2>
@@ -3491,6 +3609,442 @@ TEST(FlatExprBuilderTest, ProgramOptimizerResolvesTypesWhenRequested) {
               testing::UnorderedElementsAre(testing::Pair(1, cel::IntType()),
                                             testing::Pair(2, cel::BoolType()),
                                             testing::Pair(3, cel::IntType())));
+}
+
+class FixedResultOverloadFunction final : public CelFunction {
+ public:
+  FixedResultOverloadFunction(cel::FunctionDescriptor descriptor,
+                              int64_t result)
+      : CelFunction(std::move(descriptor)), result_(result) {}
+  absl::Status Evaluate(absl::Span<const CelValue>, CelValue* result,
+                        google::protobuf::Arena*) const override {
+    *result = CelValue::CreateInt64(result_);
+    return absl::OkStatus();
+  }
+
+ private:
+  int64_t result_;
+};
+
+TEST(FlatExprBuilderTest, LazyAnyUsesRuntimeMatcher) {
+  for (bool type_level : {false, true}) {
+    SCOPED_TRACE(type_level);
+    cel::RuntimeOptions options;
+    options.enable_type_level_overload = type_level;
+    CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+    builder.set_container("overload_test");
+    ASSERT_OK(
+        builder.GetRegistry()->RegisterLazyFunction(cel::FunctionDescriptor(
+            "overload_test.choose", false, {cel::Kind::kAny})));
+    Activation activation;
+    ASSERT_OK(
+        activation.InsertFunction(std::make_unique<FixedResultOverloadFunction>(
+            cel::FunctionDescriptor("overload_test.choose", false,
+                                    {cel::Kind::kInt}),
+            1)));
+    ASSERT_OK(
+        activation.InsertFunction(std::make_unique<FixedResultOverloadFunction>(
+            cel::FunctionDescriptor("overload_test.choose", false,
+                                    {cel::Kind::kString}),
+            2)));
+    for (const auto& [expression, expected] :
+         std::vector<std::pair<absl::string_view, int64_t>>{
+             {"choose(1)", 1}, {"choose('s')", 2}}) {
+      SCOPED_TRACE(expression);
+      ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+      ASSERT_OK_AND_ASSIGN(
+          auto program,
+          builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+      google::protobuf::Arena arena;
+      ASSERT_OK_AND_ASSIGN(CelValue result,
+                           program->Evaluate(activation, &arena));
+      EXPECT_THAT(result, test::IsCelInt64(expected));
+    }
+  }
+}
+
+TEST(FlatExprBuilderTest, LazyAnyUsesRuntimeElementTypes) {
+  google::protobuf::Arena arena;
+  cel::RuntimeOptions options;
+  options.enable_type_level_overload = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_OK(builder.GetRegistry()->RegisterLazyFunction(
+      cel::FunctionDescriptor("choose", false, {cel::Kind::kAny})));
+  Activation activation;
+  ASSERT_OK(
+      activation.InsertFunction(std::make_unique<FixedResultOverloadFunction>(
+          cel::FunctionDescriptor(
+              "choose", "", false,
+              std::vector<cel::Type>{cel::ListType(&arena, cel::IntType())}),
+          1)));
+  ASSERT_OK(
+      activation.InsertFunction(std::make_unique<FixedResultOverloadFunction>(
+          cel::FunctionDescriptor(
+              "choose", "", false,
+              std::vector<cel::Type>{cel::ListType(&arena, cel::StringType())}),
+          2)));
+  for (const auto& [expression, expected] :
+       std::vector<std::pair<absl::string_view, int64_t>>{
+           {"choose([1])", 1}, {"choose(['s'])", 2}}) {
+    SCOPED_TRACE(expression);
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+    ASSERT_OK_AND_ASSIGN(
+        auto program,
+        builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         program->Evaluate(activation, &arena));
+    EXPECT_THAT(result, test::IsCelInt64(expected));
+  }
+}
+
+TEST(FlatExprBuilderTest, LazyOverloadsMixIdsAndLegacySignatures) {
+  for (bool type_level : {false, true}) {
+    SCOPED_TRACE(type_level);
+    for (bool legacy_first : {false, true}) {
+      SCOPED_TRACE(legacy_first);
+      google::protobuf::Arena arena;
+      cel::RuntimeOptions options;
+      options.enable_type_level_overload = type_level;
+      CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+      Activation activation;
+      cel::FunctionDescriptor int_descriptor(
+          "choose", "choose_int", false,
+          std::vector<cel::Type>{cel::ListType(&arena, cel::IntType())});
+      cel::FunctionDescriptor string_descriptor(
+          "choose", "", false,
+          std::vector<cel::Type>{cel::ListType(&arena, cel::StringType())});
+      for (const auto& descriptor :
+           legacy_first
+               ? std::vector<cel::FunctionDescriptor>{string_descriptor,
+                                                      int_descriptor}
+               : std::vector<cel::FunctionDescriptor>{int_descriptor,
+                                                      string_descriptor}) {
+        ASSERT_OK(builder.GetRegistry()->RegisterLazyFunction(descriptor));
+        ASSERT_OK(activation.InsertFunction(
+            std::make_unique<FixedResultOverloadFunction>(
+                descriptor, descriptor.has_overload_id() ? 1 : 2)));
+      }
+      for (absl::string_view expression :
+           {"choose([1])", "choose(['s'])", "choose([])"}) {
+        SCOPED_TRACE(expression);
+        ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+        const int64_t fallback = type_level && expression != "choose([])"
+                                     ? (expression == "choose([1])" ? 1 : 2)
+                                     : (legacy_first ? 2 : 1);
+        ASSERT_OK_AND_ASSIGN(
+            auto parsed_program,
+            builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+        ASSERT_OK_AND_ASSIGN(CelValue parsed_result,
+                             parsed_program->Evaluate(activation, &arena));
+        EXPECT_THAT(parsed_result, test::IsCelInt64(fallback));
+        for (absl::string_view id : {"choose_int", "unregistered"}) {
+          SCOPED_TRACE(id);
+          CheckedExpr checked;
+          *checked.mutable_expr() = parsed.expr();
+          *checked.mutable_source_info() = parsed.source_info();
+          (*checked.mutable_reference_map())[checked.expr().id()]
+              .add_overload_id(std::string(id));
+          ASSERT_OK_AND_ASSIGN(auto checked_program,
+                               builder.CreateExpression(&checked));
+          ASSERT_OK_AND_ASSIGN(CelValue checked_result,
+                               checked_program->Evaluate(activation, &arena));
+          const int64_t expected =
+              id == "choose_int" &&
+                      !(type_level && expression == "choose(['s'])")
+                  ? 1
+                  : fallback;
+          EXPECT_THAT(checked_result, test::IsCelInt64(expected));
+        }
+      }
+    }
+  }
+}
+
+TEST(FlatExprBuilderTest, LegacyStructWildcard) {
+  for (bool type_level : {false, true}) {
+    SCOPED_TRACE(type_level);
+    cel::RuntimeOptions options;
+    options.enable_type_level_overload = type_level;
+    CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+    ASSERT_OK(builder.GetRegistry()->Register(
+        std::make_unique<FixedResultOverloadFunction>(
+            cel::FunctionDescriptor("choose", false, {cel::Kind::kStruct}),
+            1)));
+    google::protobuf::Arena arena;
+    Activation activation;
+    TestAllTypes message;
+    activation.InsertValue(
+        "msg",
+        CelProtoWrapper::CreateMessage(
+            cel::runtime_internal::MakeTestingEnvDynamicProto(message, &arena),
+            &arena));
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse("choose(msg)"));
+    ASSERT_OK_AND_ASSIGN(
+        auto program,
+        builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         program->Evaluate(activation, &arena));
+    EXPECT_THAT(result, test::IsCelInt64(1));
+  }
+}
+
+TEST(FlatExprBuilderTest, DynAndTypeParamsRemainKindWildcards) {
+  for (bool type_level : {false, true}) {
+    SCOPED_TRACE(type_level);
+    for (cel::Type parameter :
+         {cel::Type(cel::DynType()), cel::Type(cel::TypeParamType("A"))}) {
+      SCOPED_TRACE(parameter.DebugString());
+      cel::RuntimeOptions options;
+      options.enable_type_level_overload = type_level;
+      CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+      ASSERT_OK(builder.GetRegistry()->Register(
+          std::make_unique<FixedResultOverloadFunction>(
+              cel::FunctionDescriptor("choose", "generic", false,
+                                      std::vector<cel::Type>{parameter}),
+              1)));
+      for (absl::string_view expression : {"choose(1)", "choose([1, 's'])"}) {
+        SCOPED_TRACE(expression);
+        ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+        ASSERT_OK_AND_ASSIGN(
+            auto program,
+            builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+        google::protobuf::Arena arena;
+        Activation activation;
+        ASSERT_OK_AND_ASSIGN(CelValue result,
+                             program->Evaluate(activation, &arena));
+        EXPECT_THAT(result, test::IsCelInt64(1));
+      }
+    }
+  }
+}
+
+TEST(FlatExprBuilderTest, SameTypeParamChecksNestedValues) {
+  cel::RuntimeOptions options;
+  options.enable_type_level_overload = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_OK(builder.GetRegistry()->Register(
+      std::make_unique<FixedResultOverloadFunction>(
+          cel::FunctionDescriptor(
+              "choose", "same_A_A", false,
+              std::vector<cel::Type>{cel::TypeParamType("A"),
+                                     cel::TypeParamType("A")}),
+          1)));
+  ASSERT_OK(builder.GetRegistry()->Register(
+      std::make_unique<FixedResultOverloadFunction>(
+          cel::FunctionDescriptor(
+              "choose", "same_A_A_A", false,
+              std::vector<cel::Type>{cel::TypeParamType("A"),
+                                     cel::TypeParamType("A"),
+                                     cel::TypeParamType("A")}),
+          1)));
+  for (const auto& [expression, matches] :
+       std::vector<std::pair<absl::string_view, bool>>{
+           {"choose([1], ['s'])", false},
+           {"choose([1], [2])", true},
+           {"choose([[1]], [['s']])", false},
+           {"choose({'a': [1]}, {'b': ['s']})", false},
+           {"choose({'a': [1]}, {'b': [2]})", true},
+           {"choose([], [1])", true},
+           {"choose([1], [])", true},
+           {"choose([], [1], ['s'])", false},
+           {"choose([], [1], [2])", true},
+           {"choose([1, 's'], [true])", true},
+           {"choose([true], [1, 's'])", true},
+           {"choose([1, 's'], [1], [true])", false},
+           {"choose([1], [1, 's'], [true])", false},
+           {"choose([1], [true], [1, 's'])", false},
+           {"choose([1, 's'], [1], [2])", true},
+           {"choose([1], [1, 's'], [2])", true},
+           {"choose([1], [2], [1, 's'])", true}}) {
+    SCOPED_TRACE(expression);
+    google::protobuf::Arena arena;
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+    ASSERT_OK_AND_ASSIGN(
+        auto program,
+        builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         program->Evaluate(activation, &arena));
+    if (matches) {
+      EXPECT_THAT(result, test::IsCelInt64(1));
+    } else {
+      EXPECT_TRUE(result.IsError()) << result.DebugString();
+    }
+  }
+}
+
+TEST(FlatExprBuilderTest, NestedTypeParamDoesNotMaskDisjointOverload) {
+  cel::RuntimeOptions options;
+  options.enable_type_level_overload = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  google::protobuf::Arena arena;
+  ASSERT_OK(builder.GetRegistry()->Register(
+      std::make_unique<FixedResultOverloadFunction>(
+          cel::FunctionDescriptor(
+              "choose", "list_A_A", false,
+              std::vector<cel::Type>{
+                  cel::ListType(&arena, cel::TypeParamType("A")),
+                  cel::TypeParamType("A")}),
+          1)));
+  ASSERT_OK(builder.GetRegistry()->Register(
+      std::make_unique<FixedResultOverloadFunction>(
+          cel::FunctionDescriptor(
+              "choose", "int_lists_string_list", false,
+              std::vector<cel::Type>{
+                  cel::ListType(&arena, cel::ListType(&arena, cel::IntType())),
+                  cel::ListType(&arena, cel::StringType())}),
+          2)));
+  Activation activation;
+  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed,
+                       parser::Parse("choose([[1]], ['s'])"));
+  ASSERT_OK_AND_ASSIGN(
+      auto program,
+      builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+  ASSERT_OK_AND_ASSIGN(CelValue result, program->Evaluate(activation, &arena));
+  EXPECT_THAT(result, test::IsCelInt64(2));
+}
+
+TEST(FlatExprBuilderTest, LazySharedTypeParametersPreserveConstraints) {
+  for (bool type_level : {false, true}) {
+    for (bool rename_parameter : {false, true}) {
+      for (bool map_parameters : {false, true}) {
+        SCOPED_TRACE(type_level);
+        SCOPED_TRACE(rename_parameter);
+        SCOPED_TRACE(map_parameters);
+        google::protobuf::Arena arena;
+        const auto container = [&](cel::Type element) -> cel::Type {
+          return map_parameters ? cel::Type(cel::MapType(
+                                      &arena, cel::StringType(), element))
+                                : cel::Type(cel::ListType(&arena, element));
+        };
+        cel::RuntimeOptions options;
+        options.enable_type_level_overload = type_level;
+        CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+        cel::FunctionDescriptor generic("choose", "", false,
+                                        {container(cel::TypeParamType("A")),
+                                         container(cel::TypeParamType("A"))});
+        cel::FunctionDescriptor disjoint(
+            "choose", "", false,
+            {container(cel::ListType(&arena, cel::IntType())),
+             container(cel::ListType(&arena, cel::StringType()))});
+        ASSERT_OK(builder.GetRegistry()->RegisterLazyFunction(generic));
+        ASSERT_OK(builder.GetRegistry()->RegisterLazyFunction(disjoint));
+        Activation activation;
+        cel::FunctionDescriptor implementation(
+            "choose", "", false,
+            {container(cel::TypeParamType(rename_parameter ? "B" : "A")),
+             container(cel::TypeParamType(rename_parameter ? "B" : "A"))});
+        ASSERT_OK(activation.InsertFunction(
+            std::make_unique<FixedResultOverloadFunction>(implementation, 1)));
+        ASSERT_OK(activation.InsertFunction(
+            std::make_unique<FixedResultOverloadFunction>(disjoint, 2)));
+        const std::vector<std::pair<absl::string_view, int64_t>> cases =
+            map_parameters
+                ? std::vector<
+                      std::pair<absl::string_view,
+                                int64_t>>{{"choose({}, {'b': ['s']})", 1},
+                                          {"choose({'a': ['s']}, {})", 1},
+                                          {"choose({}, {})", 1},
+                                          {"choose({'a': ['s']}, {'b': ['s']})",
+                                           1},
+                                          {"choose({'a': [1]}, {'b': ['s']})",
+                                           type_level ? 2 : 1}}
+                : std::vector<std::pair<absl::string_view, int64_t>>{
+                      {"choose([], [['s']])", 1},
+                      {"choose([['s']], [])", 1},
+                      {"choose([], [])", 1},
+                      {"choose([['s']], [['s']])", 1},
+                      {"choose([[1]], [['s']])", type_level ? 2 : 1}};
+        for (const auto& [expression, expected] : cases) {
+          SCOPED_TRACE(expression);
+          ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+          ASSERT_OK_AND_ASSIGN(
+              auto program,
+              builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+          ASSERT_OK_AND_ASSIGN(CelValue result,
+                               program->Evaluate(activation, &arena));
+          EXPECT_THAT(result, test::IsCelInt64(expected));
+        }
+      }
+    }
+  }
+}
+
+TEST(FlatExprBuilderTest, LazyUnconstrainedTypeParamUsesRuntimeMatcher) {
+  for (bool type_level : {false, true}) {
+    SCOPED_TRACE(type_level);
+    cel::RuntimeOptions options;
+    options.enable_type_level_overload = type_level;
+    CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+    ASSERT_OK(
+        builder.GetRegistry()->RegisterLazyFunction(cel::FunctionDescriptor(
+            "choose", "", false, {cel::TypeParamType("A")})));
+    Activation activation;
+    ASSERT_OK(
+        activation.InsertFunction(std::make_unique<FixedResultOverloadFunction>(
+            cel::FunctionDescriptor("choose", false, {cel::Kind::kInt}), 1)));
+    ASSERT_OK(
+        activation.InsertFunction(std::make_unique<FixedResultOverloadFunction>(
+            cel::FunctionDescriptor("choose", false, {cel::Kind::kString}),
+            2)));
+    for (const auto& [expression, expected] :
+         std::vector<std::pair<absl::string_view, int64_t>>{
+             {"choose(1)", 1}, {"choose('s')", 2}}) {
+      SCOPED_TRACE(expression);
+      google::protobuf::Arena arena;
+      ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+      ASSERT_OK_AND_ASSIGN(
+          auto program,
+          builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+      ASSERT_OK_AND_ASSIGN(CelValue result,
+                           program->Evaluate(activation, &arena));
+      EXPECT_THAT(result, test::IsCelInt64(expected));
+    }
+  }
+}
+
+TEST(FlatExprBuilderTest, LazyWildcardImplementationRetainsSharedConstraints) {
+  for (bool type_level : {false, true}) {
+    SCOPED_TRACE(type_level);
+    google::protobuf::Arena arena;
+    cel::RuntimeOptions options;
+    options.enable_type_level_overload = type_level;
+    CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+    ASSERT_OK(
+        builder.GetRegistry()->RegisterLazyFunction(cel::FunctionDescriptor(
+            "choose", "", false,
+            {cel::ListType(&arena, cel::TypeParamType("A")),
+             cel::ListType(&arena, cel::TypeParamType("A"))})));
+    Activation activation;
+    ASSERT_OK(
+        activation.InsertFunction(std::make_unique<FixedResultOverloadFunction>(
+            cel::FunctionDescriptor("choose", "", false,
+                                    {cel::ListType(&arena, cel::DynType()),
+                                     cel::ListType(&arena, cel::StringType())}),
+            1)));
+    for (absl::string_view expression :
+         {"choose([1], [])", "choose([], [1])"}) {
+      SCOPED_TRACE(expression);
+      ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse(expression));
+      ASSERT_OK_AND_ASSIGN(
+          auto program,
+          builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+      ASSERT_OK_AND_ASSIGN(CelValue result,
+                           program->Evaluate(activation, &arena));
+      if (type_level) {
+        EXPECT_TRUE(result.IsError()) << result.DebugString();
+      } else {
+        EXPECT_THAT(result, test::IsCelInt64(1));
+      }
+    }
+    ASSERT_OK_AND_ASSIGN(ParsedExpr parsed, parser::Parse("choose(['s'], [])"));
+    ASSERT_OK_AND_ASSIGN(
+        auto program,
+        builder.CreateExpression(&parsed.expr(), &parsed.source_info()));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         program->Evaluate(activation, &arena));
+    EXPECT_THAT(result, test::IsCelInt64(1));
+  }
 }
 
 }  // namespace

@@ -14,11 +14,27 @@
 
 #include "runtime/standard/time_functions.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <vector>
 
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "base/builtins.h"
 #include "common/function_descriptor.h"
+#include "common/standard_definitions.h"
+#include "common/value.h"
+#include "google/protobuf/arena.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
 #include "internal/testing.h"
+#include "runtime/function.h"
+#include "runtime/function_overload_reference.h"
+#include "runtime/function_registry.h"
+#include "runtime/runtime_options.h"
 
 namespace cel {
 namespace {
@@ -28,25 +44,25 @@ using ::testing::UnorderedElementsAre;
 MATCHER_P3(MatchesOperatorDescriptor, name, expected_kind1, expected_kind2,
            "") {
   const FunctionDescriptor& descriptor = *arg;
-  std::vector<Kind> types{expected_kind1, expected_kind2};
+  std::vector<Kind> kinds{expected_kind1, expected_kind2};
   return descriptor.name() == name && descriptor.receiver_style() == false &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesTimeAccessor, name, kind, "") {
   const FunctionDescriptor& descriptor = *arg;
 
-  std::vector<Kind> types{kind};
+  std::vector<Kind> kinds{kind};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesTimezoneTimeAccessor, name, kind, "") {
   const FunctionDescriptor& descriptor = *arg;
 
-  std::vector<Kind> types{kind, Kind::kString};
+  std::vector<Kind> kinds{kind, Kind::kString};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 TEST(RegisterTimeFunctions, MathOperatorsRegistered) {
@@ -74,6 +90,95 @@ TEST(RegisterTimeFunctions, MathOperatorsRegistered) {
                                             Kind::kTimestamp, Kind::kDuration),
                   MatchesOperatorDescriptor(
                       builtin::kSubtract, Kind::kTimestamp, Kind::kTimestamp)));
+}
+
+TEST(RegisterTimeFunctions, ArithmeticIdsAgreeAcrossOverflowOptions) {
+  struct Entry {
+    absl::string_view name, id;
+    std::vector<Kind> kinds;
+  };
+  const std::vector<Entry> entries = {
+      {builtin::kAdd,
+       StandardOverloadIds::kAddTimestampDuration,
+       {Kind::kTimestamp, Kind::kDuration}},
+      {builtin::kAdd,
+       StandardOverloadIds::kAddDurationTimestamp,
+       {Kind::kDuration, Kind::kTimestamp}},
+      {builtin::kAdd,
+       StandardOverloadIds::kAddDurationDuration,
+       {Kind::kDuration, Kind::kDuration}},
+      {builtin::kSubtract,
+       StandardOverloadIds::kSubtractTimestampDuration,
+       {Kind::kTimestamp, Kind::kDuration}},
+      {builtin::kSubtract,
+       StandardOverloadIds::kSubtractTimestampTimestamp,
+       {Kind::kTimestamp, Kind::kTimestamp}},
+      {builtin::kSubtract,
+       StandardOverloadIds::kSubtractDurationDuration,
+       {Kind::kDuration, Kind::kDuration}}};
+  size_t cells = 0;
+  for (bool checked : {false, true}) {
+    FunctionRegistry registry;
+    RuntimeOptions options;
+    options.enable_timestamp_duration_overflow_errors = checked;
+    ASSERT_OK(RegisterTimeFunctions(registry, options));
+    const auto listed = registry.ListFunctions();
+    for (const auto& entry : entries) {
+      SCOPED_TRACE(checked);
+      SCOPED_TRACE(entry.id);
+      auto found = registry.FindStaticOverloadById(entry.name, entry.id);
+      ASSERT_TRUE(found.has_value());
+      const auto& d = found->descriptor;
+      EXPECT_EQ(d.overload_id(), entry.id);
+      EXPECT_FALSE(d.overload_id().empty());
+      EXPECT_EQ(d.name(), entry.name);
+      EXPECT_FALSE(d.receiver_style());
+      EXPECT_EQ(d.types().size(), 2);
+      EXPECT_EQ(d.kinds(), entry.kinds);
+      auto list = listed.find(entry.name);
+      ASSERT_NE(list, listed.end());
+      EXPECT_EQ(std::count_if(list->second.begin(), list->second.end(),
+                              [&](const auto* item) {
+                                return item->overload_id() == entry.id &&
+                                       *item == d;
+                              }),
+                1);
+      ++cells;
+    }
+    auto subtraction = registry.FindStaticOverloadById(
+        builtin::kSubtract, StandardOverloadIds::kSubtractDurationDuration);
+    ASSERT_TRUE(subtraction.has_value());
+    google::protobuf::Arena arena;
+    Function::InvokeContext context(
+        google::protobuf::DescriptorPool::generated_pool(),
+        google::protobuf::MessageFactory::generated_factory(), &arena);
+    ASSERT_OK_AND_ASSIGN(
+        Value normal, subtraction->implementation.Invoke(
+                          std::vector<Value>{DurationValue(absl::Seconds(5)),
+                                             DurationValue(absl::Seconds(2))},
+                          context));
+    ASSERT_TRUE(normal.IsDuration());
+    EXPECT_EQ(normal.GetDuration().NativeValue(), absl::Seconds(3));
+    const auto min = absl::Nanoseconds(std::numeric_limits<int64_t>::min()),
+               one = absl::Nanoseconds(1);
+    ASSERT_OK_AND_ASSIGN(
+        Value overflow,
+        subtraction->implementation.Invoke(
+            std::vector<Value>{DurationValue(min), DurationValue(one)},
+            context));
+    if (checked) {
+      ASSERT_TRUE(overflow.IsError());
+      EXPECT_EQ(overflow.GetError().NativeValue(),
+                absl::OutOfRangeError("integer overflow"));
+    } else {
+      ASSERT_TRUE(overflow.IsDuration());
+      EXPECT_EQ(overflow.GetDuration().NativeValue(), min - one);
+      EXPECT_NE(overflow.GetDuration().NativeValue(), absl::InfiniteDuration());
+      EXPECT_NE(overflow.GetDuration().NativeValue(),
+                -absl::InfiniteDuration());
+    }
+  }
+  EXPECT_EQ(cells, 12);
 }
 
 TEST(RegisterTimeFunctions, AccessorsRegistered) {

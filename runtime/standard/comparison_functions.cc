@@ -20,6 +20,7 @@
 #include "absl/time/time.h"
 #include "base/builtins.h"
 #include "base/function_adapter.h"
+#include "common/standard_definitions.h"
 #include "common/value.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
@@ -159,22 +160,31 @@ bool CrossNumericGreaterOrEqualTo(T t, U u) {
 
 template <class Type>
 absl::Status RegisterComparisonFunctionsForType(
-    cel::FunctionRegistry& registry) {
+    cel::FunctionRegistry& registry,
+    absl::string_view less_overload_id,
+    absl::string_view less_or_equal_overload_id,
+    absl::string_view greater_overload_id,
+    absl::string_view greater_or_equal_overload_id) {
   using FunctionAdapter = BinaryFunctionAdapter<bool, Type, Type>;
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kLess, false),
-      FunctionAdapter::WrapFunction(LessThan<Type>)));
+  CEL_RETURN_IF_ERROR(
+      registry.Register(FunctionAdapter::CreateDescriptor(cel::builtin::kLess,
+                                                          less_overload_id,
+                                                          false),
+                        FunctionAdapter::WrapFunction(LessThan<Type>)));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kLessOrEqual, false),
+      FunctionAdapter::CreateDescriptor(cel::builtin::kLessOrEqual,
+                                        less_or_equal_overload_id, false),
       FunctionAdapter::WrapFunction(LessThanOrEqual<Type>)));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kGreater, false),
+      FunctionAdapter::CreateDescriptor(cel::builtin::kGreater,
+                                        greater_overload_id, false),
       FunctionAdapter::WrapFunction(GreaterThan<Type>)));
 
   CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kGreaterOrEqual, false),
+      FunctionAdapter::CreateDescriptor(cel::builtin::kGreaterOrEqual,
+                                        greater_or_equal_overload_id, false),
       FunctionAdapter::WrapFunction(GreaterThanOrEqual<Type>)));
 
   return absl::OkStatus();
@@ -182,45 +192,81 @@ absl::Status RegisterComparisonFunctionsForType(
 
 absl::Status RegisterHomogenousComparisonFunctions(
     cel::FunctionRegistry& registry) {
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<bool>(registry));
+  using cel::StandardOverloadIds;
 
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<int64_t>(registry));
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<bool>(
+      registry, StandardOverloadIds::kLessBool,
+      StandardOverloadIds::kLessEqualsBool, StandardOverloadIds::kGreaterBool,
+      StandardOverloadIds::kGreaterEqualsBool));
 
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<uint64_t>(registry));
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<int64_t>(
+      registry, StandardOverloadIds::kLessInt,
+      StandardOverloadIds::kLessEqualsInt, StandardOverloadIds::kGreaterInt,
+      StandardOverloadIds::kGreaterEqualsInt));
 
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<double>(registry));
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<uint64_t>(
+      registry, StandardOverloadIds::kLessUint,
+      StandardOverloadIds::kLessEqualsUint, StandardOverloadIds::kGreaterUint,
+      StandardOverloadIds::kGreaterEqualsUint));
 
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const StringValue&>(registry));
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<double>(
+      registry, StandardOverloadIds::kLessDouble,
+      StandardOverloadIds::kLessEqualsDouble,
+      StandardOverloadIds::kGreaterDouble,
+      StandardOverloadIds::kGreaterEqualsDouble));
 
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const BytesValue&>(registry));
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<const StringValue&>(
+      registry, StandardOverloadIds::kLessString,
+      StandardOverloadIds::kLessEqualsString,
+      StandardOverloadIds::kGreaterString,
+      StandardOverloadIds::kGreaterEqualsString));
 
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<absl::Duration>(registry));
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<const BytesValue&>(
+      registry, StandardOverloadIds::kLessBytes,
+      StandardOverloadIds::kLessEqualsBytes,
+      StandardOverloadIds::kGreaterBytes,
+      StandardOverloadIds::kGreaterEqualsBytes));
 
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<absl::Time>(registry));
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<absl::Duration>(
+      registry, StandardOverloadIds::kLessDuration,
+      StandardOverloadIds::kLessEqualsDuration,
+      StandardOverloadIds::kGreaterDuration,
+      StandardOverloadIds::kGreaterEqualsDuration));
+
+  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<absl::Time>(
+      registry, StandardOverloadIds::kLessTimestamp,
+      StandardOverloadIds::kLessEqualsTimestamp,
+      StandardOverloadIds::kGreaterTimestamp,
+      StandardOverloadIds::kGreaterEqualsTimestamp));
 
   return absl::OkStatus();
 }
 
 template <typename T, typename U>
-absl::Status RegisterCrossNumericComparisons(cel::FunctionRegistry& registry) {
+absl::Status RegisterCrossNumericComparisons(cel::FunctionRegistry& registry,
+    absl::string_view less_overload_id,
+    absl::string_view greater_overload_id,
+    absl::string_view greater_or_equal_overload_id,
+    absl::string_view less_or_equal_overload_id) {
   using FunctionAdapter = BinaryFunctionAdapter<bool, T, U>;
   CEL_RETURN_IF_ERROR(registry.Register(
       FunctionAdapter::CreateDescriptor(cel::builtin::kLess,
+                                        less_overload_id,
                                         /*receiver_style=*/false),
-      FunctionAdapter::WrapFunction(&CrossNumericLessThan<T, U>)));
+                        FunctionAdapter::WrapFunction(&CrossNumericLessThan<T, U>)));
   CEL_RETURN_IF_ERROR(registry.Register(
       FunctionAdapter::CreateDescriptor(cel::builtin::kGreater,
+                                        greater_overload_id,
                                         /*receiver_style=*/false),
       FunctionAdapter::WrapFunction(&CrossNumericGreaterThan<T, U>)));
   CEL_RETURN_IF_ERROR(registry.Register(
       FunctionAdapter::CreateDescriptor(cel::builtin::kGreaterOrEqual,
+                                        greater_or_equal_overload_id,
                                         /*receiver_style=*/false),
       FunctionAdapter::WrapFunction(&CrossNumericGreaterOrEqualTo<T, U>)));
   CEL_RETURN_IF_ERROR(registry.Register(
       FunctionAdapter::CreateDescriptor(cel::builtin::kLessOrEqual,
+                                        less_or_equal_overload_id,
                                         /*receiver_style=*/false),
       FunctionAdapter::WrapFunction(&CrossNumericLessOrEqualTo<T, U>)));
   return absl::OkStatus();
@@ -228,32 +274,105 @@ absl::Status RegisterCrossNumericComparisons(cel::FunctionRegistry& registry) {
 
 absl::Status RegisterHeterogeneousComparisonFunctions(
     cel::FunctionRegistry& registry) {
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<double, int64_t>(registry)));
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<double, uint64_t>(registry)));
+  using cel::StandardOverloadIds;
 
   CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<uint64_t, double>(registry)));
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<uint64_t, int64_t>(registry)));
+      (RegisterCrossNumericComparisons<double, int64_t>(registry,
+          StandardOverloadIds::kLessDoubleInt,
+          StandardOverloadIds::kGreaterDoubleInt,
+          StandardOverloadIds::kGreaterEqualsDoubleInt,
+          StandardOverloadIds::kLessEqualsDoubleInt)));
 
   CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<int64_t, double>(registry)));
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<int64_t, uint64_t>(registry)));
+      (RegisterCrossNumericComparisons<double, uint64_t>(registry,
+          StandardOverloadIds::kLessDoubleUint,
+          StandardOverloadIds::kGreaterDoubleUint,
+          StandardOverloadIds::kGreaterEqualsDoubleUint,
+          StandardOverloadIds::kLessEqualsDoubleUint)));
 
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<bool>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<int64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<uint64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<double>(registry));
   CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const StringValue&>(registry));
+      (RegisterCrossNumericComparisons<uint64_t, double>(registry,
+          StandardOverloadIds::kLessUintDouble,
+          StandardOverloadIds::kGreaterUintDouble,
+          StandardOverloadIds::kGreaterEqualsUintDouble,
+          StandardOverloadIds::kLessEqualsUintDouble)));
+
   CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const BytesValue&>(registry));
+      (RegisterCrossNumericComparisons<uint64_t, int64_t>(registry,
+          StandardOverloadIds::kLessUintInt,
+          StandardOverloadIds::kGreaterUintInt,
+          StandardOverloadIds::kGreaterEqualsUintInt,
+          StandardOverloadIds::kLessEqualsUintInt)));
+
   CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<absl::Duration>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<absl::Time>(registry));
+      (RegisterCrossNumericComparisons<int64_t, double>(registry,
+          StandardOverloadIds::kLessIntDouble,
+          StandardOverloadIds::kGreaterIntDouble,
+          StandardOverloadIds::kGreaterEqualsIntDouble,
+          StandardOverloadIds::kLessEqualsIntDouble)));
+
+  CEL_RETURN_IF_ERROR(
+      (RegisterCrossNumericComparisons<int64_t, uint64_t>(registry,
+          StandardOverloadIds::kLessIntUint,
+          StandardOverloadIds::kGreaterIntUint,
+          StandardOverloadIds::kGreaterEqualsIntUint,
+          StandardOverloadIds::kLessEqualsIntUint)));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<bool>(registry,
+          StandardOverloadIds::kLessBool,
+          StandardOverloadIds::kLessEqualsBool,
+          StandardOverloadIds::kGreaterBool,
+          StandardOverloadIds::kGreaterEqualsBool));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<int64_t>(registry,
+          StandardOverloadIds::kLessInt,
+          StandardOverloadIds::kLessEqualsInt,
+          StandardOverloadIds::kGreaterInt,
+          StandardOverloadIds::kGreaterEqualsInt));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<uint64_t>(registry,
+          StandardOverloadIds::kLessUint,
+          StandardOverloadIds::kLessEqualsUint,
+          StandardOverloadIds::kGreaterUint,
+          StandardOverloadIds::kGreaterEqualsUint));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<double>(registry,
+          StandardOverloadIds::kLessDouble,
+          StandardOverloadIds::kLessEqualsDouble,
+          StandardOverloadIds::kGreaterDouble,
+          StandardOverloadIds::kGreaterEqualsDouble));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<const StringValue&>(registry,
+          StandardOverloadIds::kLessString,
+          StandardOverloadIds::kLessEqualsString,
+          StandardOverloadIds::kGreaterString,
+          StandardOverloadIds::kGreaterEqualsString));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<const BytesValue&>(registry,
+          StandardOverloadIds::kLessBytes,
+          StandardOverloadIds::kLessEqualsBytes,
+          StandardOverloadIds::kGreaterBytes,
+          StandardOverloadIds::kGreaterEqualsBytes));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<absl::Duration>(registry,
+          StandardOverloadIds::kLessDuration,
+          StandardOverloadIds::kLessEqualsDuration,
+          StandardOverloadIds::kGreaterDuration,
+          StandardOverloadIds::kGreaterEqualsDuration));
+
+  CEL_RETURN_IF_ERROR(
+      RegisterComparisonFunctionsForType<absl::Time>(registry,
+          StandardOverloadIds::kLessTimestamp,
+          StandardOverloadIds::kLessEqualsTimestamp,
+          StandardOverloadIds::kGreaterTimestamp,
+          StandardOverloadIds::kGreaterEqualsTimestamp));
 
   return absl::OkStatus();
 }

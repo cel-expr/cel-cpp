@@ -230,6 +230,25 @@ class NullaryFunctionAdapter
     return FunctionDescriptor(name, receiver_style, {}, options);
   }
 
+  template <typename Id,
+            std::enable_if_t<std::is_same_v<std::decay_t<Id>, const char*> ||
+                                 std::is_same_v<std::decay_t<Id>, char*>,
+                             int> = 0>
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, Id&& overload_id, bool receiver_style,
+      FunctionDescriptorOptions options = {}) {
+    return CreateDescriptor(name, absl::string_view(overload_id),
+                            receiver_style, options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, receiver_style, {},
+                              options);
+  }
+
  private:
   class UnaryFunctionImpl : public Function {
    public:
@@ -327,6 +346,26 @@ class UnaryFunctionAdapter : public RegisterHelper<UnaryFunctionAdapter<T, U>> {
       FunctionDescriptorOptions options = {}) {
     return FunctionDescriptor(name, receiver_style,
                               {runtime_internal::AdaptedKind<U>()}, options);
+  }
+
+  template <typename Id,
+            std::enable_if_t<std::is_same_v<std::decay_t<Id>, const char*> ||
+                                 std::is_same_v<std::decay_t<Id>, char*>,
+                             int> = 0>
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, Id&& overload_id, bool receiver_style,
+      FunctionDescriptorOptions options = {}) {
+    return CreateDescriptor(name, absl::string_view(overload_id),
+                            receiver_style, options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, receiver_style,
+                              {runtime_internal::AdaptedKind<U>()},
+                              options);
   }
 
  private:
@@ -480,6 +519,27 @@ class BinaryFunctionAdapter
                               options);
   }
 
+  template <typename Id,
+            std::enable_if_t<std::is_same_v<std::decay_t<Id>, const char*> ||
+                                 std::is_same_v<std::decay_t<Id>, char*>,
+                             int> = 0>
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, Id&& overload_id, bool receiver_style,
+      FunctionDescriptorOptions options = {}) {
+    return CreateDescriptor(name, absl::string_view(overload_id),
+                            receiver_style, options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, receiver_style,
+                              {runtime_internal::AdaptedKind<U>(),
+                               runtime_internal::AdaptedKind<V>()},
+                              options);
+  }
+
  private:
   class BinaryFunctionImpl : public Function {
    public:
@@ -566,6 +626,28 @@ class TernaryFunctionAdapter
       FunctionDescriptorOptions options = {}) {
     return FunctionDescriptor(
         name, receiver_style,
+        {runtime_internal::AdaptedKind<U>(), runtime_internal::AdaptedKind<V>(),
+         runtime_internal::AdaptedKind<W>()},
+        options);
+  }
+
+  template <typename Id,
+            std::enable_if_t<std::is_same_v<std::decay_t<Id>, const char*> ||
+                                 std::is_same_v<std::decay_t<Id>, char*>,
+                             int> = 0>
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, Id&& overload_id, bool receiver_style,
+      FunctionDescriptorOptions options = {}) {
+    return CreateDescriptor(name, absl::string_view(overload_id),
+                            receiver_style, options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(
+        name, overload_id, receiver_style,
         {runtime_internal::AdaptedKind<U>(), runtime_internal::AdaptedKind<V>(),
          runtime_internal::AdaptedKind<W>()},
         options);
@@ -667,6 +749,29 @@ class QuaternaryFunctionAdapter
         options);
   }
 
+  template <typename Id,
+            std::enable_if_t<std::is_same_v<std::decay_t<Id>, const char*> ||
+                                 std::is_same_v<std::decay_t<Id>, char*>,
+                             int> = 0>
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, Id&& overload_id, bool receiver_style,
+      FunctionDescriptorOptions options = {}) {
+    return CreateDescriptor(name, absl::string_view(overload_id),
+                            receiver_style, options);
+  }
+
+  // Descriptor with overload_id
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(
+        name, overload_id, receiver_style,
+        {runtime_internal::AdaptedKind<U>(), runtime_internal::AdaptedKind<V>(),
+         runtime_internal::AdaptedKind<W>(),
+         runtime_internal::AdaptedKind<X>()},
+        options);
+  }
+
  private:
   class QuaternaryFunctionImpl : public Function {
    public:
@@ -756,6 +861,25 @@ class NaryFunctionAdapter
       absl::string_view name, bool receiver_style,
       FunctionDescriptorOptions options = {}) {
     return FunctionDescriptor(name, receiver_style,
+                              {runtime_internal::AdaptedKind<Args>()...},
+                              options);
+  }
+
+  template <typename Id,
+            std::enable_if_t<std::is_same_v<std::decay_t<Id>, const char*> ||
+                                 std::is_same_v<std::decay_t<Id>, char*>,
+                             int> = 0>
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, Id&& overload_id, bool receiver_style,
+      FunctionDescriptorOptions options = {}) {
+    return CreateDescriptor(name, absl::string_view(overload_id),
+                            receiver_style, options);
+  }
+
+  static FunctionDescriptor CreateDescriptor(
+      absl::string_view name, absl::string_view overload_id,
+      bool receiver_style, FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, receiver_style,
                               {runtime_internal::AdaptedKind<Args>()...},
                               options);
   }
