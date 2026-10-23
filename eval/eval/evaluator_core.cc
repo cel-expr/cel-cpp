@@ -415,6 +415,10 @@ std::optional<int64_t> ExpressionStep::StackDelta() const {
     case ExpressionStepKind::kBooleanAndJump:
     case ExpressionStepKind::kTernaryJump:
     case ExpressionStepKind::kFixedJump:
+    case ExpressionStepKind::kBitIsSet:
+    case ExpressionStepKind::kBitAndIsNonZero:
+    case ExpressionStepKind::kBitAndEqual:
+    case ExpressionStepKind::kBitEqual:
       return 0;
     case ExpressionStepKind::kBooleanOr:
     case ExpressionStepKind::kBooleanAnd:
