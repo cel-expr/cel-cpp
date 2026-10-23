@@ -225,6 +225,13 @@ struct InterpreterOptions {
   // path for field access when the type is known at plan time, instead of using
   // the generic field access implementation.
   bool enable_typed_field_access = true;
+
+  // When enabled, trivial lazy subexpressions (such as constants or
+  // identifiers) bound via cel.bind or cel.@block will be inlined directly
+  // at reference sites during planning.
+  //
+  // Note: Enabling this option may change observed expression tracing behavior.
+  bool enable_subexpression_inlining = false;
 };
 // LINT.ThenChange(//depot/google3/runtime/runtime_options.h)
 
