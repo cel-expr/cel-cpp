@@ -174,9 +174,11 @@ cc_library(
         "internal_field_backed_list_impl.h",
     ],
     deps = [
+        "//common:native_type",
         "//eval/public:cel_value",
         "//eval/public/structs:field_access_impl",
         "//eval/public/structs:protobuf_value_factory",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 

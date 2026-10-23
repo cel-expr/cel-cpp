@@ -30,6 +30,7 @@
 #include "common/values/list_value_builder.h"
 #include "common/values/values.h"
 #include "eval/public/cel_value.h"
+#include "eval/public/containers/internal_field_backed_list_impl.h"
 #include "internal/casts.h"
 #include "internal/status_macros.h"
 #include "google/protobuf/arena.h"
@@ -300,10 +301,39 @@ CustomListValue WrapLegacyParsedJsonList(ParsedJsonListValue value,
                          arena);
 }
 
+namespace {
+
+// Returns true if `list` can be replaced by an `UnsafeParsedRepeatedFieldValue`
+// over the same field without changing the elements it produces.
+bool CanViewAsParsedRepeatedField(
+    const google::api::expr::runtime::internal::FieldBackedListImpl& list) {
+  // Elements of arena messages would be copied rather than borrowed.
+  if (list.message()->GetArena() != nullptr) {
+    return false;
+  }
+  // `FieldBackedListImpl` produces integers for `google.protobuf.NullValue`.
+  const google::protobuf::FieldDescriptor* field = list.field_descriptor();
+  return field->cpp_type() != google::protobuf::FieldDescriptor::CPPTYPE_ENUM ||
+         field->enum_type()->full_name() != "google.protobuf.NullValue";
+}
+
+}  // namespace
+
 ListValue FromLegacyList(
     const google::api::expr::runtime::CelList* absl_nullable cel_list) {
   if (cel_list != nullptr) {
     NativeTypeId native_type_id = NativeTypeId::Of(*cel_list);
+    if (native_type_id ==
+        NativeTypeId::For<
+            google::api::expr::runtime::internal::FieldBackedListImpl>()) {
+      const auto* impl = cel::internal::down_cast<
+          const google::api::expr::runtime::internal::FieldBackedListImpl*>(
+          cel_list);
+      if (CanViewAsParsedRepeatedField(*impl)) {
+        return UnsafeParsedRepeatedFieldValue(impl->message(),
+                                              impl->field_descriptor());
+      }
+    }
     if (native_type_id ==
         NativeTypeId::For<LegacyParsedRepeatedFieldListValue>()) {
       const auto* impl =
