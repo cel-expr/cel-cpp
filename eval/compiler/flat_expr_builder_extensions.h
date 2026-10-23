@@ -179,6 +179,14 @@ class ProgramBuilder {
     // Returns false if the subexpression is not currently flattened.
     bool ExtractTo(ExecutionPath& out);
 
+    // Returns true if this subexpression is trivial (reduces to a single
+    // constant or identifier step) and can be inlined at reference sites.
+    bool IsInlinable() const;
+
+    // Creates an inlined ExpressionStep for this subexpression with the
+    // given expr_id, or returns std::nullopt if !IsInlinable().
+    std::optional<ExpressionStep> MaybeInline(int64_t expr_id) const;
+
    private:
     Subexpression(const cel::Expr* self, ProgramBuilder* owner);
 
@@ -256,6 +264,15 @@ class ProgramBuilder {
     return extracted_subexpressions_[index];
   }
 
+  const Subexpression* absl_nullable GetExtractedSubexpression(
+      size_t index) const {
+    if (index >= extracted_subexpressions_.size()) {
+      return nullptr;
+    }
+
+    return extracted_subexpressions_[index];
+  }
+
   // Return index to the extracted subexpression.
   //
   // Returns -1 if the subexpression is not found.
@@ -308,7 +325,7 @@ class PlannerContext {
   // Returns true if the subplan is inspectable.
   //
   // If false, the node is not mapped to a subexpression in the program builder.
-  bool IsSubplanInspectable(const cel::Expr& node) const;
+  bool NodeHasInspectablePlan(const cel::Expr& node) const;
 
   // Return a view to the current subplan representing node.
   //

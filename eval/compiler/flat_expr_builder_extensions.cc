@@ -14,8 +14,10 @@
 #include "eval/compiler/flat_expr_builder_extensions.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -28,6 +30,7 @@
 #include "absl/status/statusor.h"
 #include "absl/types/variant.h"
 #include "common/expr.h"
+#include "common/value.h"
 #include "eval/eval/evaluator_core.h"
 
 namespace google::api::expr::runtime {
@@ -35,6 +38,37 @@ namespace google::api::expr::runtime {
 namespace {
 
 using Subexpression = google::api::expr::runtime::ProgramBuilder::Subexpression;
+
+const ExpressionStep* absl_nullable TryGetSingleStep(
+    const Subexpression* absl_nonnull subexpr) {
+  while (subexpr != nullptr) {
+    if (subexpr->IsFlattened()) {
+      const ExecutionPath& elements = subexpr->flattened_elements();
+      if (elements.size() != 1) {
+        return nullptr;
+      }
+      return &elements[0];
+    }
+    const auto& elements = subexpr->elements();
+    if (elements.size() != 1) {
+      return nullptr;
+    }
+    const auto& element = elements[0];
+    if (const ExpressionStep* step = absl::get_if<ExpressionStep>(&element);
+        step != nullptr) {
+      return step;
+    }
+    // This might happen if an AST node is interpreted as a no-op, but we still
+    // create a subexpression for it.
+    if (Subexpression* const* child = absl::get_if<Subexpression*>(&element);
+        child != nullptr) {
+      subexpr = *child;
+      continue;
+    }
+    return nullptr;
+  }
+  return nullptr;
+}
 
 }  // namespace
 
@@ -185,6 +219,31 @@ bool Subexpression::ExtractTo(ExecutionPath& out) {
   return true;
 }
 
+bool Subexpression::IsInlinable() const {
+  const ExpressionStep* step = TryGetSingleStep(this);
+  if (step == nullptr) {
+    return false;
+  }
+  return IsConstant(*step) || GetIfIdentStep(*step) != nullptr;
+}
+
+std::optional<ExpressionStep> Subexpression::MaybeInline(
+    int64_t expr_id) const {
+  const ExpressionStep* step = TryGetSingleStep(this);
+  if (step == nullptr) {
+    return std::nullopt;
+  }
+  cel::Value value;
+  if (GetIfConstant(*step, value)) {
+    return ExpressionStep::MakeConstant(value, expr_id);
+  }
+  if (const IdentStepInfo* ident = GetIfIdentStep(*step); ident != nullptr) {
+    return ExpressionStep::MakeIdentifierStep(ident->ident_index,
+                                              ident->slot_index, expr_id);
+  }
+  return std::nullopt;
+}
+
 ExecutionPath ProgramBuilder::FlattenSubexpression(Subexpression* expr) {
   ExecutionPath out;
 
@@ -303,8 +362,15 @@ Subexpression* absl_nullable ProgramBuilder::MakeSubexpression(
   return it->second.get();
 }
 
-bool PlannerContext::IsSubplanInspectable(const cel::Expr& node) const {
-  return program_builder_.GetSubexpression(&node) != nullptr;
+bool PlannerContext::NodeHasInspectablePlan(const cel::Expr& node) const {
+  const Subexpression* subexpression = program_builder_.GetSubexpression(&node);
+  if (subexpression == nullptr) {
+    return false;
+  }
+  if (subexpression->IsFlattened()) {
+    return !subexpression->flattened_elements().empty();
+  }
+  return !subexpression->elements().empty();
 }
 
 ExecutionPathView PlannerContext::GetSubplan(const cel::Expr& node) {

@@ -144,7 +144,7 @@ TEST_F(PlannerContextTest, GetPlan) {
                                                  UniquePtrHolds(step_ptrs.a)));
 
   Expr d;
-  EXPECT_FALSE(context.IsSubplanInspectable(d));
+  EXPECT_FALSE(context.NodeHasInspectablePlan(d));
   EXPECT_THAT(context.GetSubplan(d), IsEmpty());
 }
 
@@ -193,8 +193,8 @@ TEST_F(PlannerContextTest, ExtractPlan) {
                          type_registry_.GetComposedTypeProvider(),
                          issue_collector_, program_builder, arena);
 
-  EXPECT_TRUE(context.IsSubplanInspectable(a));
-  EXPECT_TRUE(context.IsSubplanInspectable(b));
+  EXPECT_TRUE(context.NodeHasInspectablePlan(a));
+  EXPECT_TRUE(context.NodeHasInspectablePlan(b));
 
   ASSERT_OK_AND_ASSIGN(ExecutionPath extracted, context.ExtractSubplan(b));
 
@@ -233,7 +233,7 @@ TEST_F(PlannerContextTest, ReplacePlanUpdatesParent) {
                          type_registry_.GetComposedTypeProvider(),
                          issue_collector_, program_builder, arena);
 
-  EXPECT_TRUE(context.IsSubplanInspectable(a));
+  EXPECT_TRUE(context.NodeHasInspectablePlan(a));
 
   ASSERT_THAT(context.ReplaceSubplan(c, {}), IsOk());
 
@@ -537,6 +537,101 @@ TEST_F(ProgramBuilderTest, ExtractToRequiresFlatten) {
   EXPECT_THAT(path, ElementsAre(UniquePtrHolds(step_ptrs.b),
                                 UniquePtrHolds(step_ptrs.c),
                                 UniquePtrHolds(step_ptrs.a)));
+}
+
+TEST_F(ProgramBuilderTest, IsInlinableAndMaybeInlineConstant) {
+  Expr a;
+  Expr b;
+  ProgramBuilder program_builder;
+
+  program_builder.EnterSubexpression(&a);
+  program_builder.EnterSubexpression(&b);
+  program_builder.AddStep(ExpressionStep::MakeConstant(cel::IntValue(42), 10));
+  program_builder.ExitSubexpression(&b);
+  program_builder.ExitSubexpression(&a);
+
+  Subexpression* subexpr_a = program_builder.GetSubexpression(&a);
+  Subexpression* subexpr_b = program_builder.GetSubexpression(&b);
+  ASSERT_TRUE(subexpr_a != nullptr);
+  ASSERT_TRUE(subexpr_b != nullptr);
+
+  // Unflattened direct constant step and nested single-child subexpression.
+  EXPECT_TRUE(subexpr_b->IsInlinable());
+  EXPECT_TRUE(subexpr_a->IsInlinable());
+
+  std::optional<ExpressionStep> inlined_b = subexpr_b->MaybeInline(99);
+  ASSERT_TRUE(inlined_b.has_value());
+  EXPECT_EQ(inlined_b->id(), 99);
+  cel::Value val;
+  ASSERT_TRUE(GetIfConstant(*inlined_b, val));
+  EXPECT_EQ(val.GetInt().NativeValue(), 42);
+
+  // Flattened constant step remains inlinable.
+  subexpr_a->Flatten();
+  EXPECT_TRUE(subexpr_a->IsInlinable());
+  std::optional<ExpressionStep> inlined_a = subexpr_a->MaybeInline(100);
+  ASSERT_TRUE(inlined_a.has_value());
+  EXPECT_EQ(inlined_a->id(), 100);
+  ASSERT_TRUE(GetIfConstant(*inlined_a, val));
+  EXPECT_EQ(val.GetInt().NativeValue(), 42);
+}
+
+TEST_F(ProgramBuilderTest, IsInlinableAndMaybeInlineIdentifier) {
+  Expr a;
+  ProgramBuilder program_builder;
+
+  program_builder.EnterSubexpression(&a);
+  program_builder.AddStep(ExpressionStep::MakeIdentifierStep(3, 7, 10));
+  program_builder.ExitSubexpression(&a);
+
+  Subexpression* subexpr_a = program_builder.GetSubexpression(&a);
+  ASSERT_TRUE(subexpr_a != nullptr);
+
+  EXPECT_TRUE(subexpr_a->IsInlinable());
+  std::optional<ExpressionStep> inlined = subexpr_a->MaybeInline(55);
+  ASSERT_TRUE(inlined.has_value());
+  EXPECT_EQ(inlined->id(), 55);
+  const IdentStepInfo* ident_info = GetIfIdentStep(*inlined);
+  ASSERT_TRUE(ident_info != nullptr);
+  EXPECT_EQ(ident_info->ident_index, 3);
+  EXPECT_EQ(ident_info->slot_index, 7);
+
+  subexpr_a->Flatten();
+  EXPECT_TRUE(subexpr_a->IsInlinable());
+  std::optional<ExpressionStep> inlined_flat = subexpr_a->MaybeInline(56);
+  ASSERT_TRUE(inlined_flat.has_value());
+  EXPECT_EQ(inlined_flat->id(), 56);
+  ident_info = GetIfIdentStep(*inlined_flat);
+  ASSERT_TRUE(ident_info != nullptr);
+  EXPECT_EQ(ident_info->ident_index, 3);
+  EXPECT_EQ(ident_info->slot_index, 7);
+}
+
+TEST_F(ProgramBuilderTest, NotInlinableWhenNonTrivial) {
+  Expr a;
+  Expr b;
+  Expr c;
+  ProgramBuilder program_builder;
+
+  ASSERT_OK_AND_ASSIGN(SimpleTreeSteps step_ptrs,
+                       InitSimpleTree(a, b, c, program_builder));
+  (void)step_ptrs;
+
+  Subexpression* subexpr_a = program_builder.GetSubexpression(&a);
+  Subexpression* subexpr_b = program_builder.GetSubexpression(&b);
+  ASSERT_TRUE(subexpr_a != nullptr);
+  ASSERT_TRUE(subexpr_b != nullptr);
+
+  // Single generic step is not inlinable.
+  EXPECT_FALSE(subexpr_b->IsInlinable());
+  EXPECT_EQ(subexpr_b->MaybeInline(1), std::nullopt);
+
+  // Multi-step subexpression is not inlinable (unflattened and flattened).
+  EXPECT_FALSE(subexpr_a->IsInlinable());
+  EXPECT_EQ(subexpr_a->MaybeInline(1), std::nullopt);
+  subexpr_a->Flatten();
+  EXPECT_FALSE(subexpr_a->IsInlinable());
+  EXPECT_EQ(subexpr_a->MaybeInline(1), std::nullopt);
 }
 
 }  // namespace

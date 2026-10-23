@@ -564,6 +564,55 @@ TEST_F(UpdatedConstantFoldingTest, ErrorsOnUnexpectedOrder) {
               StatusIs(absl::StatusCode::kInternal));
 }
 
+TEST_F(UpdatedConstantFoldingTest, FoldsListWithInlinedConstantIdent) {
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> list_ast,
+                       ParseFromCel("[a, 2]"));
+  const Expr& create_list = list_ast->root_expr();
+  const Expr& elem_a = create_list.list_expr().elements()[0].expr();
+  const Expr& elem_two = create_list.list_expr().elements()[1].expr();
+
+  ProgramBuilder program_builder;
+  program_builder.EnterSubexpression(&create_list);
+  // Simulate `a` having been inlined as a constant step by FlatExprVisitor.
+  program_builder.EnterSubexpression(&elem_a);
+  program_builder.AddStep(
+      ExpressionStep::MakeConstant(cel::IntValue(10), elem_a.id()));
+  program_builder.ExitSubexpression(&elem_a);
+
+  program_builder.EnterSubexpression(&elem_two);
+  program_builder.AddStep(
+      ExpressionStep::MakeConstant(cel::IntValue(2), elem_two.id()));
+  program_builder.ExitSubexpression(&elem_two);
+
+  program_builder.AddStep(CreateCreateListStep(
+      create_list.list_expr().elements().size(), {}, create_list.id()));
+  program_builder.ExitSubexpression(&create_list);
+
+  options_.enable_subexpression_inlining = true;
+  std::shared_ptr<google::protobuf::Arena> arena;
+  PlannerContext context(env_, resolver_, options_,
+                         type_registry_.GetComposedTypeProvider(),
+                         issue_collector_, program_builder, arena);
+
+  ProgramOptimizerFactory constant_folder_factory =
+      CreateConstantFoldingOptimizer();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<ProgramOptimizer> constant_folder,
+                       constant_folder_factory(context, *list_ast));
+
+  ASSERT_THAT(constant_folder->OnPreVisit(context, create_list), IsOk());
+  ASSERT_THAT(constant_folder->OnPreVisit(context, elem_a), IsOk());
+  ASSERT_THAT(constant_folder->OnPostVisit(context, elem_a), IsOk());
+  ASSERT_THAT(constant_folder->OnPreVisit(context, elem_two), IsOk());
+  ASSERT_THAT(constant_folder->OnPostVisit(context, elem_two), IsOk());
+  ASSERT_THAT(constant_folder->OnPostVisit(context, create_list), IsOk());
+
+  ExecutionPath path = std::move(program_builder).FlattenMain();
+  EXPECT_THAT(path, SizeIs(1));
+  cel::Value folded_list;
+  ASSERT_TRUE(google::api::expr::runtime::GetIfConstant(path[0], folded_list));
+  EXPECT_TRUE(folded_list.IsList());
+}
+
 }  // namespace
 
 }  // namespace cel::runtime_internal

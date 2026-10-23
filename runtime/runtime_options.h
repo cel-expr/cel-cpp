@@ -203,6 +203,13 @@ struct RuntimeOptions {
   // not what the planner expected (e.g. a map that was declared as a proto or
   // a different message with matching field names).
   bool enable_typed_field_access = true;
+
+  // When enabled, trivial lazy subexpressions (such as constants or
+  // identifiers) bound via cel.bind or cel.@block will be inlined directly
+  // at reference sites during planning.
+  //
+  // Note: Enabling this option may change observed expression tracing behavior.
+  bool enable_subexpression_inlining = false;
 };
 // LINT.ThenChange(//depot/google3/eval/public/cel_options.h)
 

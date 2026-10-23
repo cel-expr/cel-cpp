@@ -53,6 +53,8 @@ cc_library(
         "//extensions:math_ext_macros",
         "//extensions:proto_ext",
         "//extensions:select_optimization",
+        "//extensions:set_membership_optimization",
+        "//extensions:sets_functions",
         "//extensions:strings",
         "//extensions/protobuf:enum_adapter",
         "//internal:status_macros",
@@ -162,6 +164,7 @@ _ALL_TESTS = [
     "@com_google_cel_spec//tests/simple:testdata/unknowns.textproto",
     "@com_google_cel_spec//tests/simple:testdata/wrappers.textproto",
     "@com_google_cel_spec//tests/simple:testdata/block_ext.textproto",
+    "@com_google_cel_spec//tests/simple:testdata/sets_ext.textproto",
     "@com_google_cel_spec//tests/simple:testdata/type_deduction.textproto",
 ]
 
@@ -286,8 +289,8 @@ gen_conformance_tests(
     name = "conformance_legacy_select_opt",
     checked = True,
     data = _ALL_TESTS,
+    extended_optimizations = True,
     modern = False,
-    select_opt = True,
     skip_tests = _TESTS_TO_SKIP_LEGACY,
 )
 
@@ -295,8 +298,8 @@ gen_conformance_tests(
     name = "conformance_select_opt",
     checked = True,
     data = _ALL_TESTS,
+    extended_optimizations = True,
     modern = True,
-    select_opt = True,
     skip_tests = _TESTS_TO_SKIP_MODERN,
 )
 
