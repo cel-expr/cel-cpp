@@ -34,6 +34,7 @@
 #include "eval/public/cel_function_adapter.h"
 #include "eval/public/cel_options.h"
 #include "eval/public/cel_value.h"
+#include "extensions/set_membership_optimization.h"
 #include "internal/testing.h"
 #include "runtime/activation.h"
 #include "runtime/runtime.h"
@@ -138,6 +139,45 @@ TEST_P(CelSetsFunctionsTest, RuntimeEndToEnd) {
       << test_info.expr << " -> " << out.DebugString();
 }
 
+TEST_P(CelSetsFunctionsTest, RuntimeEndToEndWithSetMembershipOptimization) {
+  const TestInfo& test_info = GetParam();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CompilerBuilder> compiler_builder,
+                       NewCompilerBuilder(cel::GetMinimalDescriptorPool()));
+
+  ASSERT_THAT(compiler_builder->AddLibrary(StandardCheckerLibrary()), IsOk());
+  ASSERT_THAT(compiler_builder->AddLibrary(SetsCompilerLibrary()), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<const Compiler> compiler,
+                       compiler_builder->Build());
+
+  ASSERT_OK_AND_ASSIGN(ValidationResult compiled,
+                       compiler->Compile(test_info.expr));
+
+  ASSERT_TRUE(compiled.IsValid()) << compiled.FormatError();
+
+  RuntimeOptions options;
+  options.enable_heterogeneous_equality = true;
+  options.enable_empty_wrapper_null_unboxing = true;
+  options.enable_qualified_type_identifiers = true;
+  ASSERT_OK_AND_ASSIGN(
+      RuntimeBuilder runtime_builder,
+      CreateStandardRuntimeBuilder(cel::GetMinimalDescriptorPool(), options));
+  ASSERT_THAT(
+      RegisterSetsFunctions(runtime_builder.function_registry(), options),
+      IsOk());
+  ASSERT_THAT(EnableSetMembershipOptimization(runtime_builder), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<const Runtime> runtime,
+                       std::move(runtime_builder).Build());
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
+                       runtime->CreateProgram(*compiled.ReleaseAst()));
+  Arena arena;
+  cel::Activation activation;
+  ASSERT_OK_AND_ASSIGN(Value out, program->Evaluate(&arena, activation));
+  ASSERT_TRUE(out.IsBool()) << test_info.expr << " -> " << out.DebugString();
+  EXPECT_TRUE(out.GetBool().NativeValue())
+      << test_info.expr << " -> " << out.DebugString();
+}
+
 INSTANTIATE_TEST_SUITE_P(
     CelSetsFunctionsTest, CelSetsFunctionsTest,
     testing::ValuesIn<TestInfo>({
@@ -175,6 +215,7 @@ INSTANTIATE_TEST_SUITE_P(
         {"sets.equivalent([1], [1u, 1.0])"},
         {"sets.equivalent([1], [1u, 1.0])"},
         {"sets.equivalent([1, 2, 3], [3u, 2.0, 1])"},
+        {"!sets.equivalent([-1], [])"},
         {"!sets.equivalent([2, 1], [1])"},
         {"!sets.equivalent([1], [1, 2])"},
         {"!sets.equivalent([1, 2], [2u, 2, 2.0])"},

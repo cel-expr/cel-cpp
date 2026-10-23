@@ -37,6 +37,7 @@
 #include "compiler/standard_library.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/containers/container_backed_list_impl.h"
+#include "extensions/set_membership_optimization.h"
 #include "extensions/sets_functions.h"
 #include "internal/benchmark.h"
 #include "internal/status_macros.h"
@@ -58,7 +59,12 @@ using ::google::api::expr::runtime::CelList;
 using ::google::api::expr::runtime::CelValue;
 using ::google::api::expr::runtime::ContainerBackedListImpl;
 
-enum class ListImpl : int { kLegacy = 0, kModern = 1, kRhsConstant = 2 };
+enum class ListImpl : int {
+  kLegacy = 0,
+  kModern = 1,
+  kRhsConstant = 2,
+  kRhsConstantOptimized = 3,
+};
 int ToNumber(ListImpl impl) { return static_cast<int>(impl); }
 ListImpl FromNumber(int number) {
   switch (number) {
@@ -68,6 +74,8 @@ ListImpl FromNumber(int number) {
       return ListImpl::kModern;
     case 2:
       return ListImpl::kRhsConstant;
+    case 3:
+      return ListImpl::kRhsConstantOptimized;
     default:
       return ListImpl::kLegacy;
   }
@@ -83,6 +91,9 @@ struct TestCase {
   std::string MakeLabel(int len) const {
     std::string list_impl;
     switch (this->list_impl) {
+      case ListImpl::kRhsConstantOptimized:
+        list_impl = "rhs_constant_opt";
+        break;
       case ListImpl::kRhsConstant:
         list_impl = "rhs_constant";
         break;
@@ -183,12 +194,18 @@ absl::StatusOr<std::unique_ptr<Compiler>> CreateBenchmarkCompiler() {
       MakeVariableDecl("x", ListType(checker.arena(), IntType()))));
   CEL_RETURN_IF_ERROR(checker.AddVariable(
       MakeVariableDecl("y", ListType(checker.arena(), IntType()))));
+  CEL_RETURN_IF_ERROR(checker.AddVariable(
+      MakeVariableDecl("str_x", ListType(checker.arena(), StringType()))));
+  CEL_RETURN_IF_ERROR(checker.AddVariable(
+      MakeVariableDecl("str_y", ListType(checker.arena(), StringType()))));
+  CEL_RETURN_IF_ERROR(
+      checker.AddVariable(MakeVariableDecl("str_elem", StringType())));
 
   return builder->Build();
 }
 
 absl::StatusOr<std::unique_ptr<const Runtime>> CreateBenchmarkRuntime(
-    google::protobuf::Arena* absl_nonnull arena) {
+    bool enable_set_opt, google::protobuf::Arena* absl_nonnull arena) {
   RuntimeOptions options;
   CEL_ASSIGN_OR_RETURN(
       RuntimeBuilder builder,
@@ -198,6 +215,9 @@ absl::StatusOr<std::unique_ptr<const Runtime>> CreateBenchmarkRuntime(
   CEL_RETURN_IF_ERROR(
       EnableReferenceResolver(builder, ReferenceResolverEnabled::kAlways));
   CEL_RETURN_IF_ERROR(EnableConstantFolding(builder, arena));
+  if (enable_set_opt) {
+    CEL_RETURN_IF_ERROR(EnableSetMembershipOptimization(builder));
+  }
   return std::move(builder).Build();
 }
 
@@ -205,7 +225,8 @@ void RunBenchmark(const TestCase& test_case, benchmark::State& state) {
   bool lists_overlap = test_case.result;
 
   std::string expr = test_case.expr;
-  if (test_case.list_impl == ListImpl::kRhsConstant) {
+  if (test_case.list_impl == ListImpl::kRhsConstant ||
+      test_case.list_impl == ListImpl::kRhsConstantOptimized) {
     expr = absl::StrReplaceAll(
         expr, {{"y", ConstantList(lists_overlap, test_case.size)}});
   }
@@ -219,8 +240,10 @@ void RunBenchmark(const TestCase& test_case, benchmark::State& state) {
                        validation_result.ReleaseAst());
 
   google::protobuf::Arena arena;
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<const Runtime> runtime,
-                       CreateBenchmarkRuntime(&arena));
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<const Runtime> runtime,
+      CreateBenchmarkRuntime(
+          test_case.list_impl == ListImpl::kRhsConstantOptimized, &arena));
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
                        runtime->CreateProgram(std::move(ast)));
 
@@ -348,7 +371,8 @@ void BM_SetsEquivalentComprehensionFalse(benchmark::State& state) {
 template <typename Benchmark>
 void BenchArgs(Benchmark* bench) {
   for (ListImpl impl :
-       {ListImpl::kLegacy, ListImpl::kModern, ListImpl::kRhsConstant}) {
+       {ListImpl::kLegacy, ListImpl::kModern, ListImpl::kRhsConstant,
+        ListImpl::kRhsConstantOptimized}) {
     for (int size : {1, 8, 32, 64, 256}) {
       bench->ArgPair(ToNumber(impl), size);
     }
@@ -369,6 +393,205 @@ BENCHMARK(BM_SetsEquivalentComprehensionTrue)->Apply(BenchArgs);
 BENCHMARK(BM_SetsEquivalentComprehensionFalse)->Apply(BenchArgs);
 BENCHMARK(BM_SetsEquivalentTrue)->Apply(BenchArgs);
 BENCHMARK(BM_SetsEquivalentFalse)->Apply(BenchArgs);
+
+enum class StringSetBenchOp {
+  kIn,
+  kIntersects,
+  kContains,
+  kEquivalent,
+};
+
+std::string ConstantStringList(int len) {
+  std::vector<std::string> elems;
+  elems.reserve(len);
+  for (int i = 0; i < len; ++i) {
+    elems.push_back(absl::StrCat("'str_", i, "'"));
+  }
+  return absl::StrCat("[", absl::StrJoin(elems, ", "), "]");
+}
+
+absl::Status RegisterStringBenchValues(StringSetBenchOp op, bool expected,
+                                       int len,
+                                       google::protobuf::Arena* absl_nonnull arena,
+                                       Activation& activation) {
+  ListValueBuilderPtr y_builder = cel::NewListValueBuilder(arena);
+  y_builder->Reserve(len);
+  for (int i = 0; i < len; ++i) {
+    CEL_RETURN_IF_ERROR(
+        y_builder->Add(cel::StringValue::From(absl::StrCat("str_", i), arena)));
+  }
+  activation.InsertOrAssignValue("str_y", std::move(*y_builder).Build());
+
+  if (op == StringSetBenchOp::kIn) {
+    // True: best case / short-circuit (matches first element).
+    // False: worst case (scans all elements).
+    std::string elem = expected ? "str_0" : "str_missing";
+    activation.InsertOrAssignValue("str_elem",
+                                   cel::StringValue::From(elem, arena));
+    return absl::OkStatus();
+  }
+
+  ListValueBuilderPtr x_builder = cel::NewListValueBuilder(arena);
+  x_builder->Reserve(len);
+  if (op == StringSetBenchOp::kIntersects) {
+    // True: best case / short-circuit (matches on the first element).
+    // False: worst case (disjoint lists, scans all elements).
+    std::string first = expected ? "str_0" : "other_0";
+    CEL_RETURN_IF_ERROR(x_builder->Add(cel::StringValue::From(first, arena)));
+    for (int i = 1; i < len; ++i) {
+      CEL_RETURN_IF_ERROR(x_builder->Add(
+          cel::StringValue::From(absl::StrCat("other_", i), arena)));
+    }
+  } else {
+    // For contains and equivalent:
+    // True: worst case (str_x has all elements in reverse order, exercising the
+    // full loop and matched set allocation).
+    // False: best case / short-circuit (disjoint elements starting with
+    // "other_0", short-circuiting on the first element for equivalent and
+    // avoiding matched set allocation for contains).
+    if (expected) {
+      for (int i = len - 1; i >= 0; --i) {
+        CEL_RETURN_IF_ERROR(x_builder->Add(
+            cel::StringValue::From(absl::StrCat("str_", i), arena)));
+      }
+    } else {
+      for (int i = 0; i < len; ++i) {
+        CEL_RETURN_IF_ERROR(x_builder->Add(
+            cel::StringValue::From(absl::StrCat("other_", i), arena)));
+      }
+    }
+  }
+  activation.InsertOrAssignValue("str_x", std::move(*x_builder).Build());
+  return absl::OkStatus();
+}
+
+void RunStringSetBenchmark(StringSetBenchOp op, const TestCase& test_case,
+                           benchmark::State& state) {
+  std::string expr = test_case.expr;
+  if (test_case.list_impl == ListImpl::kRhsConstant ||
+      test_case.list_impl == ListImpl::kRhsConstantOptimized) {
+    expr = absl::StrReplaceAll(expr,
+                               {{"str_y", ConstantStringList(test_case.size)}});
+  }
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler,
+                       CreateBenchmarkCompiler());
+  ASSERT_OK_AND_ASSIGN(ValidationResult validation_result,
+                       compiler->Compile(expr));
+  ASSERT_TRUE(validation_result.IsValid()) << validation_result.FormatError();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast,
+                       validation_result.ReleaseAst());
+
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<const Runtime> runtime,
+      CreateBenchmarkRuntime(
+          test_case.list_impl == ListImpl::kRhsConstantOptimized, &arena));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
+                       runtime->CreateProgram(std::move(ast)));
+
+  Activation activation;
+  ASSERT_THAT(RegisterStringBenchValues(op, test_case.result, test_case.size,
+                                        &arena, activation),
+              IsOk());
+
+  state.SetLabel(test_case.MakeLabel(test_case.size));
+  for (auto _ : state) {
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.IsBool());
+    ASSERT_EQ(result.GetBool().NativeValue(), test_case.result)
+        << test_case.test_name;
+  }
+}
+
+void BM_StringSetsInTrue(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(StringSetBenchOp::kIn,
+                        {"str_in_true", "str_elem in str_y", impl, size, true},
+                        state);
+}
+
+void BM_StringSetsInFalse(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(
+      StringSetBenchOp::kIn,
+      {"str_in_false", "str_elem in str_y", impl, size, false}, state);
+}
+
+void BM_StringSetsIntersectsTrue(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(StringSetBenchOp::kIntersects,
+                        {"str_sets.intersects_true",
+                         "sets.intersects(str_x, str_y)", impl, size, true},
+                        state);
+}
+
+void BM_StringSetsIntersectsFalse(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(StringSetBenchOp::kIntersects,
+                        {"str_sets.intersects_false",
+                         "sets.intersects(str_x, str_y)", impl, size, false},
+                        state);
+}
+
+void BM_StringSetsContainsTrue(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(StringSetBenchOp::kContains,
+                        {"str_sets.contains_true",
+                         "sets.contains(str_x, str_y)", impl, size, true},
+                        state);
+}
+
+void BM_StringSetsContainsFalse(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(StringSetBenchOp::kContains,
+                        {"str_sets.contains_false",
+                         "sets.contains(str_x, str_y)", impl, size, false},
+                        state);
+}
+
+void BM_StringSetsEquivalentTrue(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(StringSetBenchOp::kEquivalent,
+                        {"str_sets.equivalent_true",
+                         "sets.equivalent(str_x, str_y)", impl, size, true},
+                        state);
+}
+
+void BM_StringSetsEquivalentFalse(benchmark::State& state) {
+  ListImpl impl = FromNumber(state.range(0));
+  int size = state.range(1);
+  RunStringSetBenchmark(StringSetBenchOp::kEquivalent,
+                        {"str_sets.equivalent_false",
+                         "sets.equivalent(str_x, str_y)", impl, size, false},
+                        state);
+}
+
+template <typename Benchmark>
+void StringBenchArgs(Benchmark* bench) {
+  for (ListImpl impl :
+       {ListImpl::kRhsConstant, ListImpl::kRhsConstantOptimized}) {
+    for (int size : {1, 4, 8, 16, 32, 64, 256}) {
+      bench->ArgPair(ToNumber(impl), size);
+    }
+  }
+}
+
+BENCHMARK(BM_StringSetsInTrue)->Apply(StringBenchArgs);
+BENCHMARK(BM_StringSetsInFalse)->Apply(StringBenchArgs);
+BENCHMARK(BM_StringSetsIntersectsTrue)->Apply(StringBenchArgs);
+BENCHMARK(BM_StringSetsIntersectsFalse)->Apply(StringBenchArgs);
+BENCHMARK(BM_StringSetsContainsTrue)->Apply(StringBenchArgs);
+BENCHMARK(BM_StringSetsContainsFalse)->Apply(StringBenchArgs);
+BENCHMARK(BM_StringSetsEquivalentTrue)->Apply(StringBenchArgs);
+BENCHMARK(BM_StringSetsEquivalentFalse)->Apply(StringBenchArgs);
 
 }  // namespace
 }  // namespace cel::extensions

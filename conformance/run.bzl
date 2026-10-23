@@ -56,14 +56,14 @@ def _conformance_test_name(name, pratt, optimize):
         ],
     )
 
-def _conformance_test_args(modern, optimize, select_opt, skip_check, dashboard, enable_variadic_logical_operators, pratt):
+def _conformance_test_args(modern, optimize, extended_optimizations, skip_check, dashboard, enable_variadic_logical_operators, pratt):
     args = []
     if modern:
         args.append("--modern")
     if optimize:
         args.append("--opt")
-    if select_opt:
-        args.append("--select_optimization")
+    if extended_optimizations:
+        args.append("--extended_optimizations")
     if skip_check:
         args.append("--skip_check")
     else:
@@ -78,10 +78,10 @@ def _conformance_test_args(modern, optimize, select_opt, skip_check, dashboard, 
         args.append("--noenable_pratt_parser")
     return args
 
-def _conformance_test(name, data, modern, optimize, select_opt, skip_check, skip_tests, tags, dashboard, enable_variadic_logical_operators, pratt):
+def _conformance_test(name, data, modern, optimize, extended_optimizations, skip_check, skip_tests, tags, dashboard, enable_variadic_logical_operators, pratt):
     cc_test(
         name = _conformance_test_name(name, pratt, optimize),
-        args = _conformance_test_args(modern, optimize, select_opt, skip_check, dashboard, enable_variadic_logical_operators, pratt) + ["$(rlocationpath {})".format(test) for test in data],
+        args = _conformance_test_args(modern, optimize, extended_optimizations, skip_check, dashboard, enable_variadic_logical_operators, pratt) + ["$(rlocationpath {})".format(test) for test in data],
         env = select(
             {
                 "@platforms//os:windows": {"CEL_SKIP_TESTS": ",".join(skip_tests + _TESTS_TO_SKIP_WINDOWS)},
@@ -93,7 +93,7 @@ def _conformance_test(name, data, modern, optimize, select_opt, skip_check, skip
         tags = tags,
     )
 
-def gen_conformance_tests(name, data, modern = False, checked = False, select_opt = False, dashboard = False, skip_tests = [], tags = [], enable_variadic_logical_operators = False):
+def gen_conformance_tests(name, data, modern = False, checked = False, extended_optimizations = False, dashboard = False, skip_tests = [], tags = [], enable_variadic_logical_operators = False):
     """Generates conformance tests.
 
     Args:
@@ -101,7 +101,7 @@ def gen_conformance_tests(name, data, modern = False, checked = False, select_op
         data: textproto targets describing conformance tests
         modern: run using modern APIs
         checked: whether to apply type checking
-        select_opt: enable select optimization
+        extended_optimizations: enable extended optimizations (select and set membership)
         dashboard: enable dashboard mode
         skip_tests: tests to skip in the format of the cel-spec test runner. See documentation
             in github.com/google/cel-spec/tests/simple/simple_test.go
@@ -119,7 +119,7 @@ def gen_conformance_tests(name, data, modern = False, checked = False, select_op
                 data,
                 modern = modern,
                 optimize = optimize,
-                select_opt = select_opt,
+                extended_optimizations = extended_optimizations,
                 skip_check = skip_check,
                 skip_tests = _expand_tests_to_skip(skip_tests),
                 tags = tags,

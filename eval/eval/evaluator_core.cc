@@ -376,6 +376,13 @@ IdentStepInfo* GetIfIdentStep(ExpressionStep& step) {
   return nullptr;
 }
 
+const IdentStepInfo* GetIfIdentStep(const ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kIdentifier) {
+    return &step.u_.ident_step;
+  }
+  return nullptr;
+}
+
 std::optional<int64_t> ExpressionStep::StackDelta() const {
   switch (header_.kind) {
     case ExpressionStepKind::kMovedFrom:
@@ -415,6 +422,10 @@ std::optional<int64_t> ExpressionStep::StackDelta() const {
     case ExpressionStepKind::kBooleanAndJump:
     case ExpressionStepKind::kTernaryJump:
     case ExpressionStepKind::kFixedJump:
+    case ExpressionStepKind::kBitIsSet:
+    case ExpressionStepKind::kBitAndIsNonZero:
+    case ExpressionStepKind::kBitAndEqual:
+    case ExpressionStepKind::kBitEqual:
       return 0;
     case ExpressionStepKind::kBooleanOr:
     case ExpressionStepKind::kBooleanAnd:
