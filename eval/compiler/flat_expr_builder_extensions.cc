@@ -303,8 +303,15 @@ Subexpression* absl_nullable ProgramBuilder::MakeSubexpression(
   return it->second.get();
 }
 
-bool PlannerContext::IsSubplanInspectable(const cel::Expr& node) const {
-  return program_builder_.GetSubexpression(&node) != nullptr;
+bool PlannerContext::NodeHasInspectablePlan(const cel::Expr& node) const {
+  const Subexpression* subexpression = program_builder_.GetSubexpression(&node);
+  if (subexpression == nullptr) {
+    return false;
+  }
+  if (subexpression->IsFlattened()) {
+    return !subexpression->flattened_elements().empty();
+  }
+  return !subexpression->elements().empty();
 }
 
 ExecutionPathView PlannerContext::GetSubplan(const cel::Expr& node) {

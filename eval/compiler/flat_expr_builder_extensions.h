@@ -308,7 +308,7 @@ class PlannerContext {
   // Returns true if the subplan is inspectable.
   //
   // If false, the node is not mapped to a subexpression in the program builder.
-  bool IsSubplanInspectable(const cel::Expr& node) const;
+  bool NodeHasInspectablePlan(const cel::Expr& node) const;
 
   // Return a view to the current subplan representing node.
   //
