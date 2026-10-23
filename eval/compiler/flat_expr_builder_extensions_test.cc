@@ -144,7 +144,7 @@ TEST_F(PlannerContextTest, GetPlan) {
                                                  UniquePtrHolds(step_ptrs.a)));
 
   Expr d;
-  EXPECT_FALSE(context.IsSubplanInspectable(d));
+  EXPECT_FALSE(context.NodeHasInspectablePlan(d));
   EXPECT_THAT(context.GetSubplan(d), IsEmpty());
 }
 
@@ -193,8 +193,8 @@ TEST_F(PlannerContextTest, ExtractPlan) {
                          type_registry_.GetComposedTypeProvider(),
                          issue_collector_, program_builder, arena);
 
-  EXPECT_TRUE(context.IsSubplanInspectable(a));
-  EXPECT_TRUE(context.IsSubplanInspectable(b));
+  EXPECT_TRUE(context.NodeHasInspectablePlan(a));
+  EXPECT_TRUE(context.NodeHasInspectablePlan(b));
 
   ASSERT_OK_AND_ASSIGN(ExecutionPath extracted, context.ExtractSubplan(b));
 
@@ -233,7 +233,7 @@ TEST_F(PlannerContextTest, ReplacePlanUpdatesParent) {
                          type_registry_.GetComposedTypeProvider(),
                          issue_collector_, program_builder, arena);
 
-  EXPECT_TRUE(context.IsSubplanInspectable(a));
+  EXPECT_TRUE(context.NodeHasInspectablePlan(a));
 
   ASSERT_THAT(context.ReplaceSubplan(c, {}), IsOk());
 

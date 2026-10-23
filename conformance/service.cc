@@ -67,6 +67,8 @@
 #include "extensions/proto_ext.h"
 #include "extensions/protobuf/enum_adapter.h"
 #include "extensions/select_optimization.h"
+#include "extensions/set_membership_optimization.h"
+#include "extensions/sets_functions.h"
 #include "extensions/strings.h"
 #include "internal/status_macros.h"
 #include "parser/macro_registry.h"
@@ -196,6 +198,8 @@ absl::Status CheckImpl(google::protobuf::Arena* arena,
         builder->AddLibrary(cel::extensions::ComprehensionsV2CheckerLibrary()));
     CEL_RETURN_IF_ERROR(
         builder->AddLibrary(cel::extensions::ListsCheckerLibrary()));
+    CEL_RETURN_IF_ERROR(
+        builder->AddLibrary(cel::extensions::SetsCheckerLibrary()));
   }
 
   for (const auto& decl : request.type_env()) {
@@ -245,7 +249,7 @@ absl::Status CheckImpl(google::protobuf::Arena* arena,
 class LegacyConformanceServiceImpl : public ConformanceServiceInterface {
  public:
   static absl::StatusOr<std::unique_ptr<LegacyConformanceServiceImpl>> Create(
-      bool optimize, bool recursive, bool select_optimization,
+      bool optimize, bool recursive, bool extended_optimizations,
       bool enable_variadic_logical_operators, bool enable_pratt_parser) {
     static auto* constant_arena = new Arena();
 
@@ -293,8 +297,8 @@ class LegacyConformanceServiceImpl : public ConformanceServiceInterface {
       options.enable_typed_field_access = true;
     }
 
-    if (select_optimization) {
-      std::cerr << "Enabling select optimizations" << std::endl;
+    if (extended_optimizations) {
+      std::cerr << "Enabling extended optimizations" << std::endl;
       options.enable_select_optimization = true;
     }
 
@@ -322,6 +326,8 @@ class LegacyConformanceServiceImpl : public ConformanceServiceInterface {
     CEL_RETURN_IF_ERROR(cel::extensions::RegisterStringsFunctions(
         builder->GetRegistry(), options));
     CEL_RETURN_IF_ERROR(cel::extensions::RegisterMathExtensionFunctions(
+        builder->GetRegistry(), options));
+    CEL_RETURN_IF_ERROR(cel::extensions::RegisterSetsFunctions(
         builder->GetRegistry(), options));
 
     return absl::WrapUnique(new LegacyConformanceServiceImpl(
@@ -446,7 +452,7 @@ class LegacyConformanceServiceImpl : public ConformanceServiceInterface {
 class ModernConformanceServiceImpl : public ConformanceServiceInterface {
  public:
   static absl::StatusOr<std::unique_ptr<ModernConformanceServiceImpl>> Create(
-      bool optimize, bool recursive, bool select_optimization,
+      bool optimize, bool recursive, bool extended_optimizations,
       bool enable_variadic_logical_operators, bool enable_pratt_parser) {
     google::protobuf::LinkMessageReflection<
         cel::expr::conformance::proto3::TestAllTypes>();
@@ -490,7 +496,7 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
     }
 
     return absl::WrapUnique(new ModernConformanceServiceImpl(
-        options, optimize, select_optimization,
+        options, optimize, extended_optimizations,
         enable_variadic_logical_operators, enable_pratt_parser));
   }
 
@@ -512,8 +518,10 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
     }
     CEL_RETURN_IF_ERROR(cel::EnableReferenceResolver(
         builder, cel::ReferenceResolverEnabled::kAlways));
-    if (enable_select_optimization_) {
+    if (enable_extended_optimizations_) {
       CEL_RETURN_IF_ERROR(cel::extensions::EnableSelectOptimization(builder));
+      CEL_RETURN_IF_ERROR(
+          cel::extensions::EnableSetMembershipOptimization(builder));
     }
 
     auto& type_registry = builder.type_registry();
@@ -541,6 +549,8 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
     CEL_RETURN_IF_ERROR(cel::extensions::RegisterMathExtensionFunctions(
         builder.function_registry(), options));
     CEL_RETURN_IF_ERROR(cel::extensions::RegisterListsFunctions(
+        builder.function_registry(), options));
+    CEL_RETURN_IF_ERROR(cel::extensions::RegisterSetsFunctions(
         builder.function_registry(), options));
 
     return std::move(builder).Build();
@@ -641,12 +651,12 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
  private:
   ModernConformanceServiceImpl(const RuntimeOptions& options,
                                bool enable_optimizations,
-                               bool enable_select_optimization,
+                               bool enable_extended_optimizations,
                                bool enable_variadic_logical_operators,
                                bool enable_pratt_parser)
       : options_(options),
         enable_optimizations_(enable_optimizations),
-        enable_select_optimization_(enable_select_optimization),
+        enable_extended_optimizations_(enable_extended_optimizations),
         enable_variadic_logical_operators_(enable_variadic_logical_operators),
         enable_pratt_parser_(enable_pratt_parser) {}
 
@@ -678,7 +688,7 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
 
   RuntimeOptions options_;
   bool enable_optimizations_;
-  bool enable_select_optimization_;
+  bool enable_extended_optimizations_;
   bool enable_variadic_logical_operators_;
   bool enable_pratt_parser_;
 };
@@ -693,11 +703,11 @@ absl::StatusOr<std::unique_ptr<ConformanceServiceInterface>>
 NewConformanceService(const ConformanceServiceOptions& options) {
   if (options.modern) {
     return google::api::expr::runtime::ModernConformanceServiceImpl::Create(
-        options.optimize, options.recursive, options.select_optimization,
+        options.optimize, options.recursive, options.extended_optimizations,
         options.enable_variadic_logical_operators, options.enable_pratt_parser);
   } else {
     return google::api::expr::runtime::LegacyConformanceServiceImpl::Create(
-        options.optimize, options.recursive, options.select_optimization,
+        options.optimize, options.recursive, options.extended_optimizations,
         options.enable_variadic_logical_operators, options.enable_pratt_parser);
   }
 }
