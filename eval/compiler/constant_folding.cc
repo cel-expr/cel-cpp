@@ -190,6 +190,14 @@ absl::Status ConstantFoldingExtension::OnPostVisit(PlannerContext& context,
   is_const_.pop_back();
 
   if (is_const == IsConst::kNonConst) {
+    if (context.options().enable_subexpression_inlining &&
+        node.has_ident_expr()) {
+      ExecutionPathView subplan = context.GetSubplan(node);
+      if (subplan.size() == 1 &&
+          google::api::expr::runtime::IsConstant(subplan[0])) {
+        return absl::OkStatus();
+      }
+    }
     // update parent
     if (!is_const_.empty()) {
       is_const_.back() = IsConst::kNonConst;

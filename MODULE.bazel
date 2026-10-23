@@ -59,12 +59,12 @@ bazel_dep(
 )
 bazel_dep(
     name = "cel-spec",
-    version = "0.25.2",
+    version = "0.25.3",
     repo_name = "com_google_cel_spec",
 )
 git_override(
     module_name = "cel-spec",
-    commit = "ba58ae5007845f3a1279b488cdeb79645ce958bb",
+    commit = "6dccde40b346f89761ddb890abc6ca503a453134",
     remote = "https://github.com/cel-expr/cel-spec",
 )
 

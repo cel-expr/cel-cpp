@@ -3596,6 +3596,200 @@ TEST(FlatExprBuilderTest,
   EXPECT_EQ(activation.LookupCount("single_var"), 1);
   EXPECT_EQ(activation.LookupCount("i"), 0);
 }
+
+TEST(FlatExprBuilderTest, BlockInlinesTrivialSubexpressions) {
+  ParsedExpr parsed_expr;
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        expr: {
+          id: 1
+          call_expr: {
+            function: "cel.@block"
+            args {
+              id: 2
+              list_expr: {
+                elements {
+                  id: 3
+                  const_expr: { int64_value: 10 }
+                }
+                elements {
+                  id: 4
+                  ident_expr: { name: "x" }
+                }
+              }
+            }
+            args {
+              id: 5
+              call_expr: {
+                function: "_+_"
+                args {
+                  id: 6
+                  call_expr: {
+                    function: "_+_"
+                    args {
+                      id: 7
+                      ident_expr: { name: "@index0" }
+                    }
+                    args {
+                      id: 8
+                      ident_expr: { name: "@index1" }
+                    }
+                  }
+                }
+                args {
+                  id: 9
+                  ident_expr: { name: "@index1" }
+                }
+              }
+            }
+          }
+        }
+      )pb",
+      &parsed_expr));
+
+  for (bool enable_inlining : {false, true}) {
+    cel::RuntimeOptions options;
+    options.enable_subexpression_inlining = enable_inlining;
+    CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+    ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                         builder.CreateExpression(&parsed_expr.expr(),
+                                                  &parsed_expr.source_info()));
+
+    const FlatExpression& flat_expr =
+        static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+            ->flat_expression();
+    ASSERT_FALSE(flat_expr.subexpressions().empty());
+    ExecutionPathView main_path = flat_expr.subexpressions()[0];
+    ASSERT_GE(main_path.size(), 3);
+
+    cel::Value const_val;
+    EXPECT_EQ(GetIfConstant(main_path[0], const_val), enable_inlining);
+    if (enable_inlining) {
+      EXPECT_EQ(main_path[0].id(), 7);
+      EXPECT_EQ(const_val.GetInt().NativeValue(), 10);
+    }
+    const IdentStepInfo* ident1 = GetIfIdentStep(main_path[1]);
+    EXPECT_EQ(ident1 != nullptr, enable_inlining);
+    if (enable_inlining) {
+      EXPECT_EQ(main_path[1].id(), 8);
+    }
+
+    CountingActivation activation;
+    activation.InsertInt("x", 5);
+    google::protobuf::Arena arena;
+    std::vector<int64_t> traced_ids;
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr->Trace(activation, &arena,
+                                         [&](int64_t id, const CelValue&,
+                                             google::protobuf::Arena*) -> absl::Status {
+                                           traced_ids.push_back(id);
+                                           return absl::OkStatus();
+                                         }));
+    EXPECT_THAT(result, test::IsCelInt64(20));
+    EXPECT_EQ(activation.LookupCount("x"), 1);
+  }
+}
+
+TEST(FlatExprBuilderTest, BindInlinesConstantAndFoldsMainExpression) {
+  ParsedExpr parsed_expr;
+  // Equivalent to: cel.bind(a, 1 + 2, (a + 3) + x)
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        expr {
+          id: 1
+          comprehension_expr {
+            iter_var: "#unused"
+            iter_range {
+              id: 2
+              list_expr {}
+            }
+            accu_var: "a"
+            accu_init {
+              id: 3
+              call_expr {
+                function: "_+_"
+                args {
+                  id: 4
+                  const_expr { int64_value: 1 }
+                }
+                args {
+                  id: 5
+                  const_expr { int64_value: 2 }
+                }
+              }
+            }
+            loop_condition {
+              id: 6
+              const_expr { bool_value: false }
+            }
+            loop_step {
+              id: 7
+              ident_expr { name: "a" }
+            }
+            result {
+              id: 8
+              call_expr {
+                function: "_+_"
+                args {
+                  id: 9
+                  call_expr {
+                    function: "_+_"
+                    args {
+                      id: 10
+                      ident_expr { name: "a" }
+                    }
+                    args {
+                      id: 11
+                      const_expr { int64_value: 3 }
+                    }
+                  }
+                }
+                args {
+                  id: 12
+                  ident_expr { name: "x" }
+                }
+              }
+            }
+          }
+        }
+      )pb",
+      &parsed_expr));
+
+  InterpreterOptions options;
+  google::protobuf::Arena arena;
+  options.constant_folding = true;
+  options.constant_arena = &arena;
+  options.enable_subexpression_inlining = true;
+
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<CelExpressionBuilder> builder,
+      CreateConstantFoldingConformanceTestExprBuilder(options));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder->CreateExpression(&parsed_expr.expr(),
+                                                 &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  ASSERT_FALSE(flat_expr.subexpressions().empty());
+  ExecutionPathView main_path = flat_expr.subexpressions()[0];
+  // Main expression consists of:
+  //   0: Constant(6) (folded from `a + 3` after `a` was inlined as Constant(3))
+  //   1: Identifier(x)
+  //   2: _+_
+  //   3: ClearSlot
+  ASSERT_THAT(main_path, SizeIs(4));
+  cel::Value folded_val;
+  ASSERT_TRUE(GetIfConstant(main_path[0], folded_val));
+  EXPECT_EQ(folded_val.GetInt().NativeValue(), 6);
+  EXPECT_EQ(main_path[0].id(), 9);
+
+  Activation activation;
+  activation.InsertValue("x", CelValue::CreateInt64(10));
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  EXPECT_THAT(result, test::IsCelInt64(16));
+}
 }  // namespace
 
 }  // namespace google::api::expr::runtime

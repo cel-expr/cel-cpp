@@ -61,6 +61,7 @@ cc_test(
         ":resolver",
         "//common:expr",
         "//common:type",
+        "//common:value",
         "//eval/eval:evaluator_core",
         "//eval/eval:expression_step_logic",
         "//internal:testing",
