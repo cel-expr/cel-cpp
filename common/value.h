@@ -2888,8 +2888,11 @@ using RepeatedFieldAccessor =
              google::protobuf::MessageFactory* absl_nonnull, google::protobuf::Arena* absl_nonnull,
              Value* absl_nonnull);
 
+// If `unsafe` is true, message, string, and bytes elements are borrowed rather
+// than copied, as with `Value::WrapRepeatedFieldUnsafe`. Caller is responsible
+// for ensuring the resulting values do not outlive the input message.
 absl::StatusOr<RepeatedFieldAccessor> RepeatedFieldAccessorFor(
-    const google::protobuf::FieldDescriptor* absl_nonnull field);
+    const google::protobuf::FieldDescriptor* absl_nonnull field, bool unsafe = false);
 
 }  // namespace common_internal
 
