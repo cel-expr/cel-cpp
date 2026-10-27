@@ -19,6 +19,7 @@
 
 #include "absl/status/status.h"
 #include "absl/strings/cord.h"
+#include "absl/strings/string_view.h"
 #include "internal/testing.h"
 
 namespace cel {
@@ -306,9 +307,116 @@ TEST(CordSource, CodepointLimitExceeded) {
           absl::StatusCode::kInvalidArgument,
           ::testing::HasSubstr("expression is larger than codepoint limit 5")));
 
-  ASSERT_OK_AND_ASSIGN(auto source,
+  ASSERT_OK_AND_ASSIGN(SourcePtr source,
                        NewSource(absl::Cord("12345"), "test", options));
   EXPECT_THAT(source->content().ToString(), ::testing::Eq("12345"));
+}
+
+TEST(Source, GetPositionFromByteOffsetAscii) {
+  ASSERT_OK_AND_ASSIGN(SourcePtr empty_source, NewSource(""));
+  EXPECT_THAT(empty_source->GetPositionFromByteOffset(-1), Eq(std::nullopt));
+  EXPECT_THAT(empty_source->GetPositionFromByteOffset(0), Optional(Eq(0)));
+  EXPECT_THAT(empty_source->GetPositionFromByteOffset(1), Eq(std::nullopt));
+
+  ASSERT_OK_AND_ASSIGN(SourcePtr source, NewSource("hello"));
+  EXPECT_THAT(source->GetPositionFromByteOffset(-1), Eq(std::nullopt));
+  for (SourcePosition i = 0; i <= 5; ++i) {
+    EXPECT_THAT(source->GetPositionFromByteOffset(i), Optional(Eq(i)));
+  }
+  EXPECT_THAT(source->GetPositionFromByteOffset(6), Eq(std::nullopt));
+}
+
+TEST(Source, GetPositionFromByteOffsetLatin1) {
+  // "a£b": 'a' (1 byte: 0), '£' (2 bytes: 1..2), 'b' (1 byte: 3). Total 4
+  // bytes, 3 codepoints.
+  ASSERT_OK_AND_ASSIGN(SourcePtr source, NewSource("a£b"));
+  EXPECT_THAT(source->GetPositionFromByteOffset(-1), Eq(std::nullopt));
+  EXPECT_THAT(source->GetPositionFromByteOffset(0), Optional(Eq(0)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(1), Optional(Eq(1)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(2), Optional(Eq(1)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(3), Optional(Eq(2)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(4), Optional(Eq(3)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(5), Eq(std::nullopt));
+}
+
+TEST(Source, GetPositionFromByteOffsetBasicPlane) {
+  // "a€b": 'a' (1 byte: 0), '€' (3 bytes: 1..3), 'b' (1 byte: 4). Total 5
+  // bytes, 3 codepoints.
+  ASSERT_OK_AND_ASSIGN(SourcePtr source, NewSource("a€b"));
+  EXPECT_THAT(source->GetPositionFromByteOffset(-1), Eq(std::nullopt));
+  EXPECT_THAT(source->GetPositionFromByteOffset(0), Optional(Eq(0)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(1), Optional(Eq(1)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(2), Optional(Eq(1)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(3), Optional(Eq(1)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(4), Optional(Eq(2)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(5), Optional(Eq(3)));
+  EXPECT_THAT(source->GetPositionFromByteOffset(6), Eq(std::nullopt));
+}
+
+TEST(Source, GetPositionFromByteOffsetSupplementalPlaneAndMixed) {
+  // "a£€𐍈b":
+  // cp 0: 'a' (byte 0, 1 byte)
+  // cp 1: '£' (bytes 1..2, 2 bytes)
+  // cp 2: '€' (bytes 3..5, 3 bytes)
+  // cp 3: '𐍈' (bytes 6..9, 4 bytes)
+  // cp 4: 'b' (byte 10, 1 byte)
+  // Total: 11 bytes, 5 codepoints.
+  constexpr absl::string_view kText = "a£€𐍈b";
+  ASSERT_OK_AND_ASSIGN(SourcePtr source, NewSource(kText));
+  ASSERT_OK_AND_ASSIGN(SourcePtr cord_source, NewSource(absl::Cord(kText)));
+
+  for (const Source* s : {source.get(), cord_source.get()}) {
+    EXPECT_THAT(s->GetPositionFromByteOffset(-1), Eq(std::nullopt));
+    EXPECT_THAT(s->GetPositionFromByteOffset(0), Optional(Eq(0)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(1), Optional(Eq(1)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(2), Optional(Eq(1)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(3), Optional(Eq(2)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(4), Optional(Eq(2)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(5), Optional(Eq(2)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(6), Optional(Eq(3)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(7), Optional(Eq(3)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(8), Optional(Eq(3)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(9), Optional(Eq(3)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(10), Optional(Eq(4)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(11), Optional(Eq(5)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(12), Eq(std::nullopt));
+  }
+}
+
+TEST(Source, GetPositionFromByteOffsetStartsAndEndsWithMultibyte) {
+  // "£a€b𐍈":
+  // cp 0: '£' (bytes 0..1, 2 bytes)
+  // cp 1: 'a' (byte 2, 1 byte)
+  // cp 2: '€' (bytes 3..5, 3 bytes)
+  // cp 3: 'b' (byte 6, 1 byte)
+  // cp 4: '𐍈' (bytes 7..10, 4 bytes)
+  // Total: 11 bytes, 5 codepoints.
+  constexpr absl::string_view kText = "£a€b𐍈";
+  ASSERT_OK_AND_ASSIGN(SourcePtr source, NewSource(kText));
+  ASSERT_OK_AND_ASSIGN(SourcePtr cord_source, NewSource(absl::Cord(kText)));
+
+  for (const Source* s : {source.get(), cord_source.get()}) {
+    EXPECT_THAT(s->GetPositionFromByteOffset(-1), Eq(std::nullopt));
+    EXPECT_THAT(s->GetPositionFromByteOffset(0), Optional(Eq(0)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(1), Optional(Eq(0)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(2), Optional(Eq(1)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(3), Optional(Eq(2)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(4), Optional(Eq(2)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(5), Optional(Eq(2)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(6), Optional(Eq(3)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(7), Optional(Eq(4)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(8), Optional(Eq(4)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(9), Optional(Eq(4)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(10), Optional(Eq(4)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(11), Optional(Eq(5)));
+    EXPECT_THAT(s->GetPositionFromByteOffset(12), Eq(std::nullopt));
+  }
+}
+
+TEST(SourceSubrange, GetPositionFromByteOffsetReturnsNullopt) {
+  ASSERT_OK_AND_ASSIGN(SourcePtr source, NewSource("hello world"));
+  SourceSubrange subrange(*source, SourceRange{0, 5});
+  EXPECT_THAT(subrange.GetPositionFromByteOffset(0), Eq(std::nullopt));
 }
 
 }  // namespace

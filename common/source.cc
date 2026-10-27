@@ -163,10 +163,17 @@ namespace common_internal {
 
 class SourceImpl : public Source {
  public:
+  struct OffsetEntry {
+    int32_t byte_offset;
+    SourcePosition codepoint;
+  };
+
   SourceImpl(std::string description,
-             absl::InlinedVector<SourcePosition, 1> line_offsets)
+             absl::InlinedVector<SourcePosition, 1> line_offsets,
+             std::vector<OffsetEntry> byte_offsets = {})
       : description_(std::move(description)),
-        line_offsets_(std::move(line_offsets)) {}
+        line_offsets_(std::move(line_offsets)),
+        byte_offsets_(std::move(byte_offsets)) {}
 
   absl::string_view description() const final { return description_; }
 
@@ -174,9 +181,50 @@ class SourceImpl : public Source {
     return absl::MakeConstSpan(line_offsets_);
   }
 
+  absl::optional<SourcePosition> GetPositionFromByteOffset(
+      SourcePosition byte_offset) const final {
+    // handle out of bounds and all ascii.
+    if (byte_offset < 0) {
+      return absl::nullopt;
+    }
+    if (byte_offsets_.empty()) {
+      if (byte_offset > content().size()) {
+        return absl::nullopt;
+      }
+      return byte_offset;
+    }
+    if (byte_offset > byte_offsets_.back().byte_offset) {
+      return absl::nullopt;
+    }
+
+    // binary search for the next alignment shift after the given byte offset.
+    auto it = std::upper_bound(
+        byte_offsets_.begin(), byte_offsets_.end(), byte_offset,
+        [](SourcePosition val, const OffsetEntry& entry) {
+          return val < entry.byte_offset;
+        });
+    if (it == byte_offsets_.begin()) {
+      return byte_offset;
+    }
+    const OffsetEntry& prev = *(it - 1);
+    if (it == byte_offsets_.end()) {
+      // matched the EOF entry.
+      return prev.codepoint;
+    }
+
+    // the total shift at the next multi-byte character.
+    int32_t next_delta = it->byte_offset - it->codepoint;
+
+    // The offset is either in the previous multi-byte character or in the
+    // run of ascii characters after it. if negative, then in, otherwise
+    // shifted down.
+    return std::max(prev.codepoint, byte_offset - next_delta);
+  }
+
  private:
   const std::string description_;
   const absl::InlinedVector<SourcePosition, 1> line_offsets_;
+  const std::vector<OffsetEntry> byte_offsets_;
 };
 
 namespace {
@@ -201,8 +249,9 @@ class Latin1Source final : public SourceImpl {
  public:
   Latin1Source(std::string description,
                absl::InlinedVector<SourcePosition, 1> line_offsets,
-               std::vector<uint8_t> text)
-      : SourceImpl(std::move(description), std::move(line_offsets)),
+               std::vector<OffsetEntry> byte_offsets, std::vector<uint8_t> text)
+      : SourceImpl(std::move(description), std::move(line_offsets),
+                   std::move(byte_offsets)),
         text_(std::move(text)) {}
 
   ContentView content() const override {
@@ -217,8 +266,10 @@ class BasicPlaneSource final : public SourceImpl {
  public:
   BasicPlaneSource(std::string description,
                    absl::InlinedVector<SourcePosition, 1> line_offsets,
+                   std::vector<OffsetEntry> byte_offsets,
                    std::vector<char16_t> text)
-      : SourceImpl(std::move(description), std::move(line_offsets)),
+      : SourceImpl(std::move(description), std::move(line_offsets),
+                   std::move(byte_offsets)),
         text_(std::move(text)) {}
 
   ContentView content() const override {
@@ -233,8 +284,10 @@ class SupplementalPlaneSource final : public SourceImpl {
  public:
   SupplementalPlaneSource(std::string description,
                           absl::InlinedVector<SourcePosition, 1> line_offsets,
+                          std::vector<OffsetEntry> byte_offsets,
                           std::vector<char32_t> text)
-      : SourceImpl(std::move(description), std::move(line_offsets)),
+      : SourceImpl(std::move(description), std::move(line_offsets),
+                   std::move(byte_offsets)),
         text_(std::move(text)) {}
 
   ContentView content() const override {
@@ -329,6 +382,7 @@ absl::StatusOr<SourcePtr> NewSourceImpl(std::string description, const T& text,
   std::vector<char16_t> data16;
   std::vector<char32_t> data32;
   absl::InlinedVector<SourcePosition, 1> line_offsets;
+  std::vector<SourceImpl::OffsetEntry> byte_offsets;
   while (index < text_size) {
     if (offset >= max_codepoints) {
       return absl::InvalidArgumentError(absl::StrCat(
@@ -350,6 +404,7 @@ absl::StatusOr<SourcePtr> NewSourceImpl(std::string description, const T& text,
       ++offset;
       continue;
     }
+    byte_offsets.push_back({static_cast<int32_t>(index), offset});
     if (code_point <= 0xff) {
       data8.reserve(text_size);
       Traits::AppendTo(data8, text, index);
@@ -399,6 +454,9 @@ latin1:
     if (code_point == '\n') {
       line_offsets.push_back(offset + 1);
     }
+    if (code_units > 1) {
+      byte_offsets.push_back({static_cast<int32_t>(index), offset});
+    }
     if (code_point <= 0xff) {
       data8.push_back(static_cast<uint8_t>(code_point));
       Traits::Advance(it, code_units);
@@ -430,8 +488,10 @@ latin1:
     goto supplemental;
   }
   line_offsets.push_back(offset + 1);
+  byte_offsets.push_back({static_cast<int32_t>(text_size), offset});
   return std::make_unique<Latin1Source>(
-      std::move(description), std::move(line_offsets), std::move(data8));
+      std::move(description), std::move(line_offsets), std::move(byte_offsets),
+      std::move(data8));
 basic:
   while (index < text_size) {
     if (offset >= max_codepoints) {
@@ -447,6 +507,9 @@ basic:
     }
     if (code_point == '\n') {
       line_offsets.push_back(offset + 1);
+    }
+    if (code_units > 1) {
+      byte_offsets.push_back({static_cast<int32_t>(index), offset});
     }
     if (code_point <= 0xffff) {
       data16.push_back(static_cast<char16_t>(code_point));
@@ -467,8 +530,10 @@ basic:
     goto supplemental;
   }
   line_offsets.push_back(offset + 1);
+  byte_offsets.push_back({static_cast<int32_t>(text_size), offset});
   return std::make_unique<BasicPlaneSource>(
-      std::move(description), std::move(line_offsets), std::move(data16));
+      std::move(description), std::move(line_offsets), std::move(byte_offsets),
+      std::move(data16));
 supplemental:
   while (index < text_size) {
     if (offset >= max_codepoints) {
@@ -485,14 +550,19 @@ supplemental:
     if (code_point == '\n') {
       line_offsets.push_back(offset + 1);
     }
+    if (code_units > 1) {
+      byte_offsets.push_back({static_cast<int32_t>(index), offset});
+    }
     data32.push_back(code_point);
     Traits::Advance(it, code_units);
     index += code_units;
     ++offset;
   }
   line_offsets.push_back(offset + 1);
+  byte_offsets.push_back({static_cast<int32_t>(text_size), offset});
   return std::make_unique<SupplementalPlaneSource>(
-      std::move(description), std::move(line_offsets), std::move(data32));
+      std::move(description), std::move(line_offsets), std::move(byte_offsets),
+      std::move(data32));
 }
 
 }  // namespace

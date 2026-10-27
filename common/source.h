@@ -144,6 +144,20 @@ class Source {
   absl::optional<SourcePosition> GetPosition(
       const SourceLocation& location) const;
 
+  // Maps a 0-based byte offset in the original UTF-8 source text to a
+  // `SourcePosition` (0-based code point offset). Returns an empty
+  // `absl::optional` when `byte_offset` is invalid or the information required
+  // to perform the mapping is not present.
+  //
+  // If `byte_offset` falls within a multi-byte UTF-8 sequence, returns the
+  // code point position of that sequence.
+  //
+  // The offset for the size in bytes is mapped to the size in code points.
+  virtual absl::optional<SourcePosition> GetPositionFromByteOffset(
+      SourcePosition byte_offset) const {
+    return absl::nullopt;
+  }
+
   absl::optional<std::string> Snippet(int32_t line) const;
 
   // Formats an annotated snippet highlighting an error at location, e.g.
@@ -193,9 +207,11 @@ class Source {
 
 // `SourceSubrange` is a view of a subrange fo an underlying `Source` object.
 // Intended to be used when the CEL expression is embedded in a larger text
-// representation (such as a.celpolicy).
+// representation (such as a celpolicy).
 //
 // The parent `Source` must outlive this object.
+//
+// Note: `GetPositionFromByteOffset` is not supported by `SourceSubrange`.
 class SourceSubrange final : public Source {
  public:
   SourceSubrange(const Source& source ABSL_ATTRIBUTE_LIFETIME_BOUND,
