@@ -1365,6 +1365,9 @@ class ResolveRewriter : public AstRewriterBase {
 
 absl::StatusOr<ValidationResult> TypeCheckerImpl::CheckImpl(
     std::unique_ptr<Ast> ast, google::protobuf::Arena* arena) const {
+  ast->mutable_reference_map().clear();
+  ast->mutable_type_map().clear();
+
   std::optional<google::protobuf::Arena> type_arena;
   if (arena == nullptr) {
     type_arena.emplace();

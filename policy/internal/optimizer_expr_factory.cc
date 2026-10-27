@@ -271,13 +271,18 @@ void OptimizerExprFactory::RecordReplacement(ExprId id, const Expr& replacement,
                                              bool keep_metadata) {
   auto& source_info = ast_.mutable_source_info();
   if (!keep_metadata) {
-    source_info.mutable_positions().erase(id);
-    source_info.mutable_macro_calls().erase(id);
+    PruneMetadata(id);
   }
 
   for (auto& [macro_id, macro_expr] : source_info.mutable_macro_calls()) {
     ReplaceSubExpr(macro_expr, id, replacement, source_info);
   }
+}
+
+void OptimizerExprFactory::PruneMetadata(ExprId id) {
+  SourceInfo& source_info = ast_.mutable_source_info();
+  source_info.mutable_positions().erase(id);
+  source_info.mutable_macro_calls().erase(id);
 }
 
 Expr OptimizerExprFactory::ReportError(absl::string_view message) {

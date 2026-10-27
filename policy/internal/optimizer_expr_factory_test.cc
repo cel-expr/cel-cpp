@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "absl/status/status_matchers.h"
@@ -563,6 +564,28 @@ TEST(OptimizerExprFactory, MergeSourceInfoMacroConflict) {
   ASSERT_EQ(factory.issues().size(), 1);
   EXPECT_EQ(factory.issues()[0].location, 1);
   EXPECT_EQ(factory.issues()[0].message, "conflicting ID in macro calls merge");
+}
+
+TEST(OptimizerExprFactory, PruneMetadataSingle) {
+  SourceInfo base_info;
+  base_info.mutable_positions()[1] = 10;
+  base_info.mutable_positions()[2] = 20;
+  base_info.mutable_macro_calls()[1] = Expr();
+  base_info.mutable_macro_calls()[2] = Expr();
+
+  Ast base_ast(Expr(), std::move(base_info));
+  TestOptimizerExprFactory factory{std::move(base_ast)};
+
+  factory.PruneMetadata(1);
+
+  EXPECT_EQ(factory.ast().source_info().positions().find(1),
+            factory.ast().source_info().positions().end());
+  EXPECT_NE(factory.ast().source_info().positions().find(2),
+            factory.ast().source_info().positions().end());
+  EXPECT_EQ(factory.ast().source_info().macro_calls().find(1),
+            factory.ast().source_info().macro_calls().end());
+  EXPECT_NE(factory.ast().source_info().macro_calls().find(2),
+            factory.ast().source_info().macro_calls().end());
 }
 
 }  // namespace

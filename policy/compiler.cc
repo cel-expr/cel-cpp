@@ -306,6 +306,28 @@ bool HasErrors(const policy_internal::IssueReporter& issues) {
   return false;
 }
 
+void AdaptTypeCheckIssues(CelPolicyElementId id, const ValidationResult& r,
+                          const CelPolicySource* absl_nullable policy_source,
+                          policy_internal::IssueReporter& issues) {
+  const Source* source = r.GetSource();
+  if (source == nullptr && policy_source != nullptr) {
+    source = policy_source->content();
+  }
+
+  for (const auto& iss : r.GetIssues()) {
+    std::optional<SourcePosition> offset;
+    if (source != nullptr) {
+      offset = source->GetPosition(iss.location());
+    }
+    if (offset.has_value()) {
+      issues.ReportOffsetIssue(id, *offset, MapSeverity(iss.severity()),
+                               iss.message());
+      continue;
+    }
+    issues.ReportIssue(id, MapSeverity(iss.severity()), iss.message());
+  }
+}
+
 // Note on lifetime safety:
 //
 // The output policy will contain references to types that are owned by the
@@ -352,20 +374,7 @@ class PolicyCompiler {
   }
 
   void AdaptTypeCheckIssues(CelPolicyElementId id, const ValidationResult& r) {
-    const Source* source = r.GetSource();
-
-    for (const auto& iss : r.GetIssues()) {
-      std::optional<SourcePosition> offset;
-      if (source != nullptr) {
-        offset = source->GetPosition(iss.location());
-      }
-      if (offset.has_value()) {
-        issues_.ReportOffsetIssue(id, offset.value(),
-                                  MapSeverity(iss.severity()), iss.message());
-        continue;
-      }
-      issues_.ReportIssue(id, MapSeverity(iss.severity()), iss.message());
-    }
+    cel::AdaptTypeCheckIssues(id, r, src_, issues_);
   }
 
   absl::StatusOr<CompiledOutputBlock> CompileOutputBlock(
@@ -601,6 +610,14 @@ class FirstMatchComposer {
 absl::Status FirstMatchComposer::Compose() {
   ABSL_DCHECK(icp_.semantics() == RuleSemantics::kFirstMatch);
 
+  if (icp_.policy_source() != nullptr) {
+    ABSL_DCHECK(icp_.policy_source()->content() != nullptr);
+    absl::Span<const SourcePosition> line_offsets =
+        icp_.policy_source()->content()->line_offsets();
+    factory_.mutable_ast().mutable_source_info().set_line_offsets(
+        std::vector<int32_t>(line_offsets.begin(), line_offsets.end()));
+  }
+
   factory_.mutable_ast().mutable_root_expr() = factory_.NewCall(
       "cel.@block", factory_.NewList(), factory_.NewUnspecified());
   auto& block_init_list = factory_.mutable_ast()
@@ -627,9 +644,8 @@ absl::Status FirstMatchComposer::Compose() {
   CEL_ASSIGN_OR_RETURN(cel::ValidationResult result,
                        compiler_.GetTypeChecker().Check(factory_.ast()));
   if (!result.IsValid()) {
-    for (const auto& iss : result.GetIssues()) {
-      issues_.ReportError(icp_.root_rule().id, iss.message());
-    }
+    AdaptTypeCheckIssues(icp_.root_rule().id, result, icp_.policy_source(),
+                         issues_);
     return absl::OkStatus();
   }
 
@@ -913,8 +929,12 @@ bool HasComprehensionParent(const NavigableAstNode& node) {
 // Unnester implementation.
 class Unnester {
  public:
-  Unnester(Ast ast, int height, policy_internal::IssueReporter& issues)
-      : factory_(std::move(ast)), height_(height), issues_(issues) {}
+  Unnester(const TypeChecker& type_checker, Ast ast, int height,
+           policy_internal::IssueReporter& issues)
+      : type_checker_(type_checker),
+        factory_(std::move(ast)),
+        height_(height),
+        issues_(issues) {}
 
   // Run the unnesting.
   // The class cannot be reused after this is called.
@@ -923,6 +943,15 @@ class Unnester {
       CEL_RETURN_IF_ERROR(Slice());
     }
     CEL_RETURN_IF_ERROR(Cleanup());
+    if (modified_) {
+      CEL_ASSIGN_OR_RETURN(
+          ValidationResult result,
+          type_checker_.Check(std::move(factory_.mutable_ast())));
+      ABSL_DCHECK(result.IsValid());
+      CEL_ASSIGN_OR_RETURN(std::unique_ptr<Ast> checked_ast,
+                           result.ReleaseAst());
+      return std::move(*checked_ast);
+    }
     return std::move(factory_.mutable_ast());
   }
 
@@ -934,9 +963,11 @@ class Unnester {
 
   void ReportErrorAtId(int64_t id, absl::string_view message);
 
+  const TypeChecker& type_checker_;
   OptimizerExprFactory factory_;
   int height_;
   policy_internal::IssueReporter& issues_;
+  bool modified_ = false;
 };
 
 class UnnestRewriter : public AstRewriterBase {
@@ -1014,6 +1045,7 @@ absl::Status Unnester::Slice() {
 
   UnnestRewriter rewriter(factory_, block_list_expr, cuts);
   AstRewrite(insertion_expr, rewriter);
+  modified_ = true;
 
   return absl::OkStatus();
 }
@@ -1028,11 +1060,18 @@ absl::Status Unnester::Cleanup() {
     return absl::InternalError("malformed AST detected during unnesting");
   }
   if (ast.root_expr().call_expr().args()[0].list_expr().elements().empty()) {
+    const ExprId block_id = ast.root_expr().id();
+    const ExprId list_id = ast.root_expr().call_expr().args()[0].id();
+
     Expr value = std::move(factory_.mutable_ast()
                                .mutable_root_expr()
                                .mutable_call_expr()
                                .mutable_args()[1]);
     factory_.mutable_ast().mutable_root_expr() = std::move(value);
+
+    factory_.PruneMetadata(block_id);
+    factory_.PruneMetadata(list_id);
+    modified_ = true;
   }
 
   return absl::OkStatus();
@@ -1093,8 +1132,8 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
       }
 
       auto ast = composer.ReleaseAst();
-      Unnester unnester(std::move(*ast), options.unnesting_height_limit,
-                        issues);
+      Unnester unnester(base_compiler->GetTypeChecker(), std::move(*ast),
+                        options.unnesting_height_limit, issues);
       CEL_ASSIGN_OR_RETURN(Ast unnested_ast, unnester.Unnest());
 
       if (HasErrors(issues)) {

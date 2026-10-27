@@ -19,9 +19,11 @@
 #include <string>
 #include <utility>
 
+#include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "common/ast.h"
 #include "common/ast_proto.h"
@@ -112,6 +114,49 @@ absl::StatusOr<std::unique_ptr<CelPolicy>> ParsePolicyFromYaml(
     return absl::InvalidArgumentError("Invalid policy YAML structure");
   }
   return parse_result.ReleasePolicy();
+}
+
+const Ast* GetAstPointer(const std::unique_ptr<Ast>& ast) { return ast.get(); }
+
+MATCHER(MetadataMapValid, negation ? "has stale metadata map entries"
+                                   : "has valid metadata maps") {
+  const Ast* ast = GetAstPointer(arg);
+  if (ast == nullptr) {
+    *result_listener << "AST is null";
+    return false;
+  }
+  NavigableAst nav_ast = cel::NavigableAst::Build(ast->root_expr());
+  absl::flat_hash_set<int64_t> valid_ids;
+  for (const NavigableAstNode& node : nav_ast.Root().DescendantsPostorder()) {
+    valid_ids.insert(node.expr()->id());
+  }
+
+  bool is_valid = true;
+  for (const auto& [id, _] : ast->type_map()) {
+    if (!valid_ids.contains(id)) {
+      *result_listener << "stale type_map entry for id " << id << "; ";
+      is_valid = false;
+    }
+  }
+  for (const auto& [id, _] : ast->reference_map()) {
+    if (!valid_ids.contains(id)) {
+      *result_listener << "stale reference_map entry for id " << id << "; ";
+      is_valid = false;
+    }
+  }
+  for (const auto& [id, _] : ast->source_info().positions()) {
+    if (!valid_ids.contains(id)) {
+      *result_listener << "stale source_info position for id " << id << "; ";
+      is_valid = false;
+    }
+  }
+  for (const auto& [id, _] : ast->source_info().macro_calls()) {
+    if (!valid_ids.contains(id)) {
+      *result_listener << "stale source_info macro_call for id " << id << "; ";
+      is_valid = false;
+    }
+  }
+  return is_valid;
 }
 
 TEST(CompilerTest, SmokeTest) {
@@ -296,6 +341,7 @@ rule:
   ASSERT_NE(var_pos, ast->source_info().positions().end());
   auto var_loc = source->GetLocation(var_pos->second);
   ASSERT_TRUE(var_loc.has_value());
+  EXPECT_EQ(ast->ComputeSourceLocation(var_node->expr()->id()), *var_loc);
   EXPECT_THAT(
       source->DisplayErrorLocation(*var_loc),
       testing::HasSubstr("      expression: 10\n | ..................^"));
@@ -304,6 +350,7 @@ rule:
   ASSERT_NE(cond_pos, ast->source_info().positions().end());
   auto cond_loc = source->GetLocation(cond_pos->second);
   ASSERT_TRUE(cond_loc.has_value());
+  EXPECT_EQ(ast->ComputeSourceLocation(cond_node->expr()->id()), *cond_loc);
   EXPECT_THAT(source->DisplayErrorLocation(*cond_loc),
               testing::HasSubstr("    - condition: variables.v1 > 5\n | "
                                  "..............................^"));
@@ -312,6 +359,7 @@ rule:
   ASSERT_NE(out_pos, ast->source_info().positions().end());
   auto out_loc = source->GetLocation(out_pos->second);
   ASSERT_TRUE(out_loc.has_value());
+  EXPECT_EQ(ast->ComputeSourceLocation(out_node->expr()->id()), *out_loc);
   EXPECT_THAT(source->DisplayErrorLocation(*out_loc),
               testing::HasSubstr("      output: \"variables.v1 + 20\"\n | "
                                  "............................^"));
@@ -1084,22 +1132,191 @@ rule:
   - condition: true
     output: '"ok"'
 )yaml";
-  ASSERT_OK_AND_ASSIGN(auto policy, ParsePolicyFromYaml(yaml));
-  ASSERT_OK_AND_ASSIGN(auto compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
 
   CompilePolicyOptions options;
   options.unnesting_height_limit = 0;  // Disabled
-  ASSERT_OK_AND_ASSIGN(auto result, CompilePolicy(*compiler, *policy, options));
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy, options));
   ASSERT_TRUE(result.IsValid());
-  ASSERT_OK_AND_ASSIGN(auto ast, result.ReleaseAst());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, result.ReleaseAst());
 
   // If cleanup ran, it should have optimized away the trivial `cel.@block`.
   // So the root expression should NOT be a call to `cel.@block`.
   // It should be just the constant `"ok"`.
-  auto nav_ast = cel::NavigableAst::Build(ast->root_expr());
+  NavigableAst nav_ast = cel::NavigableAst::Build(ast->root_expr());
   EXPECT_FALSE(nav_ast.Root().expr()->has_call_expr() &&
                nav_ast.Root().expr()->call_expr().function() == "cel.@block");
   EXPECT_TRUE(nav_ast.Root().expr()->has_const_expr());
+
+  // Stale metadata for cel.@block and empty list must be pruned.
+  for (const auto& [id, ref] : ast->reference_map()) {
+    EXPECT_NE(ref.name(), "cel.@block");
+  }
+
+  EXPECT_THAT(ast, MetadataMapValid());
 }
+
+TEST(CompilerTest, UnnestCleanupRemovesStaleMetadata) {
+  absl::string_view yaml = R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  match:
+  - condition: x > 0
+    output: 1
+  - output: 2
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(result.IsValid());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, result.ReleaseAst());
+
+  NavigableAst nav_ast = cel::NavigableAst::Build(ast->root_expr());
+  EXPECT_FALSE(nav_ast.Root().expr()->has_call_expr() &&
+               nav_ast.Root().expr()->call_expr().function() == "cel.@block");
+
+  for (const auto& [id, ref] : ast->reference_map()) {
+    EXPECT_NE(ref.name(), "cel.@block");
+  }
+
+  EXPECT_THAT(ast, MetadataMapValid());
+}
+
+TEST(CompilerTest, UnnestPreservesVariablesBlock) {
+  absl::string_view yaml = R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: my_var
+    expression: 10
+  match:
+  - condition: x > variables.my_var
+    output: 1
+  - output: 2
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+
+  CompilePolicyOptions options;
+  options.unnesting_height_limit = 0;
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy, options));
+  ASSERT_TRUE(result.IsValid());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, result.ReleaseAst());
+
+  NavigableAst nav_ast = cel::NavigableAst::Build(ast->root_expr());
+  EXPECT_TRUE(nav_ast.Root().expr()->has_call_expr() &&
+              nav_ast.Root().expr()->call_expr().function() == "cel.@block");
+
+  EXPECT_THAT(ast, MetadataMapValid());
+}
+
+TEST(CompilerTest, UnnestRequiredLongConditionalChain) {
+  absl::string_view yaml = R"yaml(
+name: conditional_chain_policy
+rule:
+  match:
+  - condition: x == 1
+    output: 10
+  - condition: x == 2
+    output: 20
+  - condition: x == 3
+    output: 30
+  - condition: x == 4
+    output: 40
+  - condition: x == 5
+    output: 50
+  - condition: x == 6
+    output: 60
+  - condition: x == 7
+    output: 70
+  - output: 0
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+
+  CompilePolicyOptions options;
+  options.unnesting_height_limit = 2;
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy, options));
+  ASSERT_TRUE(result.IsValid());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, result.ReleaseAst());
+
+  // Root should be cel.@block because unnesting introduced @index variables.
+  NavigableAst nav_ast = cel::NavigableAst::Build(ast->root_expr());
+  EXPECT_TRUE(nav_ast.Root().expr()->has_call_expr() &&
+              nav_ast.Root().expr()->call_expr().function() == "cel.@block");
+
+  bool found_index_var = false;
+  for (const NavigableAstNode& node : nav_ast.Root().DescendantsPostorder()) {
+    if (node.expr()->has_ident_expr() &&
+        absl::StartsWith(node.expr()->ident_expr().name(), "@index")) {
+      found_index_var = true;
+      EXPECT_TRUE(ast->type_map().contains(node.expr()->id()));
+      EXPECT_TRUE(ast->reference_map().contains(node.expr()->id()));
+      break;
+    }
+  }
+  EXPECT_TRUE(found_index_var);
+
+  EXPECT_THAT(ast, MetadataMapValid());
+
+  // Also verify that the compiled unnested AST evaluates correctly.
+  cel::RuntimeOptions opts;
+  opts.enable_qualified_type_identifiers = true;
+  ASSERT_OK_AND_ASSIGN(
+      cel::RuntimeBuilder rt_builder,
+      cel::CreateStandardRuntimeBuilder(
+          cel::internal::GetSharedTestingDescriptorPool(), opts));
+  ASSERT_THAT(cel::extensions::EnableOptionalTypes(rt_builder),
+              absl_testing::IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Runtime> runtime,
+                       std::move(rt_builder).Build());
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Program> program,
+                       runtime->CreateProgram(std::move(ast)));
+
+  google::protobuf::Arena arena;
+  for (int64_t test_x : {1, 3, 5, 7, 99}) {
+    cel::Activation activation;
+    activation.InsertOrAssignValue("x", cel::IntValue(test_x));
+    ASSERT_OK_AND_ASSIGN(cel::Value res, program->Evaluate(&arena, activation));
+    int64_t expected = (test_x >= 1 && test_x <= 7) ? test_x * 10 : 0;
+    EXPECT_THAT(res, IntValueIs(expected));
+  }
+}
+
+TEST(CompilerTest, CompositionTypeCheckFailureReportsError) {
+  absl::string_view yaml = R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  match:
+  - condition: x > 10
+    output: dyn(1)
+  - condition: x > 5
+    output: 2
+  - output: '"three"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("no matching overload for '_?_:_'"));
+}
+
 }  // namespace
 }  // namespace cel

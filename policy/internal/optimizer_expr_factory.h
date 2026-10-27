@@ -73,6 +73,9 @@ class OptimizerExprFactory : protected ExprFactory {
   void RecordReplacement(ExprId id, const Expr& replacement,
                          bool keep_metadata = false);
 
+  // Prunes metadata for the given ID from source info.
+  void PruneMetadata(ExprId id);
+
   // Makes a copy of source metadata that is remapped to new expr Ids using
   // current renumberings. This is suitable for merging into the main source
   // info.

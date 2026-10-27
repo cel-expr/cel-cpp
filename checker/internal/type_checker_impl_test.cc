@@ -2886,6 +2886,32 @@ INSTANTIATE_TEST_SUITE_P(
             .error_substring = "no matching overload for '_==_'",
         }));
 
+TEST(TypeCheckerImplTest, RecheckClearsStaleMetadata) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), absl_testing::IsOk());
+
+  env.InsertVariableIfAbsent(MakeVariableDecl("x", IntType()));
+
+  TypeCheckerImpl impl(std::move(env));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, MakeTestParsedAst("x"));
+
+  // Artificially inject stale metadata for IDs that do not exist.
+  constexpr int64_t kStaleId = 9999;
+  ast->mutable_reference_map()[kStaleId] =
+      Reference("stale_ref", {}, Constant());
+  ast->mutable_type_map()[kStaleId] = TypeSpec(PrimitiveType::kInt64);
+
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_TRUE(result.IsValid());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> checked_ast, result.ReleaseAst());
+
+  EXPECT_EQ(checked_ast->reference_map().find(kStaleId),
+            checked_ast->reference_map().end());
+  EXPECT_EQ(checked_ast->type_map().find(kStaleId),
+            checked_ast->type_map().end());
+}
+
 }  // namespace
 }  // namespace checker_internal
 }  // namespace cel
