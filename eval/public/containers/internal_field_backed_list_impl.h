@@ -17,8 +17,11 @@
 
 #include <utility>
 
+#include "common/native_type.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/structs/protobuf_value_factory.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
 
 namespace google::api::expr::runtime::internal {
 
@@ -46,7 +49,17 @@ class FieldBackedListImpl : public CelList {
   // List element access operator.
   CelValue operator[](int index) const override;
 
+  // Message and repeated field backing the list.
+  const google::protobuf::Message* message() const { return message_; }
+  const google::protobuf::FieldDescriptor* field_descriptor() const {
+    return descriptor_;
+  }
+
  private:
+  cel::NativeTypeId GetNativeTypeId() const override {
+    return cel::NativeTypeId::For<FieldBackedListImpl>();
+  }
+
   const google::protobuf::Message* message_;
   const google::protobuf::FieldDescriptor* descriptor_;
   const google::protobuf::Reflection* reflection_;
