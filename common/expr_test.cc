@@ -321,10 +321,10 @@ TEST(MapExprEntry, Optional) {
 }
 
 TEST(MapExprEntry, Equality) {
-  EXPECT_EQ(StructExprField{}, StructExprField{});
-  StructExprField field;
-  field.set_optional(true);
-  EXPECT_NE(StructExprField{}, field);
+  EXPECT_EQ(MapExprEntry{}, MapExprEntry{});
+  MapExprEntry entry;
+  entry.set_optional(true);
+  EXPECT_NE(MapExprEntry{}, entry);
 }
 
 TEST(MapExpr, Entries) {
@@ -356,6 +356,16 @@ TEST(ComprehensionExpr, IterVar) {
   auto iter_var = comprehension_expr.release_iter_var();
   EXPECT_THAT(iter_var, Eq("foo"));
   EXPECT_THAT(comprehension_expr.iter_var(), IsEmpty());
+}
+
+TEST(ComprehensionExpr, IterVar2) {
+  ComprehensionExpr comprehension_expr;
+  EXPECT_THAT(comprehension_expr.iter_var2(), IsEmpty());
+  comprehension_expr.set_iter_var2("foo");
+  EXPECT_THAT(comprehension_expr.iter_var2(), Eq("foo"));
+  std::string iter_var2 = comprehension_expr.release_iter_var2();
+  EXPECT_THAT(iter_var2, Eq("foo"));
+  EXPECT_THAT(comprehension_expr.iter_var2(), IsEmpty());
 }
 
 TEST(ComprehensionExpr, IterRange) {
@@ -433,6 +443,12 @@ TEST(ComprehensionExpr, Equality) {
   ComprehensionExpr comprehension_expr;
   comprehension_expr.set_result(MakeUnspecifiedExpr(1));
   EXPECT_NE(ComprehensionExpr{}, comprehension_expr);
+
+  ComprehensionExpr iter_var2_expr;
+  iter_var2_expr.set_iter_var2("v");
+  EXPECT_NE(ComprehensionExpr{}, iter_var2_expr);
+  iter_var2_expr.Clear();
+  EXPECT_EQ(ComprehensionExpr{}, iter_var2_expr);
 }
 
 TEST(Expr, Unspecified) {

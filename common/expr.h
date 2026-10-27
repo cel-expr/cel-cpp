@@ -858,6 +858,7 @@ class ComprehensionExpr final {
 inline bool operator==(const ComprehensionExpr& lhs,
                        const ComprehensionExpr& rhs) {
   return lhs.iter_var() == rhs.iter_var() &&
+         lhs.iter_var2() == rhs.iter_var2() &&
          lhs.iter_range() == rhs.iter_range() &&
          lhs.accu_var() == rhs.accu_var() &&
          lhs.accu_init() == rhs.accu_init() &&
@@ -1173,6 +1174,7 @@ inline std::unique_ptr<Expr> SelectExpr::release(
 
 inline void ComprehensionExpr::Clear() {
   iter_var_.clear();
+  iter_var2_.clear();
   iter_range_.reset();
   accu_var_.clear();
   accu_init_.reset();
