@@ -191,6 +191,24 @@ _TESTS_TO_SKIP = [
     "enums/strong_proto2",
     "enums/strong_proto3",
 
+    # Aligned timestamp and duration bounds with protobuf well-known types
+    "timestamps/timestamp_arithmetic/subtract_max_duration_from_max_time",
+    "timestamps/timestamp_arithmetic/add_duration_to_duration_max",
+    "timestamps/timestamp_arithmetic/subtract_duration_from_duration_min",
+    "timestamps/timestamp_range/sub_time_duration_over",
+    "timestamps/timestamp_range/sub_time_duration_under",
+    "wrappers/duration/seconds_over",
+    "wrappers/duration/seconds_under",
+    "wrappers/duration/nanos_over",
+    "wrappers/duration/nanos_under",
+    "wrappers/duration/positive_seconds_negative_nanos",
+    "wrappers/duration/negative_seconds_positive_nanos",
+    "wrappers/timestamp/seconds_over",
+    "wrappers/timestamp/seconds_under",
+    "wrappers/timestamp/nanos_over",
+    "wrappers/timestamp/nanos_under",
+    "wrappers/timestamp/negative_seconds_negative_nanos",
+
     # These depend on legacy US/ timezones. It's spotty if these are included with a normally
     # configured timezone database.
     "timestamps/timestamp_selectors_tz/getDayOfMonth_name_pos",
