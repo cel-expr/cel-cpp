@@ -35,6 +35,7 @@
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/comprehension_step.h"
 #include "eval/eval/equality_steps.h"
+#include "eval/eval/ident_step.h"
 #include "eval/eval/lazy_init_step.h"
 #include "eval/eval/logic_step.h"
 #include "runtime/activation_interface.h"
@@ -370,6 +371,13 @@ FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step) {
 }
 
 IdentStepInfo* GetIfIdentStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kIdentifier) {
+    return &step.u_.ident_step;
+  }
+  return nullptr;
+}
+
+const IdentStepInfo* GetIfIdentStep(const ExpressionStep& step) {
   if (step.header_.kind == ExpressionStepKind::kIdentifier) {
     return &step.u_.ident_step;
   }

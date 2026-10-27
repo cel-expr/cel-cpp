@@ -3596,6 +3596,154 @@ TEST(FlatExprBuilderTest,
   EXPECT_EQ(activation.LookupCount("single_var"), 1);
   EXPECT_EQ(activation.LookupCount("i"), 0);
 }
+
+// Returns a parsed expression containing a `cel.@block` call with trivial
+// subexpressions.
+//
+// Rough policy equivalent:
+//
+//   variables:
+//     - name: a
+//       expression: "10"
+//     - name: b
+//       expression: "x"
+//   rule: (a + b) + b
+//
+// Which lowers to:
+//   cel.@block([10, x], (@index0 + @index1) + @index1)
+ParsedExpr MakeTrivialBlockParsedExpr() {
+  ParsedExpr parsed_expr;
+  ABSL_CHECK(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        expr: {
+          id: 1
+          call_expr: {
+            function: "cel.@block"
+            args {
+              id: 2
+              list_expr: {
+                elements {
+                  id: 3
+                  const_expr: { int64_value: 10 }
+                }
+                elements {
+                  id: 4
+                  ident_expr: { name: "x" }
+                }
+              }
+            }
+            args {
+              id: 5
+              call_expr: {
+                function: "_+_"
+                args {
+                  id: 6
+                  call_expr: {
+                    function: "_+_"
+                    args {
+                      id: 7
+                      ident_expr: { name: "@index0" }
+                    }
+                    args {
+                      id: 8
+                      ident_expr: { name: "@index1" }
+                    }
+                  }
+                }
+                args {
+                  id: 9
+                  ident_expr: { name: "@index1" }
+                }
+              }
+            }
+          }
+        }
+      )pb",
+      &parsed_expr));
+  return parsed_expr;
+}
+
+TEST(FlatExprBuilderTest, BlockInlinesTrivialSubexpressionsEnabled) {
+  ParsedExpr parsed_expr = MakeTrivialBlockParsedExpr();
+
+  cel::RuntimeOptions options;
+  options.enable_subexpression_inlining = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()),
+              absl_testing::IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  ASSERT_FALSE(flat_expr.subexpressions().empty());
+  ExecutionPathView main_path = flat_expr.subexpressions()[0];
+  ASSERT_GE(main_path.size(), 3);
+
+  cel::Value const_val;
+  EXPECT_TRUE(GetIfConstant(main_path[0], const_val));
+  EXPECT_EQ(main_path[0].id(), 7);
+  EXPECT_EQ(const_val.GetInt().NativeValue(), 10);
+  const IdentStepInfo* ident1 = GetIfIdentStep(main_path[1]);
+  ASSERT_NE(ident1, nullptr);
+  EXPECT_EQ(main_path[1].id(), 8);
+
+  CountingActivation activation;
+  activation.InsertInt("x", 5);
+  google::protobuf::Arena arena;
+  std::vector<int64_t> traced_ids;
+  ASSERT_OK_AND_ASSIGN(CelValue result,
+                       cel_expr->Trace(activation, &arena,
+                                       [&](int64_t id, const CelValue&,
+                                           google::protobuf::Arena*) -> absl::Status {
+                                         traced_ids.push_back(id);
+                                         return absl::OkStatus();
+                                       }));
+  EXPECT_THAT(result, test::IsCelInt64(20));
+  EXPECT_EQ(activation.LookupCount("x"), 1);
+  // We don't guarantee trace specifics here, just documenting that it
+  // is deterministic and changed from the non-inlined version.
+  EXPECT_THAT(traced_ids, testing::ElementsAre(7, 8, 6, 9, 5, 1));
+}
+
+TEST(FlatExprBuilderTest, BlockInlinesTrivialSubexpressionsDisabled) {
+  ParsedExpr parsed_expr = MakeTrivialBlockParsedExpr();
+
+  cel::RuntimeOptions options;
+  options.enable_subexpression_inlining = false;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()),
+              absl_testing::IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> cel_expr,
+                       builder.CreateExpression(&parsed_expr.expr(),
+                                                &parsed_expr.source_info()));
+
+  const FlatExpression& flat_expr =
+      static_cast<const CelExpressionFlatImpl*>(cel_expr.get())
+          ->flat_expression();
+  ASSERT_FALSE(flat_expr.subexpressions().empty());
+  ExecutionPathView main_path = flat_expr.subexpressions()[0];
+  EXPECT_EQ(main_path.size(), 6);
+  EXPECT_EQ(main_path[0].kind(), ExpressionStepKind::kLazyInit);
+
+  CountingActivation activation;
+  activation.InsertInt("x", 5);
+  google::protobuf::Arena arena;
+  std::vector<int64_t> traced_ids;
+  ASSERT_OK_AND_ASSIGN(CelValue result,
+                       cel_expr->Trace(activation, &arena,
+                                       [&](int64_t id, const CelValue&,
+                                           google::protobuf::Arena*) -> absl::Status {
+                                         traced_ids.push_back(id);
+                                         return absl::OkStatus();
+                                       }));
+  EXPECT_THAT(result, test::IsCelInt64(20));
+  EXPECT_EQ(activation.LookupCount("x"), 1);
+  // Here trace reports the init step on first access.
+  EXPECT_THAT(traced_ids, testing::ElementsAre(3, 4, 6, 9, 5, 1));
+}
 }  // namespace
 
 }  // namespace google::api::expr::runtime

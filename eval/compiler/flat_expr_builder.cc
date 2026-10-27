@@ -818,16 +818,24 @@ class FlatExprVisitor : public cel::AstVisitor {
     SlotLookupResult slot = LookupSlot(path);
 
     if (slot.subexpression >= 0) {
-      auto* subexpression =
+      const ProgramBuilder::Subexpression* subexpression =
           program_builder_.GetExtractedSubexpression(slot.subexpression);
       if (subexpression == nullptr) {
         SetProgressStatusIfError(
             absl::InternalError("bad subexpression reference"));
         return;
       }
-        // Off by one since mainline expression will be index 0.
-        AddStep(ExpressionStep::MakeLazyInitStep(
-            slot.slot, slot.subexpression + 1, expr.id()));
+      if (options_.enable_subexpression_inlining) {
+        if (std::optional<ExpressionStep> inlined_step =
+                subexpression->MaybeInline(expr.id());
+            inlined_step.has_value()) {
+          AddStep(*std::move(inlined_step));
+          return;
+        }
+      }
+      // Off by one since mainline expression will be index 0.
+      AddStep(ExpressionStep::MakeLazyInitStep(
+          slot.slot, slot.subexpression + 1, expr.id()));
       return;
     } else if (slot.slot >= 0) {
         AddStep(ExpressionStep::MakeReadSlotStep(slot.slot, expr.id()));

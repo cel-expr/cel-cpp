@@ -456,6 +456,7 @@ class ExpressionStep {
   friend TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step);
   friend FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step);
   friend IdentStepInfo* GetIfIdentStep(ExpressionStep& step);
+  friend const IdentStepInfo* GetIfIdentStep(const ExpressionStep& step);
 
   Header header_;
   // Note: ptr members are 'owned' by the step.
@@ -1067,6 +1068,21 @@ ComprehensionCondStep* GetIfComprehensionCondStep(ExpressionStep& step);
 ComprehensionNextStep* GetIfComprehensionNextStep(ExpressionStep& step);
 
 BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step);
+BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep* step);
+
+TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step);
+TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep* step);
+
+FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step);
+FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep* step);
+
+IdentStepInfo* GetIfIdentStep(ExpressionStep& step);
+const IdentStepInfo* GetIfIdentStep(const ExpressionStep& step);
+IdentStepInfo* GetIfIdentStep(ExpressionStep* step);
+const IdentStepInfo* GetIfIdentStep(const ExpressionStep* step);
+
+// Implementation details.
+
 inline BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep* step) {
   if (step == nullptr) {
     return nullptr;
@@ -1074,7 +1090,6 @@ inline BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep* step) {
   return GetIfBoolJumpStep(*step);
 }
 
-TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step);
 inline TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep* step) {
   if (step == nullptr) {
     return nullptr;
@@ -1082,7 +1097,6 @@ inline TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep* step) {
   return GetIfTernaryJumpStep(*step);
 }
 
-FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep& step);
 inline FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep* step) {
   if (step == nullptr) {
     return nullptr;
@@ -1090,7 +1104,6 @@ inline FixedJumpStepInfo* GetIfFixedJumpStep(ExpressionStep* step) {
   return GetIfFixedJumpStep(*step);
 }
 
-IdentStepInfo* GetIfIdentStep(ExpressionStep& step);
 inline IdentStepInfo* GetIfIdentStep(ExpressionStep* step) {
   if (step == nullptr) {
     return nullptr;
@@ -1098,7 +1111,12 @@ inline IdentStepInfo* GetIfIdentStep(ExpressionStep* step) {
   return GetIfIdentStep(*step);
 }
 
-// Implementation details.
+inline const IdentStepInfo* GetIfIdentStep(const ExpressionStep* step) {
+  if (step == nullptr) {
+    return nullptr;
+  }
+  return GetIfIdentStep(*step);
+}
 
 inline ExpressionStep::~ExpressionStep() {
   switch (header_.kind) {

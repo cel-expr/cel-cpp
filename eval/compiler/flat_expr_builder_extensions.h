@@ -179,6 +179,14 @@ class ProgramBuilder {
     // Returns false if the subexpression is not currently flattened.
     bool ExtractTo(ExecutionPath& out);
 
+    // Returns true if this subexpression is trivial (reduces to a single
+    // constant or identifier step) and can be inlined at reference sites.
+    bool IsInlinable() const;
+
+    // Creates an inlined ExpressionStep for this subexpression with the
+    // given expr_id, or returns std::nullopt if !IsInlinable().
+    std::optional<ExpressionStep> MaybeInline(int64_t expr_id) const;
+
    private:
     Subexpression(const cel::Expr* self, ProgramBuilder* owner);
 
@@ -249,6 +257,15 @@ class ProgramBuilder {
   //
   // Returns nullptr if the mapping doesn't exist
   Subexpression* absl_nullable GetExtractedSubexpression(size_t index) {
+    if (index >= extracted_subexpressions_.size()) {
+      return nullptr;
+    }
+
+    return extracted_subexpressions_[index];
+  }
+
+  const Subexpression* absl_nullable GetExtractedSubexpression(
+      size_t index) const {
     if (index >= extracted_subexpressions_.size()) {
       return nullptr;
     }
