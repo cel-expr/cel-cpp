@@ -40,6 +40,7 @@
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
+#include "eval/eval/bitset_steps.h"
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/comprehension_step.h"
 #include "eval/eval/create_list_step.h"
@@ -118,6 +119,12 @@ enum class ExpressionStepKind : uint16_t {
   // Create list step.
   kCreateList = 33,
   kCreateSmallList = 34,
+  // Specialized bit operations implementing set checks.
+  // Each step contains a constant uint64_t bitmask.
+  kBitIsSet = 35,         // In   (member) (1 << arg) & mask != 0
+  kBitAndIsNonZero = 36,  // Any  (intersect) <arg as mask> & mask != 0
+  kBitAndEqual = 37,      // All  (contains) <arg as mask> & mask == mask
+  kBitEqual = 38,         // Equivalent <arg as mask> == mask
 };
 
 struct BoolJumpStepInfo {
@@ -374,6 +381,31 @@ class ExpressionStep {
     return step;
   }
 
+  static ExpressionStep MakeBitIsSetStep(uint64_t bitmask, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBitIsSet, id);
+    step.u_.bitmask = bitmask;
+    return step;
+  }
+
+  static ExpressionStep MakeBitAndIsNonZeroStep(uint64_t bitmask,
+                                                int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBitAndIsNonZero, id);
+    step.u_.bitmask = bitmask;
+    return step;
+  }
+
+  static ExpressionStep MakeBitAndEqualStep(uint64_t bitmask, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBitAndEqual, id);
+    step.u_.bitmask = bitmask;
+    return step;
+  }
+
+  static ExpressionStep MakeBitEqualStep(uint64_t bitmask, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kBitEqual, id);
+    step.u_.bitmask = bitmask;
+    return step;
+  }
+
  private:
   static ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateReadSlotStep(
       size_t slot_index, ExecutionFrame& frame);
@@ -448,6 +480,7 @@ class ExpressionStep {
     IdentStepInfo ident_step;
     ListStepInfo* create_list_step;
     SmallListStepInfo create_small_list_step;
+    uint64_t bitmask;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -1112,6 +1145,10 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kNewMutableList:
     case ExpressionStepKind::kMutableListAppend:
     case ExpressionStepKind::kCreateSmallList:
+    case ExpressionStepKind::kBitIsSet:
+    case ExpressionStepKind::kBitAndIsNonZero:
+    case ExpressionStepKind::kBitAndEqual:
+    case ExpressionStepKind::kBitEqual:
       break;
     default:
       ABSL_UNREACHABLE();
@@ -1309,6 +1346,18 @@ inline void ExpressionStep::Evaluate(ExecutionFrame& frame) const {
       break;
     case ExpressionStepKind::kCreateSmallList:
       EvaluateSmallListStep(u_.create_small_list_step, frame);
+      break;
+    case ExpressionStepKind::kBitIsSet:
+      EvaluateBitIsSetStep(u_.bitmask, frame);
+      break;
+    case ExpressionStepKind::kBitAndIsNonZero:
+      EvaluateBitAndIsNonZeroStep(u_.bitmask, frame);
+      break;
+    case ExpressionStepKind::kBitAndEqual:
+      EvaluateBitAndEqualStep(u_.bitmask, frame);
+      break;
+    case ExpressionStepKind::kBitEqual:
+      EvaluateBitEqualStep(u_.bitmask, frame);
       break;
     case ExpressionStepKind::kMovedFrom:
       frame.Abort(absl::InternalError(

@@ -37,6 +37,7 @@
 #include "compiler/standard_library.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/containers/container_backed_list_impl.h"
+#include "extensions/set_membership_optimization.h"
 #include "extensions/sets_functions.h"
 #include "internal/benchmark.h"
 #include "internal/status_macros.h"
@@ -58,7 +59,12 @@ using ::google::api::expr::runtime::CelList;
 using ::google::api::expr::runtime::CelValue;
 using ::google::api::expr::runtime::ContainerBackedListImpl;
 
-enum class ListImpl : int { kLegacy = 0, kModern = 1, kRhsConstant = 2 };
+enum class ListImpl : int {
+  kLegacy = 0,
+  kModern = 1,
+  kRhsConstant = 2,
+  kRhsConstantOptimized = 3,
+};
 int ToNumber(ListImpl impl) { return static_cast<int>(impl); }
 ListImpl FromNumber(int number) {
   switch (number) {
@@ -68,6 +74,8 @@ ListImpl FromNumber(int number) {
       return ListImpl::kModern;
     case 2:
       return ListImpl::kRhsConstant;
+    case 3:
+      return ListImpl::kRhsConstantOptimized;
     default:
       return ListImpl::kLegacy;
   }
@@ -83,6 +91,9 @@ struct TestCase {
   std::string MakeLabel(int len) const {
     std::string list_impl;
     switch (this->list_impl) {
+      case ListImpl::kRhsConstantOptimized:
+        list_impl = "rhs_constant_opt";
+        break;
       case ListImpl::kRhsConstant:
         list_impl = "rhs_constant";
         break;
@@ -188,7 +199,7 @@ absl::StatusOr<std::unique_ptr<Compiler>> CreateBenchmarkCompiler() {
 }
 
 absl::StatusOr<std::unique_ptr<const Runtime>> CreateBenchmarkRuntime(
-    google::protobuf::Arena* absl_nonnull arena) {
+    bool enable_set_opt, google::protobuf::Arena* absl_nonnull arena) {
   RuntimeOptions options;
   CEL_ASSIGN_OR_RETURN(
       RuntimeBuilder builder,
@@ -198,6 +209,9 @@ absl::StatusOr<std::unique_ptr<const Runtime>> CreateBenchmarkRuntime(
   CEL_RETURN_IF_ERROR(
       EnableReferenceResolver(builder, ReferenceResolverEnabled::kAlways));
   CEL_RETURN_IF_ERROR(EnableConstantFolding(builder, arena));
+  if (enable_set_opt) {
+    CEL_RETURN_IF_ERROR(EnableSetMembershipOptimization(builder));
+  }
   return std::move(builder).Build();
 }
 
@@ -205,7 +219,8 @@ void RunBenchmark(const TestCase& test_case, benchmark::State& state) {
   bool lists_overlap = test_case.result;
 
   std::string expr = test_case.expr;
-  if (test_case.list_impl == ListImpl::kRhsConstant) {
+  if (test_case.list_impl == ListImpl::kRhsConstant ||
+      test_case.list_impl == ListImpl::kRhsConstantOptimized) {
     expr = absl::StrReplaceAll(
         expr, {{"y", ConstantList(lists_overlap, test_case.size)}});
   }
@@ -219,8 +234,10 @@ void RunBenchmark(const TestCase& test_case, benchmark::State& state) {
                        validation_result.ReleaseAst());
 
   google::protobuf::Arena arena;
-  ASSERT_OK_AND_ASSIGN(std::unique_ptr<const Runtime> runtime,
-                       CreateBenchmarkRuntime(&arena));
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<const Runtime> runtime,
+      CreateBenchmarkRuntime(
+          test_case.list_impl == ListImpl::kRhsConstantOptimized, &arena));
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
                        runtime->CreateProgram(std::move(ast)));
 
@@ -348,7 +365,8 @@ void BM_SetsEquivalentComprehensionFalse(benchmark::State& state) {
 template <typename Benchmark>
 void BenchArgs(Benchmark* bench) {
   for (ListImpl impl :
-       {ListImpl::kLegacy, ListImpl::kModern, ListImpl::kRhsConstant}) {
+       {ListImpl::kLegacy, ListImpl::kModern, ListImpl::kRhsConstant,
+        ListImpl::kRhsConstantOptimized}) {
     for (int size : {1, 8, 32, 64, 256}) {
       bench->ArgPair(ToNumber(impl), size);
     }
