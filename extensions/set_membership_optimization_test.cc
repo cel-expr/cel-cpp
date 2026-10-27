@@ -42,6 +42,7 @@
 #include "eval/compiler/flat_expr_builder.h"
 #include "eval/compiler/qualified_reference_resolver.h"
 #include "eval/eval/evaluator_core.h"
+#include "extensions/bindings_ext.h"
 #include "extensions/sets_functions.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
@@ -89,6 +90,7 @@ absl::StatusOr<std::unique_ptr<Compiler>> CreateTestCompiler() {
       NewCompilerBuilder(cel::internal::GetTestingDescriptorPool()));
   CEL_RETURN_IF_ERROR(builder->AddLibrary(StandardCompilerLibrary()));
   CEL_RETURN_IF_ERROR(builder->AddLibrary(SetsCompilerLibrary()));
+  CEL_RETURN_IF_ERROR(builder->AddLibrary(BindingsCompilerLibrary()));
 
   TypeCheckerBuilder& checker = builder->GetCheckerBuilder();
   checker.set_container("cel.expr.conformance.proto2");
@@ -392,6 +394,40 @@ TEST(SetMembershipOptimizationPlanTest,
                 ElementsAre(StepKindIs(ExpressionStepKind::kIdentifier),
                             StepKindIs(ExpressionStepKind::kGenericLogic)))
         << expr_str;
+  }
+}
+
+TEST(SetMembershipOptimizationPlanTest,
+     EmitsCompactPlanWithInlinedBoundConstantSet) {
+  RuntimeOptions options;
+  options.container = "cel.expr.conformance.proto2";
+  options.enable_heterogeneous_equality = true;
+  options.enable_subexpression_inlining = true;
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  ASSERT_THAT(RegisterStandardFunctions(env->function_registry, options),
+              IsOk());
+  ASSERT_THAT(RegisterSetsFunctions(env->function_registry, options), IsOk());
+  FlatExprBuilder builder(std::move(env), options);
+  builder.set_container(options.container);
+  builder.AddAstTransform(
+      NewReferenceResolverExtension(ReferenceResolverOption::kAlways));
+  builder.AddProgramOptimizer(
+      cel::runtime_internal::CreateConstantFoldingOptimizer());
+  builder.AddProgramOptimizer(
+      CreateSetMembershipOptimizationProgramOptimizer());
+
+  for (absl::string_view expr_str : {
+           "cel.bind(set_var, [1, 2, 3, 4], x in set_var)",
+           "cel.bind(set_var, ['a', 'b', 'c', 'd'], s in set_var)",
+       }) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+    ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+    ASSERT_FALSE(plan.subexpressions().empty());
+    // Main expression has 3 steps: Identifier(x/s), Bitset/StringSet step, and
+    // ClearSlot.
+    EXPECT_THAT(plan.subexpressions()[0], SizeIs(3)) << expr_str;
   }
 }
 

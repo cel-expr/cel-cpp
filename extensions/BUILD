@@ -910,6 +910,7 @@ cc_test(
     name = "set_membership_optimization_test",
     srcs = ["set_membership_optimization_test.cc"],
     deps = [
+        ":bindings_ext",
         ":set_membership_optimization",
         ":sets_functions",
         "//base:attributes",
