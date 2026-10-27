@@ -20,13 +20,13 @@
 
 #include <ostream>
 #include <string>
-#include <utility>
 
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
-#include "base/function_result_set.h"
+#include "base/attribute_set.h"
+#include "common/internal/unknowns.h"
 #include "common/type.h"
 #include "common/unknown.h"
 #include "common/value_kind.h"
@@ -43,19 +43,38 @@ class UnknownValue;
 
 namespace common_internal {
 [[nodiscard]]
-UnknownValue MakeUnknownValue(Unknown value, google::protobuf::Arena* absl_nonnull arena);
+UnknownValue MakeUnknownValue(const Unknown& value,
+                              google::protobuf::Arena* absl_nonnull arena);
 [[nodiscard]]
-Unknown GetUnknown(const UnknownValue& value);
+UnknownValue MakeUnknownValue(
+    const common_internal::UnknownRoot* root,
+    const common_internal::UnknownAttributeSet* attributes,
+    const common_internal::UnknownFunctionSet* functions);
 [[nodiscard]]
-const FunctionResultSet& GetUnknownFunctionResultSet(
+Unknown ToUnknown(const UnknownValue& value);
+using UnknownValueRep = UnknownSet;
+[[nodiscard]]
+UnknownValue MakeUnknownValue(const UnknownValueRep& rep);
+[[nodiscard]]
+const UnknownValueRep& GetUnknownValueRep(
     const UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND);
+[[nodiscard]]
+UnknownValueRep& GetUnknownValueRep(
+    UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND);
 }  // namespace common_internal
 
-// `UnknownValue` represents values of the primitive `duration` type.
+// `UnknownValue` represents matches to unknown attribute patterns encountered
+// during evaluation.
 class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
  public:
   static constexpr ValueKind kKind = ValueKind::kUnknown;
 
+  // There is currently no supported way for clients create "well-formed"
+  // unknown values, only the evaluator may create them. The reasons for this
+  // are performance and correctness, by hiding the internal representation we
+  // can easily change it as necessary. If it became absolutely necessary due to
+  // an appropriate use case, we can introduce a way for clients to create them
+  // as well without exposing the internal implementation details.
   UnknownValue() = default;
   UnknownValue(const UnknownValue&) = default;
   UnknownValue(UnknownValue&&) = default;
@@ -90,32 +109,35 @@ class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
   bool IsZeroValue() const { return false; }
 
   [[nodiscard]]
-  AttributeSet ToAttributeSet() const {
-    return unknown_ != nullptr ? unknown_->unknown_attributes()
-                               : AttributeSet();
-  }
+  AttributeSet ToAttributeSet() const;
 
-  void swap(UnknownValue& other) noexcept {
-    using std::swap;
-    swap(unknown_, other.unknown_);
-  }
+  [[nodiscard]]
+  FunctionResultSet ToFunctionResultSet() const;
 
  private:
   friend UnknownValue common_internal::MakeUnknownValue(
-      Unknown value, google::protobuf::Arena* absl_nonnull arena);
-  friend Unknown common_internal::GetUnknown(const UnknownValue&);
-  friend const FunctionResultSet& common_internal::GetUnknownFunctionResultSet(
-      const UnknownValue& value);
+      const common_internal::UnknownRoot* root,
+      const common_internal::UnknownAttributeSet* attributes,
+      const common_internal::UnknownFunctionSet* functions);
+  friend Unknown common_internal::ToUnknown(const UnknownValue& value);
+  friend const common_internal::UnknownValueRep&
+  common_internal::GetUnknownValueRep(const UnknownValue& value);
+  friend common_internal::UnknownValueRep& common_internal::GetUnknownValueRep(
+      UnknownValue& value);
+  friend UnknownValue common_internal::MakeUnknownValue(
+      const common_internal::UnknownValueRep& rep);
   friend class common_internal::ValueMixin<UnknownValue>;
 
-  explicit UnknownValue(const Unknown* unknown) : unknown_(unknown) {}
+  UnknownValue(const common_internal::UnknownRoot* root,
+               const common_internal::UnknownAttributeSet* attributes,
+               const common_internal::UnknownFunctionSet* functions)
+      : rep_{root, attributes, functions} {}
 
-  const Unknown* unknown_ = nullptr;
+  explicit UnknownValue(const common_internal::UnknownValueRep& rep)
+      : rep_(rep) {}
+
+  common_internal::UnknownValueRep rep_;
 };
-
-inline void swap(UnknownValue& lhs, UnknownValue& rhs) noexcept {
-  lhs.swap(rhs);
-}
 
 inline std::ostream& operator<<(std::ostream& out, const UnknownValue& value) {
   return out << value.DebugString();
@@ -126,21 +148,33 @@ namespace common_internal {
 const FunctionResultSet& GetEmptyFunctionResults();
 
 [[nodiscard]]
-inline UnknownValue MakeUnknownValue(Unknown value,
-                                     google::protobuf::Arena* absl_nonnull arena) {
-  return UnknownValue(google::protobuf::Arena::Create<Unknown>(arena, std::move(value)));
+inline UnknownValue MakeUnknownValue(
+    const common_internal::UnknownRoot* root,
+    const common_internal::UnknownAttributeSet* attributes,
+    const common_internal::UnknownFunctionSet* functions) {
+  return UnknownValue(root, attributes, functions);
 }
 
 [[nodiscard]]
-inline Unknown GetUnknown(const UnknownValue& value) {
-  return value.unknown_ != nullptr ? *value.unknown_ : Unknown();
+inline Unknown ToUnknown(const UnknownValue& value) {
+  return Unknown(value.ToAttributeSet(), value.ToFunctionResultSet());
 }
 
 [[nodiscard]]
-inline const FunctionResultSet& GetUnknownFunctionResultSet(
+inline UnknownValue MakeUnknownValue(const UnknownValueRep& rep) {
+  return UnknownValue(rep);
+}
+
+[[nodiscard]]
+inline const UnknownValueRep& GetUnknownValueRep(
     const UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  return value.unknown_ != nullptr ? value.unknown_->unknown_function_results()
-                                   : GetEmptyFunctionResults();
+  return value.rep_;
+}
+
+[[nodiscard]]
+inline UnknownValueRep& GetUnknownValueRep(
+    UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+  return value.rep_;
 }
 
 }  // namespace common_internal

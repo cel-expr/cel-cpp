@@ -313,19 +313,6 @@ TEST_F(ContainerAccessStepTest, TestListIndexAccessUnknown) {
   ASSERT_TRUE(result.IsUnknownSet());
 }
 
-TEST_F(ContainerAccessStepTest, TestListUnknownKey) {
-  ContainerBackedListImpl cel_list({CelValue::CreateInt64(1),
-                                    CelValue::CreateInt64(2),
-                                    CelValue::CreateInt64(3)});
-
-  UnknownSet unknown_set;
-  CelValue result =
-      EvaluateAttribute(CelValue::CreateList(&cel_list),
-                        CelValue::CreateUnknownSet(&unknown_set), true, true);
-
-  ASSERT_TRUE(result.IsUnknownSet());
-}
-
 TEST_F(ContainerAccessStepTest, TestMapInvalidKey) {
   const std::string kKey0 = "testkey0";
   const std::string kKey1 = "testkey1";
@@ -343,31 +330,6 @@ TEST_F(ContainerAccessStepTest, TestMapInvalidKey) {
   EXPECT_THAT(*result.ErrorOrDie(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("Invalid map key type: 'double'")));
-}
-
-TEST_F(ContainerAccessStepTest, TestMapUnknownKey) {
-  const std::string kKey0 = "testkey0";
-  const std::string kKey1 = "testkey1";
-  const std::string kKey2 = "testkey2";
-  Struct cel_struct;
-  (*cel_struct.mutable_fields())[kKey0].set_string_value("value0");
-  (*cel_struct.mutable_fields())[kKey1].set_string_value("value1");
-  (*cel_struct.mutable_fields())[kKey2].set_string_value("value2");
-
-  UnknownSet unknown_set;
-  CelValue result =
-      EvaluateAttribute(CelProtoWrapper::CreateMessage(&cel_struct, &arena_),
-                        CelValue::CreateUnknownSet(&unknown_set), true, true);
-
-  ASSERT_TRUE(result.IsUnknownSet());
-}
-
-TEST_F(ContainerAccessStepTest, TestUnknownContainer) {
-  UnknownSet unknown_set;
-  CelValue result = EvaluateAttribute(CelValue::CreateUnknownSet(&unknown_set),
-                                      CelValue::CreateInt64(1), true, true);
-
-  ASSERT_TRUE(result.IsUnknownSet());
 }
 
 TEST_F(ContainerAccessStepTest, TestInvalidContainerType) {

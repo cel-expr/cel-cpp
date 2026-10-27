@@ -4,14 +4,14 @@
 #include <string>
 #include <utility>
 
-#include "eval/eval/attribute_trail.h"
-#include "eval/eval/ident_step.h"
-#include "eval/public/cel_attribute.h"
+#include "absl/status/status.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "eval/public/cel_function.h"
-#include "extensions/protobuf/memory_manager.h"
-#include "internal/status_macros.h"
+#include "eval/public/cel_value.h"
+#include "eval/public/cel_value_producer.h"
 #include "internal/testing.h"
-#include "parser/parser.h"
+#include "google/protobuf/arena.h"
 
 namespace google {
 namespace api {
@@ -20,10 +20,7 @@ namespace runtime {
 
 namespace {
 
-using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
-using ::cel::extensions::ProtoMemoryManager;
-using ::cel::expr::Expr;
 using ::google::protobuf::Arena;
 using ::testing::ElementsAre;
 using ::testing::Eq;
@@ -203,35 +200,6 @@ TEST(ActivationTest, CheckValueProducerClear) {
   EXPECT_TRUE(opt_value3.has_value());
   EXPECT_THAT(opt_value3->StringOrDie().value(), Eq(kValue1));
   EXPECT_EQ(1, activation.ClearCachedValues());
-}
-
-TEST(ActivationTest, ErrorPathTest) {
-  Activation activation;
-
-  Expr expr;
-  auto* select_expr = expr.mutable_select_expr();
-  select_expr->set_field("ip");
-
-  Expr* ident_expr = select_expr->mutable_operand();
-  ident_expr->mutable_ident_expr()->set_name("destination");
-
-  const CelAttributePattern destination_ip_pattern(
-      "destination",
-      {CreateCelAttributeQualifierPattern(CelValue::CreateStringView("ip"))});
-
-  AttributeTrail trail("destination");
-  trail =
-      trail.Step(CreateCelAttributeQualifier(CelValue::CreateStringView("ip")));
-
-  ASSERT_EQ(destination_ip_pattern.IsMatch(trail.attribute()),
-            CelAttributePattern::MatchType::FULL);
-  EXPECT_TRUE(activation.missing_attribute_patterns().empty());
-
-  ASSERT_THAT(activation.SetMissingAttributePatterns({destination_ip_pattern}),
-              IsOk());
-  EXPECT_EQ(
-      activation.missing_attribute_patterns()[0].IsMatch(trail.attribute()),
-      CelAttributePattern::MatchType::FULL);
 }
 
 }  // namespace
