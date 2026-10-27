@@ -15,6 +15,8 @@
 #ifndef THIRD_PARTY_CEL_CPP_EXTENSIONS_SET_MEMBERSHIP_OPTIMIZATION_H_
 #define THIRD_PARTY_CEL_CPP_EXTENSIONS_SET_MEMBERSHIP_OPTIMIZATION_H_
 
+#include <cstddef>
+
 #include "absl/status/status.h"
 #include "eval/compiler/flat_expr_builder_extensions.h"
 #include "runtime/runtime_builder.h"
@@ -22,8 +24,12 @@
 namespace cel::extensions {
 
 // Options for set membership optimization.
-// TODO(b/572083203): Add options for non-bitset constant list optimizations.
-struct SetMembershipOptimizationOptions {};
+struct SetMembershipOptimizationOptions {
+  // Minimum size of a non-bitset constant list (e.g. list<string>) to optimize
+  // using a hash set. Optimistically assumes the input list elements are
+  // unique.
+  size_t min_set_size = 4;
+};
 
 // Enable set membership optimization on the given RuntimeBuilder.
 //
@@ -32,10 +38,11 @@ struct SetMembershipOptimizationOptions {};
 // This optimization assumes that `enable_heterogeneous_equality` is enabled.
 //
 // When enabled, the runtime will attempt to optimize branches that appear
-// to implement a set membership tests against a constant list. For small
+// to implement a set membership test against a constant list. For small
 // integer lists, this is implemented via a precomputed bitset. list<int> is
 // emphasized to cover the common case of testing protobuf enums against a
-// constant list.
+// constant list. For constant list<string> of size >= `options.min_set_size`,
+// this is implemented via a precomputed hash set.
 //
 // Examples:
 // foo in [EnumA, EnumB, EnumC]

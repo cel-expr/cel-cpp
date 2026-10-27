@@ -165,6 +165,8 @@ class ExpressionStep {
     return header_.id >= 0 ? static_cast<int64_t>(header_.id) : -1;
   }
 
+  ExpressionStepKind kind() const { return header_.kind; }
+
   // Returns if the execution step comes from AST.
   bool comes_from_ast() const { return header_.id >= 0; }
 

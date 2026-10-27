@@ -59,22 +59,29 @@
 #include "runtime/standard_runtime_builder_factory.h"
 #include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
-#include "google/protobuf/descriptor.h"
 
 namespace cel::extensions {
 namespace {
 
 using ::absl_testing::IsOk;
-using ::cel::expr::conformance::proto2::TestAllTypes;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::test::BoolValueIs;
 using ::cel::test::ValueKindIs;
+using ::google::api::expr::runtime::ExpressionStepKind;
 using ::google::api::expr::runtime::FlatExprBuilder;
 using ::google::api::expr::runtime::FlatExpression;
 using ::google::api::expr::runtime::NewReferenceResolverExtension;
 using ::google::api::expr::runtime::ReferenceResolverOption;
+using ::testing::ElementsAre;
 using ::testing::Not;
 using ::testing::SizeIs;
+
+MATCHER_P(StepKindIs, expected_kind, "") { return arg.kind() == expected_kind; }
+
+struct BitsetPlanTestCase {
+  absl::string_view expr;
+  ExpressionStepKind expected_kind;
+};
 
 absl::StatusOr<std::unique_ptr<Compiler>> CreateTestCompiler() {
   CEL_ASSIGN_OR_RETURN(
@@ -90,6 +97,7 @@ absl::StatusOr<std::unique_ptr<Compiler>> CreateTestCompiler() {
   CEL_RETURN_IF_ERROR(checker.AddVariable(MakeVariableDecl("x", IntType())));
   CEL_RETURN_IF_ERROR(checker.AddVariable(MakeVariableDecl("u", UintType())));
   CEL_RETURN_IF_ERROR(checker.AddVariable(MakeVariableDecl("d", DynType())));
+  CEL_RETURN_IF_ERROR(checker.AddVariable(MakeVariableDecl("s", StringType())));
   CEL_RETURN_IF_ERROR(checker.AddVariable(
       MakeVariableDecl("int_list", ListType(checker.arena(), IntType()))));
   CEL_RETURN_IF_ERROR(checker.AddVariable(
@@ -176,24 +184,33 @@ TEST(SetMembershipOptimizationPlanTest, EmitsCompactBitsetPlan) {
   builder.AddProgramOptimizer(
       CreateSetMembershipOptimizationProgramOptimizer());
 
-  for (absl::string_view expr_str : {
-           "x in [1, 2, 3, 4]",
-           "d in []",
-           "sets.contains(int_list, [1, 2, 3, 4])",
-           "sets.contains(str_list, [])",
-           "sets.intersects(int_list, [1, 2, 3, 4])",
-           "sets.intersects([1, 2, 3, 4], int_list)",
-           "sets.intersects(str_list, [])",
-           "sets.equivalent(int_list, [1, 2, 3, 4])",
-           "sets.equivalent([1, 2, 3, 4], int_list)",
-           "sets.equivalent(str_list, [])",
-       }) {
-    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+  const BitsetPlanTestCase test_cases[] = {
+      {"x in [1, 2, 3, 4]", ExpressionStepKind::kBitIsSet},
+      {"d in []", ExpressionStepKind::kBitIsSet},
+      {"sets.contains(int_list, [1, 2, 3, 4])",
+       ExpressionStepKind::kBitAndEqual},
+      {"sets.contains(str_list, [])", ExpressionStepKind::kBitAndEqual},
+      {"sets.intersects(int_list, [1, 2, 3, 4])",
+       ExpressionStepKind::kBitAndIsNonZero},
+      {"sets.intersects([1, 2, 3, 4], int_list)",
+       ExpressionStepKind::kBitAndIsNonZero},
+      {"sets.intersects(str_list, [])", ExpressionStepKind::kBitAndIsNonZero},
+      {"sets.equivalent(int_list, [1, 2, 3, 4])",
+       ExpressionStepKind::kBitEqual},
+      {"sets.equivalent([1, 2, 3, 4], int_list)",
+       ExpressionStepKind::kBitEqual},
+      {"sets.equivalent(str_list, [])", ExpressionStepKind::kBitEqual},
+  };
+  for (const BitsetPlanTestCase& tc : test_cases) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(tc.expr));
     ASSERT_OK_AND_ASSIGN(FlatExpression plan,
                          builder.CreateExpressionImpl(std::move(ast), nullptr));
     // Optimized plan consists of just 2 steps: reading the variable and
     // evaluating the bitset step.
-    EXPECT_THAT(plan.path(), SizeIs(2)) << expr_str;
+    EXPECT_THAT(plan.path(),
+                ElementsAre(StepKindIs(ExpressionStepKind::kIdentifier),
+                            StepKindIs(tc.expected_kind)))
+        << tc.expr;
   }
 }
 
@@ -216,18 +233,165 @@ TEST(SetMembershipOptimizationPlanTest,
   builder.AddProgramOptimizer(
       CreateSetMembershipOptimizationProgramOptimizer());
 
-  for (absl::string_view expr_str : {
-           "x in ([1, 2] + [3, 4])",
-           "sets.contains(int_list, [1, 2] + [3, 4])",
-           "sets.intersects(int_list, [1, 2] + [3, 4])",
-           "sets.equivalent([1, 2] + [3, 4], int_list)",
-       }) {
-    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+  const BitsetPlanTestCase test_cases[] = {
+      {"x in ([1, 2] + [3, 4])", ExpressionStepKind::kBitIsSet},
+      {"sets.contains(int_list, [1, 2] + [3, 4])",
+       ExpressionStepKind::kBitAndEqual},
+      {"sets.intersects(int_list, [1, 2] + [3, 4])",
+       ExpressionStepKind::kBitAndIsNonZero},
+      {"sets.equivalent([1, 2] + [3, 4], int_list)",
+       ExpressionStepKind::kBitEqual},
+  };
+  for (const BitsetPlanTestCase& tc : test_cases) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(tc.expr));
     ASSERT_OK_AND_ASSIGN(FlatExpression plan,
                          builder.CreateExpressionImpl(std::move(ast), nullptr));
     // Constant folding folds `[1, 2] + [3, 4]` into a single constant ListValue
     // step, which SetMembershipOptimization then replaces with a 2-step plan.
-    EXPECT_THAT(plan.path(), SizeIs(2)) << expr_str;
+    EXPECT_THAT(plan.path(),
+                ElementsAre(StepKindIs(ExpressionStepKind::kIdentifier),
+                            StepKindIs(tc.expected_kind)))
+        << tc.expr;
+  }
+}
+
+TEST(SetMembershipOptimizationPlanTest, EmitsCompactStringSetPlan) {
+  RuntimeOptions options;
+  options.container = "cel.expr.conformance.proto2";
+  options.enable_heterogeneous_equality = true;
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  ASSERT_THAT(RegisterStandardFunctions(env->function_registry, options),
+              IsOk());
+  ASSERT_THAT(RegisterSetsFunctions(env->function_registry, options), IsOk());
+  FlatExprBuilder builder(std::move(env), options);
+  builder.set_container(options.container);
+  builder.AddAstTransform(
+      NewReferenceResolverExtension(ReferenceResolverOption::kAlways));
+  builder.AddProgramOptimizer(
+      CreateSetMembershipOptimizationProgramOptimizer());
+
+  for (absl::string_view expr_str : {
+           "s in ['a', 'b', 'c', 'd']",
+           "d in ['a', 'b', 'c', 'd']",
+           "sets.contains(str_list, ['a', 'b', 'c', 'd'])",
+           "sets.intersects(str_list, ['a', 'b', 'c', 'd'])",
+           "sets.intersects(['a', 'b', 'c', 'd'], str_list)",
+           "sets.equivalent(str_list, ['a', 'b', 'c', 'd'])",
+           "sets.equivalent(['a', 'b', 'c', 'd'], str_list)",
+       }) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+    ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+    // Optimized plan consists of just 2 steps: reading the variable and
+    // evaluating the generic string set step.
+    EXPECT_THAT(plan.path(),
+                ElementsAre(StepKindIs(ExpressionStepKind::kIdentifier),
+                            StepKindIs(ExpressionStepKind::kGenericLogic)))
+        << expr_str;
+  }
+
+  // Constant string lists smaller than default min_set_size (4) are not
+  // optimized.
+  for (absl::string_view expr_str : {
+           "s in ['a', 'b', 'c']",
+           "sets.contains(str_list, ['a', 'b', 'c'])",
+           "sets.intersects(str_list, ['a', 'b', 'c'])",
+           "sets.equivalent(str_list, ['a', 'b', 'c'])",
+       }) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+    ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+    EXPECT_THAT(plan.path(), Not(SizeIs(2))) << expr_str;
+  }
+
+  // Constant list<dyn> containing strings is not optimized as a string set.
+  for (
+      absl::string_view expr_str : {
+          "s in [dyn('a'), dyn('b'), dyn('c'), dyn('d')]",
+          "sets.contains(str_list, [dyn('a'), dyn('b'), dyn('c'), dyn('d')])",
+          "sets.intersects(str_list, [dyn('a'), dyn('b'), dyn('c'), dyn('d')])",
+          "sets.equivalent(str_list, [dyn('a'), dyn('b'), dyn('c'), dyn('d')])",
+      }) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+    ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+    EXPECT_THAT(plan.path(), Not(SizeIs(2))) << expr_str;
+  }
+}
+
+TEST(SetMembershipOptimizationPlanTest,
+     RespectsCustomMinSetSizeForConstantStringSets) {
+  RuntimeOptions options;
+  options.container = "cel.expr.conformance.proto2";
+  options.enable_heterogeneous_equality = true;
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  ASSERT_THAT(RegisterSetsFunctions(env->function_registry, options), IsOk());
+  FlatExprBuilder builder(std::move(env), options);
+  builder.set_container(options.container);
+  builder.AddAstTransform(
+      NewReferenceResolverExtension(ReferenceResolverOption::kAlways));
+  builder.AddProgramOptimizer(CreateSetMembershipOptimizationProgramOptimizer(
+      SetMembershipOptimizationOptions{.min_set_size = 2}));
+
+  for (absl::string_view expr_str : {
+           "s in ['a', 'b']",
+           "sets.contains(str_list, ['a', 'b'])",
+           "sets.intersects(str_list, ['a', 'b'])",
+           "sets.equivalent(str_list, ['a', 'b'])",
+       }) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+    ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+    EXPECT_THAT(plan.path(),
+                ElementsAre(StepKindIs(ExpressionStepKind::kIdentifier),
+                            StepKindIs(ExpressionStepKind::kGenericLogic)))
+        << expr_str;
+  }
+
+  // Size 1 is still below min_set_size = 2.
+  {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast,
+                         CompileTestExpr("s in ['a']"));
+    ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+    EXPECT_THAT(plan.path(), Not(SizeIs(2)));
+  }
+}
+
+TEST(SetMembershipOptimizationPlanTest,
+     EmitsCompactStringSetPlanWithConstantFoldedList) {
+  RuntimeOptions options;
+  options.container = "cel.expr.conformance.proto2";
+  options.enable_heterogeneous_equality = true;
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  ASSERT_THAT(RegisterStandardFunctions(env->function_registry, options),
+              IsOk());
+  ASSERT_THAT(RegisterSetsFunctions(env->function_registry, options), IsOk());
+  FlatExprBuilder builder(std::move(env), options);
+  builder.set_container(options.container);
+  builder.AddAstTransform(
+      NewReferenceResolverExtension(ReferenceResolverOption::kAlways));
+  builder.AddProgramOptimizer(
+      cel::runtime_internal::CreateConstantFoldingOptimizer());
+  builder.AddProgramOptimizer(
+      CreateSetMembershipOptimizationProgramOptimizer());
+
+  for (absl::string_view expr_str : {
+           "s in (['a', 'b'] + ['c', 'd'])",
+           "sets.contains(str_list, ['a', 'b'] + ['c', 'd'])",
+           "sets.intersects(str_list, ['a', 'b'] + ['c', 'd'])",
+           "sets.equivalent(['a', 'b'] + ['c', 'd'], str_list)",
+       }) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+    ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+    EXPECT_THAT(plan.path(),
+                ElementsAre(StepKindIs(ExpressionStepKind::kIdentifier),
+                            StepKindIs(ExpressionStepKind::kGenericLogic)))
+        << expr_str;
   }
 }
 
@@ -245,19 +409,26 @@ TEST(SetMembershipOptimizationPlanTest, EmitsCompactBitsetPlanForUncheckedAst) {
   builder.AddProgramOptimizer(
       CreateSetMembershipOptimizationProgramOptimizer());
 
-  for (absl::string_view expr_str : {
-           "x in [1, 2, 3, 4]",
-           "sets.contains(int_list, [1, 2, 3, 4])",
-           "sets.intersects(int_list, [1, 2, 3, 4])",
-           "sets.equivalent(int_list, [1, 2, 3, 4])",
-       }) {
-    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
+  const BitsetPlanTestCase test_cases[] = {
+      {"x in [1, 2, 3, 4]", ExpressionStepKind::kBitIsSet},
+      {"sets.contains(int_list, [1, 2, 3, 4])",
+       ExpressionStepKind::kBitAndEqual},
+      {"sets.intersects(int_list, [1, 2, 3, 4])",
+       ExpressionStepKind::kBitAndIsNonZero},
+      {"sets.equivalent(int_list, [1, 2, 3, 4])",
+       ExpressionStepKind::kBitEqual},
+  };
+  for (const BitsetPlanTestCase& tc : test_cases) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(tc.expr));
     ast->mutable_reference_map().clear();
     ast->mutable_type_map().clear();
     ast->set_is_checked(false);
     ASSERT_OK_AND_ASSIGN(FlatExpression plan,
                          builder.CreateExpressionImpl(std::move(ast), nullptr));
-    EXPECT_THAT(plan.path(), SizeIs(2)) << expr_str;
+    EXPECT_THAT(plan.path(),
+                ElementsAre(StepKindIs(ExpressionStepKind::kIdentifier),
+                            StepKindIs(tc.expected_kind)))
+        << tc.expr;
   }
 }
 
@@ -403,13 +574,16 @@ TEST_P(SetMembershipOptimizationEvalTest, EvaluatesCorrectly) {
   activation.InsertOrAssignValue("x", IntValue(2));
   activation.InsertOrAssignValue("u", UintValue(63));
   activation.InsertOrAssignValue("d", DoubleValue(2.0));
+  activation.InsertOrAssignValue("s", StringValue::From("b", &arena));
   activation.InsertOrAssignValue("int_list", MakeIntList(&arena, {0, 2, 63}));
   activation.InsertOrAssignValue("uint_list", MakeUintList(&arena, {0, 2}));
   activation.InsertOrAssignValue(
       "dyn_list", MakeValueList(&arena, {IntValue(0), DoubleValue(2.0)}));
   activation.InsertOrAssignValue(
       "str_list", MakeValueList(&arena, {StringValue::From("a", &arena),
-                                         StringValue::From("b", &arena)}));
+                                         StringValue::From("b", &arena),
+                                         StringValue::From("c", &arena),
+                                         StringValue::From("d", &arena)}));
 
   const std::vector<EvalTestCase> test_cases = {
       // @in with int, uint, dyn(double), and protobuf enums
@@ -480,17 +654,46 @@ TEST_P(SetMembershipOptimizationEvalTest, EvaluatesCorrectly) {
       {"sets.equivalent(int_list.filter(i, i < 0), [])", true},
       {"sets.equivalent(str_list.filter(s, s == 'none'), [])", true},
 
+      // Constant string sets (size >= 4)
+      {"s in ['a', 'b', 'c', 'd']", true},
+      {"s in ['a', 'c', 'd', 'e']", false},
+      {"d in ['a', 'b', 'c', 'd']", false},
+      {"sets.contains(str_list, ['a', 'b', 'c', 'd'])", true},
+      {"sets.contains(str_list, ['a', 'b', 'b', 'c'])", true},
+      {"sets.contains(str_list, ['a', 'b', 'c', 'e'])", false},
+      {"sets.contains(['a', 'b', 'c'], ['a', 'b', 'c', 'd'])", false},
+      {"sets.contains([dyn('a'), dyn('b'), dyn('c'), dyn('d'), dyn(1)], "
+       "['a', 'b', 'c', 'd'])",
+       true},
+      {"sets.intersects(str_list, ['b', 'e', 'f', 'g'])", true},
+      {"sets.intersects(['b', 'e', 'f', 'g'], str_list)", true},
+      {"sets.intersects(str_list, ['e', 'f', 'g', 'h'])", false},
+      {"sets.intersects(['e', 'f', 'g', 'h'], str_list)", false},
+      {"sets.intersects([dyn(1), dyn('d')], ['a', 'b', 'c', 'd'])", true},
+      {"sets.equivalent(str_list, ['d', 'c', 'b', 'a'])", true},
+      {"sets.equivalent(['d', 'c', 'b', 'a'], str_list)", true},
+      {"sets.equivalent(str_list, ['a', 'b', 'b', 'c', 'd'])", true},
+      {"sets.equivalent(['a', 'a', 'b', 'c', 'd'], "
+       "['a', 'b', 'c', 'd'])",
+       true},
+      {"sets.equivalent(str_list, ['a', 'b', 'c', 'e'])", false},
+      {"sets.equivalent(['a', 'b', 'c', 'e'], str_list)", false},
+      {"sets.equivalent(['a', 'b', 'c'], ['a', 'b', 'c', 'd'])", false},
+      {"sets.equivalent([dyn('a'), dyn('b'), dyn('c'), dyn('d'), dyn(1)], "
+       "['a', 'b', 'c', 'd'])",
+       false},
+
       // Fallback when constant list has out-of-range values, mixed types, or
-      // strings
+      // small string lists (< 4 elements)
       {"x in [-1, 2, 100]", true},
       {"100 in [-1, 2, 100]", true},
       {"-1 in [-1, 2, 100]", true},
       {"x in [1, 64]", false},
       {"d in [dyn(1), dyn(2u), dyn(3.5)]", true},
-      {"'a' in ['a', 'b', 'c', 'd']", true},
+      {"'a' in ['a', 'b', 'c']", true},
       {"sets.contains(str_list, ['a', 'b'])", true},
-      {"sets.intersects(str_list, ['b', 'c'])", true},
-      {"sets.equivalent(str_list, ['b', 'a'])", true},
+      {"sets.intersects(str_list, ['b', 'e'])", true},
+      {"sets.equivalent(['a', 'b'], ['b', 'a'])", true},
 
       // Heterogeneous non-numeric dynamic elements with constant int sets
       {"dyn('1') in [0, 1, 2]", false},
@@ -501,6 +704,10 @@ TEST_P(SetMembershipOptimizationEvalTest, EvaluatesCorrectly) {
       // Constant-folded list expression when constant folding is enabled
       {"x in ([0, 1] + [2, 3])", true},
       {"sets.contains(int_list, [0] + [2])", true},
+      {"s in (['a', 'b'] + ['c', 'd'])", true},
+      {"sets.contains(str_list, ['a', 'b'] + ['c', 'd'])", true},
+      {"sets.intersects(str_list, ['e', 'f'] + ['g', 'd'])", true},
+      {"sets.equivalent(str_list, ['d', 'c'] + ['b', 'a'])", true},
   };
 
   for (const EvalTestCase& tc : test_cases) {
@@ -524,15 +731,21 @@ TEST(SetMembershipOptimizationUnknownAndErrorTest,
 
   google::protobuf::Arena arena;
   Activation activation;
-  ASSERT_THAT(activation.SetUnknownPatterns({AttributePattern("x", {}),
-                                             AttributePattern("int_list", {})}),
-              IsOk());
+  ASSERT_THAT(
+      activation.SetUnknownPatterns(
+          {AttributePattern("x", {}), AttributePattern("s", {}),
+           AttributePattern("int_list", {}), AttributePattern("str_list", {})}),
+      IsOk());
 
   for (absl::string_view expr_str : {
            "x in [1, 2, 3]",
            "sets.contains(int_list, [1, 2])",
            "sets.intersects(int_list, [1, 2])",
            "sets.equivalent(int_list, [1, 2])",
+           "s in ['a', 'b', 'c', 'd']",
+           "sets.contains(str_list, ['a', 'b', 'c', 'd'])",
+           "sets.intersects(str_list, ['a', 'b', 'c', 'd'])",
+           "sets.equivalent(str_list, ['a', 'b', 'c', 'd'])",
        }) {
     ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
     ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
@@ -542,13 +755,18 @@ TEST(SetMembershipOptimizationUnknownAndErrorTest,
   }
 
   // Runtime error in operand propagates as ErrorValue.
-  {
-    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast,
-                         CompileTestExpr("(1 / 0) in [1, 2, 3]"));
+  for (absl::string_view expr_str : {
+           "(1 / 0) in [1, 2, 3]",
+           "dyn(1 / 0) in ['a', 'b', 'c', 'd']",
+           "sets.contains(dyn(1 / 0), ['a', 'b', 'c', 'd'])",
+           "sets.intersects(dyn(1 / 0), ['a', 'b', 'c', 'd'])",
+           "sets.equivalent(dyn(1 / 0), ['a', 'b', 'c', 'd'])",
+       }) {
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, CompileTestExpr(expr_str));
     ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
                          runtime->CreateProgram(std::move(ast)));
     ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
-    EXPECT_THAT(result, ValueKindIs(ValueKind::kError));
+    EXPECT_THAT(result, ValueKindIs(ValueKind::kError)) << expr_str;
   }
 }
 
