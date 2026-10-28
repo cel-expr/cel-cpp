@@ -41,24 +41,15 @@
 
 namespace google::api::expr::runtime {
 
-class ExecutionFrame;
-
 struct LazyInitStepInfo {
   size_t slot_index : 32;
   size_t subexpression_index : 32;
 };
 
-void EvaluateLazyInitStep(const LazyInitStepInfo& step, ExecutionFrame& frame);
-
-void EvaluateAssignSlotAndPop(size_t slot_index, ExecutionFrame& frame);
-
 struct ClearSlotStepInfo {
   size_t slot_index : 32;
   size_t slot_count : 32 = 1;
 };
-
-void EvaluateClearSlotStep(const ClearSlotStepInfo& step,
-                           ExecutionFrame& frame);
 
 }  // namespace google::api::expr::runtime
 

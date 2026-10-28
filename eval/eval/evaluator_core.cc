@@ -441,6 +441,34 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateBoolLogicStep(
   frame.value_stack().PopAndPush(num_args, std::move(result));
 }
 
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateLazyInitStep(
+    ExecutionFrame& frame, const LazyInitStepInfo& step) {
+  ComprehensionSlot* slot = frame.comprehension_slots().Get(step.slot_index);
+  if (slot->Has()) {
+    frame.value_stack().Push(slot->value(), slot->attribute());
+  } else {
+    frame.Call(step.slot_index, step.subexpression_index);
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateAssignSlotAndPop(
+    ExecutionFrame& frame, size_t slot_index) {
+  if (ABSL_PREDICT_FALSE(!frame.value_stack().HasEnough(1))) {
+    frame.Abort(absl::InternalError("Stack underflow assigning lazy value"));
+    return;
+  }
+  ComprehensionSlot* slot = frame.comprehension_slots().Get(slot_index);
+  slot->Set(frame.value_stack().Peek(), frame.value_stack().PeekAttribute());
+  frame.value_stack().Pop(1);
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateClearSlotStep(
+    ExecutionFrame& frame, const ClearSlotStepInfo& step) {
+  for (size_t i = 0; i < step.slot_count; ++i) {
+    frame.comprehension_slots().ClearSlot(step.slot_index + i);
+  }
+}
+
 ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
     ExecutionFrame& frame, const ExpressionStep& step) {
   switch (step.kind()) {
@@ -466,13 +494,13 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
       frame.value_stack().Push(*step.data().other_val);
       break;
     case ExpressionStepKind::kLazyInit:
-      EvaluateLazyInitStep(step.data().lazy_init, frame);
+      EvaluateLazyInitStep(frame, step.data().lazy_init);
       break;
     case ExpressionStepKind::kAssignSlotAndPop:
-      EvaluateAssignSlotAndPop(step.data().slot_index, frame);
+      EvaluateAssignSlotAndPop(frame, step.data().slot_index);
       break;
     case ExpressionStepKind::kClearSlots:
-      EvaluateClearSlotStep(step.data().clear_slots, frame);
+      EvaluateClearSlotStep(frame, step.data().clear_slots);
       break;
     case ExpressionStepKind::kBooleanNot:
       EvaluateNotStep(frame);

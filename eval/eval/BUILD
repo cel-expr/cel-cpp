@@ -41,7 +41,6 @@ cc_library(
         "equality_steps.cc",
         "evaluator_core.cc",
         "function_step.cc",
-        "lazy_init_step.cc",
     ],
     hdrs = [
         "bitset_steps.h",
@@ -96,7 +95,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
-        "@com_google_cel_spec//proto/cel/expr:value_cc_proto",
         "@com_google_protobuf//:protobuf",
     ],
 )
