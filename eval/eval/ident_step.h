@@ -22,8 +22,6 @@ struct IdentStepInfo {
   uint32_t slot_index;
 };
 
-void EvaluateIdentifierStep(const IdentStepInfo& step, ExecutionFrame& frame);
-
 }  // namespace google::api::expr::runtime
 
 #endif  // THIRD_PARTY_CEL_CPP_EVAL_EVAL_IDENT_STEP_H_

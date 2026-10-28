@@ -162,6 +162,66 @@ int64_t OneMinusArgCount(size_t count) {
   return 1 - static_cast<int64_t>(count);
 }
 
+absl::Status LookupIdent(absl::string_view name, ExecutionFrame& frame,
+                         cel::Value& result, AttributeTrail& attribute) {
+  if (frame.attribute_tracking_enabled() &&
+      (AttributeLeadMatch)(frame.unknown_attributes(), frame.known_attributes(),
+                           frame.missing_attributes(), name, result, attribute,
+                           frame.unknown_tree())) {
+    return absl::OkStatus();
+  }
+
+  CEL_ASSIGN_OR_RETURN(
+      bool found, frame.activation().FindVariable(name, frame.descriptor_pool(),
+                                                  frame.message_factory(),
+                                                  frame.arena(), &result));
+
+  if (found) {
+    if (ABSL_PREDICT_FALSE(frame.attribute_tracking_enabled() &&
+                           result.IsUnknown())) {
+      // This really only happens in our own tests...
+      result = cel::common_internal::GraftUnknowns(result.GetUnknown(),
+                                                   frame.unknown_tree());
+      attribute = AttributeTrail();
+    }
+    return absl::OkStatus();
+  }
+
+  if (frame.attribute_tracking_enabled()) {
+    attribute = AttributeTrail();
+  }
+  result = cel::ErrorValue::From(
+      cel::runtime_internal::CreateError(absl::StrCat(
+          "No value with name \"", name, "\" found in Activation")),
+      frame.arena());
+
+  return absl::OkStatus();
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateIdentifierStep(
+    ExecutionFrame& frame, const IdentStepInfo& step) {
+  ComprehensionSlot* slot = frame.comprehension_slots().Get(step.slot_index);
+  if (slot->Has()) {
+    frame.value_stack().Push(slot->value(), slot->attribute());
+    return;
+  }
+  if (ABSL_PREDICT_FALSE(step.ident_index >= frame.identifiers().size())) {
+    frame.Abort(absl::InternalError(
+        absl::StrCat("identifier index out of range: ", step.ident_index)));
+    return;
+  }
+  const Identifier& ident = frame.identifiers()[step.ident_index];
+  frame.value_stack().Push(cel::NullValue());
+  if (absl::Status status =
+          LookupIdent(ident.name, frame, frame.value_stack().Peek(),
+                      frame.value_stack().PeekAttribute());
+      !status.ok()) {
+    frame.Abort(std::move(status));
+    return;
+  }
+  slot->Set(frame.value_stack().Peek(), frame.value_stack().PeekAttribute());
+}
+
 ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateReadSlotStep(
     ExecutionFrame& frame, size_t slot_index) {
   const ComprehensionSlots::Slot* slot =
@@ -338,7 +398,7 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
       frame.JumpToOrAbort(step.data().fixed_jump_step.offset);
       break;
     case ExpressionStepKind::kIdentifier:
-      EvaluateIdentifierStep(step.data().ident_step, frame);
+      EvaluateIdentifierStep(frame, step.data().ident_step);
       break;
     case ExpressionStepKind::kEagerFunction:
       step.data().eager_function_step->Evaluate(frame);

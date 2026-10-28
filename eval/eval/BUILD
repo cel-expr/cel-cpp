@@ -41,7 +41,6 @@ cc_library(
         "equality_steps.cc",
         "evaluator_core.cc",
         "function_step.cc",
-        "ident_step.cc",
         "lazy_init_step.cc",
         "logic_step.cc",
     ],
