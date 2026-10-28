@@ -398,6 +398,9 @@ class PlannerContext {
     return std::nullopt;
   }
 
+  std::optional<cel::Type> TryResolveType(int64_t expr_id,
+                                          const cel::TypeSpec& ast_type);
+
   void SetResolvedType(int64_t expr_id, cel::Type type) {
     resolved_types_[expr_id] = std::move(type);
   }

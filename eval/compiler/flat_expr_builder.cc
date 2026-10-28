@@ -1886,13 +1886,7 @@ void FlatExprVisitor::MaybeResolveType(const cel::Expr& expr) {
   if (it == type_map_.end()) {
     return;
   }
-  absl::StatusOr<cel::Type> type = cel::ConvertTypeSpecToType(
-      it->second, extension_context_.type_reflector(),
-      extension_context_.MutableArena());
-  if (!type.ok()) {
-    return;
-  }
-  extension_context_.SetResolvedType(expr.id(), *type);
+  extension_context_.TryResolveType(expr.id(), it->second);
 }
 
 size_t FlatExprVisitor::AddOrUpdateIdentifier(absl::string_view name) {

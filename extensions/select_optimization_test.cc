@@ -18,6 +18,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -45,6 +46,7 @@
 #include "common/expr.h"
 #include "common/kind.h"
 #include "common/native_type.h"
+#include "common/type.h"
 #include "common/typeinfo.h"
 #include "common/value.h"
 #include "common/values/custom_struct_value.h"
@@ -71,12 +73,17 @@
 #include "runtime/internal/issue_collector.h"
 #include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
+#include "runtime/runtime.h"
+#include "runtime/runtime_builder.h"
 #include "runtime/runtime_issue.h"
 #include "runtime/runtime_options.h"
+#include "runtime/standard_runtime_builder_factory.h"
 #include "runtime/type_registry.h"
+#include "testutil/test_external_extensions_descriptor_set.h"
 #include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
+#include "google/protobuf/dynamic_message.h"
 #include "google/protobuf/extension_set.h"
 #include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
@@ -756,6 +763,58 @@ TEST_F(SelectOptimizationTest, AstTransformAnyDotTraversal) {
   EXPECT_EQ(operand.ident_expr().name(), "nested_test_all_types");
 }
 
+TEST_F(SelectOptimizationTest, AstTransformStructDotTraversal) {
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Ast> ast,
+      CompileForTestCase(
+          "nested_test_all_types.payload.single_struct.key.subkey"));
+
+  SelectOptimizationAstUpdater updater;
+  EXPECT_THAT(updater.UpdateAst(context_, *ast), IsOk());
+
+  // `.key` on `single_struct` (MapType) is included in the attribute call,
+  // while `.subkey` on `dyn` (`google.protobuf.Value`) remains an outer select.
+  EXPECT_EQ(ast->root_expr().select_expr().field(), "subkey");
+  const CallExpr& attr_call =
+      ast->root_expr().select_expr().operand().call_expr();
+  EXPECT_EQ(attr_call.function(), "cel.@attribute");
+
+  ASSERT_THAT(attr_call.args(), SizeIs(2));
+
+  EXPECT_THAT(
+      attr_call.args()[1].list_expr().elements(),
+      ElementsAre(SelectFieldEntry(2, "payload"),
+                  SelectFieldEntry(103, "single_struct"),
+                  SelectQualifier(AttributeQualifier::OfString("key"))));
+
+  const Expr& operand = attr_call.args()[0];
+  EXPECT_EQ(operand.ident_expr().name(), "nested_test_all_types");
+}
+
+TEST_F(SelectOptimizationTest, AstTransformValueDotTraversal) {
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Ast> ast,
+      CompileForTestCase("nested_test_all_types.payload.single_value.key"));
+
+  SelectOptimizationAstUpdater updater;
+  EXPECT_THAT(updater.UpdateAst(context_, *ast), IsOk());
+
+  // `.key` on `single_value` (`dyn`) is not merged into the attribute call.
+  EXPECT_EQ(ast->root_expr().select_expr().field(), "key");
+  const CallExpr& attr_call =
+      ast->root_expr().select_expr().operand().call_expr();
+  EXPECT_EQ(attr_call.function(), "cel.@attribute");
+
+  ASSERT_THAT(attr_call.args(), SizeIs(2));
+
+  EXPECT_THAT(attr_call.args()[1].list_expr().elements(),
+              ElementsAre(SelectFieldEntry(2, "payload"),
+                          SelectFieldEntry(104, "single_value")));
+
+  const Expr& operand = attr_call.args()[0];
+  EXPECT_EQ(operand.ident_expr().name(), "nested_test_all_types");
+}
+
 TEST_F(SelectOptimizationTest, AstTransformRepeated) {
   // nested_test_all_types.payload.repeated_nested_message[1].bb
   ASSERT_OK_AND_ASSIGN(
@@ -825,8 +884,11 @@ TEST_F(SelectOptimizationTest, ProgramOptimizerUnoptimizedAst) {
   google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
 
   FlatExprBuilder builder(env_, runtime_options_);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching = true;
 
-  builder.AddProgramOptimizer(CreateSelectOptimizationProgramOptimizer());
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
 
   // nested_test_all_types.child.payload.standalone_message.bb
   ASSERT_OK_AND_ASSIGN(
@@ -859,6 +921,46 @@ TEST_F(SelectOptimizationTest, ProgramOptimizerUnoptimizedAst) {
   EXPECT_EQ(result.GetInt().NativeValue(), 42);
 }
 
+TEST_F(SelectOptimizationTest, FieldDescriptorCachingDisabled) {
+  google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
+
+  FlatExprBuilder builder(env_, runtime_options_);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching = false;
+
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
+
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Ast> ast,
+      CompileForTestCase(
+          "nested_test_all_types.child.payload.standalone_message.bb"));
+
+  ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                       builder.CreateExpressionImpl(std::move(ast), nullptr));
+
+  NestedTestAllTypes* var = google::protobuf::Arena::Create<NestedTestAllTypes>(&arena_);
+  var->mutable_child()->mutable_payload()->mutable_standalone_message()->set_bb(
+      42);
+
+  cel::Activation act;
+  act.InsertOrAssignValue("nested_test_all_types",
+                          cel::ParsedMessageValue(var, &arena_));
+
+  auto state = plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                                       env_->MutableMessageFactory(), &arena_);
+  ASSERT_OK_AND_ASSIGN(
+      Value result,
+      plan.EvaluateWithCallback(
+          act, /*embedder_context=*/nullptr,
+          google::api::expr::runtime::EvaluationListener(), state));
+
+  ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
+  EXPECT_EQ(result.GetInt().NativeValue(), 42);
+}
+
 TEST_F(SelectOptimizationTest, MissingAttributeIndependentOfUnknown) {
   google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
 
@@ -867,9 +969,13 @@ TEST_F(SelectOptimizationTest, MissingAttributeIndependentOfUnknown) {
   options.enable_missing_attribute_errors = true;
 
   FlatExprBuilder builder(env_, options);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching = true;
 
-  builder.AddAstTransform(std::make_unique<SelectOptimizationAstUpdater>());
-  builder.AddProgramOptimizer(CreateSelectOptimizationProgramOptimizer());
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
 
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<cel::Ast> ast,
@@ -920,9 +1026,13 @@ TEST_F(SelectOptimizationTest, NullUnboxingOptionHonored) {
   options.enable_empty_wrapper_null_unboxing = true;
 
   FlatExprBuilder builder(env_, options);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching = true;
 
-  builder.AddAstTransform(std::make_unique<SelectOptimizationAstUpdater>());
-  builder.AddProgramOptimizer(CreateSelectOptimizationProgramOptimizer());
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
 
   // nested_test_all_types.payload.single_int64_wrapper
   ASSERT_OK_AND_ASSIGN(
@@ -933,16 +1043,64 @@ TEST_F(SelectOptimizationTest, NullUnboxingOptionHonored) {
                        builder.CreateExpressionImpl(std::move(ast), nullptr));
 
   cel::Activation act;
-  // activation only uses a ptr to the underlying message, persist them.
-  NestedTestAllTypes var;
+  NestedTestAllTypes generated_var;
 
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
       R"pb(
         payload {}
       )pb",
-      &var));
-  ASSERT_THAT(TestBindLegacyMessage("nested_test_all_types", var, &arena_, act),
-              IsOk());
+      &generated_var));
+  google::protobuf::Message* var =
+      runtime_internal::MakeTestingEnvDynamicProto(generated_var, &arena_);
+  ASSERT_THAT(
+      TestBindLegacyMessage("nested_test_all_types", *var, &arena_, act),
+      IsOk());
+
+  auto state = plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                                       env_->MutableMessageFactory(), &arena_);
+  ASSERT_OK_AND_ASSIGN(
+      Value result,
+      plan.EvaluateWithCallback(
+          act, /*embedder_context=*/nullptr,
+          google::api::expr::runtime::EvaluationListener(), state));
+
+  ASSERT_TRUE(result->Is<NullValue>()) << result->DebugString();
+}
+
+TEST_F(SelectOptimizationTest, NullUnboxingOptionHonoredModernParsedMessage) {
+  google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
+
+  RuntimeOptions options = runtime_options_;
+  options.enable_empty_wrapper_null_unboxing = true;
+
+  FlatExprBuilder builder(env_, options);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching = true;
+
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
+
+  // nested_test_all_types.payload.single_int64_wrapper
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Ast> ast,
+      CompileForTestCase("nested_test_all_types.payload.single_int64_wrapper"));
+
+  ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                       builder.CreateExpressionImpl(std::move(ast), nullptr));
+
+  cel::Activation act;
+  NestedTestAllTypes generated_var;
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        payload {}
+      )pb",
+      &generated_var));
+  google::protobuf::Message* var =
+      runtime_internal::MakeTestingEnvDynamicProto(generated_var, &arena_);
+  act.InsertOrAssignValue("nested_test_all_types",
+                          cel::ParsedMessageValue(var, &arena_));
 
   auto state = plan.MakeEvaluatorState(env_->descriptor_pool.get(),
                                        env_->MutableMessageFactory(), &arena_);
@@ -969,10 +1127,19 @@ struct ProgramOptimizerTestCase {
 
 class SelectOptimizationProgramOptimizerTest
     : public SelectOptimizationTest,
-      public testing::WithParamInterface<ProgramOptimizerTestCase> {};
+      public testing::WithParamInterface<
+          std::tuple<ProgramOptimizerTestCase, bool>> {
+ protected:
+  const ProgramOptimizerTestCase& test_case() const {
+    return std::get<0>(GetParam());
+  }
+
+  bool enable_field_descriptor_caching() const {
+    return std::get<1>(GetParam());
+  }
+};
 
 TEST_P(SelectOptimizationProgramOptimizerTest, Default) {
-  const ProgramOptimizerTestCase& test_case = GetParam();
   google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
 
   RuntimeOptions options = runtime_options_;
@@ -980,42 +1147,185 @@ TEST_P(SelectOptimizationProgramOptimizerTest, Default) {
   options.enable_missing_attribute_errors = true;
 
   FlatExprBuilder builder(env_, options);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching =
+      enable_field_descriptor_caching();
 
-  builder.AddAstTransform(std::make_unique<SelectOptimizationAstUpdater>());
-  builder.AddProgramOptimizer(CreateSelectOptimizationProgramOptimizer());
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
-                       CompileForTestCase(test_case.expr));
+                       CompileForTestCase(test_case().expr));
 
   ASSERT_OK_AND_ASSIGN(FlatExpression plan,
                        builder.CreateExpressionImpl(std::move(ast), nullptr));
 
   cel::Activation act;
-  // activation only uses a ptr to the underlying message, persist them.
-  std::vector<std::unique_ptr<NestedTestAllTypes>> vars;
-  for (const auto& entry : test_case.vars) {
-    vars.push_back(std::make_unique<NestedTestAllTypes>());
+  for (const auto& entry : test_case().vars) {
+    NestedTestAllTypes generated_var;
     ASSERT_TRUE(
-        google::protobuf::TextFormat::ParseFromString(entry.second, vars.back().get()));
-    ASSERT_THAT(TestBindLegacyMessage(entry.first, *vars.back(), &arena_, act),
-                IsOk());
+        google::protobuf::TextFormat::ParseFromString(entry.second, &generated_var));
+    google::protobuf::Message* var =
+        runtime_internal::MakeTestingEnvDynamicProto(generated_var, &arena_);
+    ASSERT_THAT(TestBindLegacyMessage(entry.first, *var, &arena_, act), IsOk());
   }
 
-  if (test_case.setup_activation != nullptr) {
-    ASSERT_THAT(test_case.setup_activation(&arena_, act), IsOk());
+  if (test_case().setup_activation != nullptr) {
+    ASSERT_THAT(test_case().setup_activation(&arena_, act), IsOk());
   }
 
-  auto state = plan.MakeEvaluatorState(env_->descriptor_pool.get(),
-                                       env_->MutableMessageFactory(), &arena_);
+  google::api::expr::runtime::FlatExpressionEvaluatorState state =
+      plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                              env_->MutableMessageFactory(), &arena_);
   absl::StatusOr<Value> result = plan.EvaluateWithCallback(
       act, /*embedder_context=*/nullptr,
       google::api::expr::runtime::EvaluationListener(), state);
 
-  ASSERT_NO_FATAL_FAILURE(test_case.expectations(result));
+  ASSERT_NO_FATAL_FAILURE(test_case().expectations(result));
+}
+
+TEST_P(SelectOptimizationProgramOptimizerTest, ModernParsedMessage) {
+  google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
+
+  RuntimeOptions options = runtime_options_;
+  options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
+  options.enable_missing_attribute_errors = true;
+
+  FlatExprBuilder builder(env_, options);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching =
+      enable_field_descriptor_caching();
+
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                       CompileForTestCase(test_case().expr));
+
+  ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                       builder.CreateExpressionImpl(std::move(ast), nullptr));
+
+  cel::Activation act;
+  for (const auto& entry : test_case().vars) {
+    NestedTestAllTypes generated_var;
+    ASSERT_TRUE(
+        google::protobuf::TextFormat::ParseFromString(entry.second, &generated_var));
+    google::protobuf::Message* var =
+        runtime_internal::MakeTestingEnvDynamicProto(generated_var, &arena_);
+    act.InsertOrAssignValue(entry.first, cel::ParsedMessageValue(var, &arena_));
+  }
+
+  if (test_case().setup_activation != nullptr) {
+    ASSERT_THAT(test_case().setup_activation(&arena_, act), IsOk());
+  }
+
+  google::api::expr::runtime::FlatExpressionEvaluatorState state =
+      plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                              env_->MutableMessageFactory(), &arena_);
+  absl::StatusOr<Value> result = plan.EvaluateWithCallback(
+      act, /*embedder_context=*/nullptr,
+      google::api::expr::runtime::EvaluationListener(), state);
+
+  ASSERT_NO_FATAL_FAILURE(test_case().expectations(result));
+}
+
+TEST_P(SelectOptimizationProgramOptimizerTest, UnsafeParsedMessage) {
+  google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
+
+  RuntimeOptions options = runtime_options_;
+  options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
+  options.enable_missing_attribute_errors = true;
+
+  FlatExprBuilder builder(env_, options);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching =
+      enable_field_descriptor_caching();
+
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                       CompileForTestCase(test_case().expr));
+
+  ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                       builder.CreateExpressionImpl(std::move(ast), nullptr));
+
+  cel::Activation act;
+  for (const auto& entry : test_case().vars) {
+    NestedTestAllTypes generated_var;
+    ASSERT_TRUE(
+        google::protobuf::TextFormat::ParseFromString(entry.second, &generated_var));
+    google::protobuf::Message* var =
+        runtime_internal::MakeTestingEnvDynamicProto(generated_var, &arena_);
+    act.InsertOrAssignValue(entry.first, cel::UnsafeParsedMessageValue(var));
+  }
+
+  if (test_case().setup_activation != nullptr) {
+    ASSERT_THAT(test_case().setup_activation(&arena_, act), IsOk());
+  }
+
+  google::api::expr::runtime::FlatExpressionEvaluatorState state =
+      plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                              env_->MutableMessageFactory(), &arena_);
+  absl::StatusOr<Value> result = plan.EvaluateWithCallback(
+      act, /*embedder_context=*/nullptr,
+      google::api::expr::runtime::EvaluationListener(), state);
+
+  ASSERT_NO_FATAL_FAILURE(test_case().expectations(result));
+}
+
+TEST_P(SelectOptimizationProgramOptimizerTest, DifferentDescriptorPool) {
+  google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
+
+  RuntimeOptions options = runtime_options_;
+  options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
+  options.enable_missing_attribute_errors = true;
+
+  FlatExprBuilder builder(env_, options);
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching =
+      enable_field_descriptor_caching();
+
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
+  builder.AddProgramOptimizer(
+      CreateSelectOptimizationProgramOptimizer(select_options));
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
+                       CompileForTestCase(test_case().expr));
+
+  ASSERT_OK_AND_ASSIGN(FlatExpression plan,
+                       builder.CreateExpressionImpl(std::move(ast), nullptr));
+
+  cel::Activation act;
+  for (const auto& entry : test_case().vars) {
+    NestedTestAllTypes* var =
+        google::protobuf::Arena::Create<NestedTestAllTypes>(&arena_);
+    ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(entry.second, var));
+    act.InsertOrAssignValue(entry.first, cel::ParsedMessageValue(var, &arena_));
+  }
+
+  if (test_case().setup_activation != nullptr) {
+    ASSERT_THAT(test_case().setup_activation(&arena_, act), IsOk());
+  }
+
+  google::api::expr::runtime::FlatExpressionEvaluatorState state =
+      plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                              env_->MutableMessageFactory(), &arena_);
+  absl::StatusOr<Value> result = plan.EvaluateWithCallback(
+      act, /*embedder_context=*/nullptr,
+      google::api::expr::runtime::EvaluationListener(), state);
+
+  ASSERT_NO_FATAL_FAILURE(test_case().expectations(result));
 }
 
 TEST_P(SelectOptimizationProgramOptimizerTest, ForceFallbackImpl) {
-  const ProgramOptimizerTestCase& test_case = GetParam();
   google::protobuf::LinkMessageReflection<NestedTestAllTypes>();
 
   RuntimeOptions options = runtime_options_;
@@ -1025,13 +1335,16 @@ TEST_P(SelectOptimizationProgramOptimizerTest, ForceFallbackImpl) {
   FlatExprBuilder builder(env_, options);
   SelectOptimizationOptions select_options;
   select_options.force_fallback_implementation = true;
+  select_options.enable_field_descriptor_caching =
+      enable_field_descriptor_caching();
 
-  builder.AddAstTransform(std::make_unique<SelectOptimizationAstUpdater>());
+  builder.AddAstTransform(
+      std::make_unique<SelectOptimizationAstUpdater>(select_options));
   builder.AddProgramOptimizer(
       CreateSelectOptimizationProgramOptimizer(select_options));
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
-                       CompileForTestCase(test_case.expr));
+                       CompileForTestCase(test_case().expr));
 
   ASSERT_OK_AND_ASSIGN(FlatExpression plan,
                        builder.CreateExpressionImpl(std::move(ast), nullptr));
@@ -1039,7 +1352,7 @@ TEST_P(SelectOptimizationProgramOptimizerTest, ForceFallbackImpl) {
   cel::Activation act;
   // activation only uses a ptr to the underlying message, persist them.
   std::vector<std::unique_ptr<NestedTestAllTypes>> vars;
-  for (const auto& entry : test_case.vars) {
+  for (const auto& entry : test_case().vars) {
     vars.push_back(std::make_unique<NestedTestAllTypes>());
     ASSERT_TRUE(
         google::protobuf::TextFormat::ParseFromString(entry.second, vars.back().get()));
@@ -1047,743 +1360,1852 @@ TEST_P(SelectOptimizationProgramOptimizerTest, ForceFallbackImpl) {
                 IsOk());
   }
 
-  if (test_case.setup_activation != nullptr) {
-    ASSERT_THAT(test_case.setup_activation(&arena_, act), IsOk());
+  if (test_case().setup_activation != nullptr) {
+    ASSERT_THAT(test_case().setup_activation(&arena_, act), IsOk());
   }
 
-  auto state = plan.MakeEvaluatorState(env_->descriptor_pool.get(),
-                                       env_->MutableMessageFactory(), &arena_);
+  google::api::expr::runtime::FlatExpressionEvaluatorState state =
+      plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                              env_->MutableMessageFactory(), &arena_);
   absl::StatusOr<Value> result = plan.EvaluateWithCallback(
       act, /*embedder_context=*/nullptr,
       google::api::expr::runtime::EvaluationListener(), state);
 
-  ASSERT_NO_FATAL_FAILURE(test_case.expectations(result));
+  ASSERT_NO_FATAL_FAILURE(test_case().expectations(result));
 }
 
 INSTANTIATE_TEST_SUITE_P(
     TestCases, SelectOptimizationProgramOptimizerTest,
-    testing::ValuesIn<ProgramOptimizerTestCase>({
-        {
-            "chained_select_success",
-            "nested_test_all_types.child.payload.standalone_message.bb",
-            {{"nested_test_all_types",
-              R"pb(
-                child { payload { standalone_message { bb: 42 } } }
-              )pb"}},
-            ActivationSetupFn(),
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "chained_select_defaults_success",
-            "nested_test_all_types.child.payload.standalone_message.bb",
-            {{"nested_test_all_types", R"pb()pb"}},
-            ActivationSetupFn(),
+    testing::Combine(
+        testing::ValuesIn<ProgramOptimizerTestCase>(
+            {
+                {
+                    "chained_select_success",
+                    "nested_test_all_types.child.payload.standalone_message.bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        child { payload { standalone_message { bb: 42 } } }
+                      )pb"}},
+                    ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "chained_select_defaults_success",
+                    "nested_test_all_types.child.payload.standalone_message.bb",
+                    {{"nested_test_all_types", R"pb()pb"}},
+                    ActivationSetupFn(),
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 0);
-            },
-        },
-        {
-            "chained_select_partial_success",
-            "nested_test_all_types.child.payload.standalone_message.bb",
-            {},
-            [](google::protobuf::Arena* arena, Activation& act) {
-              auto* custom_struct =
-                  google::protobuf::Arena::Create<TestPartialQualifyStruct>(arena,
-                                                                  IntValue(42));
-              act.InsertOrAssignValue("nested_test_all_types",
-                                      CustomStructValue(custom_struct, arena));
-              return absl::OkStatus();
-            },
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "chained_select_presence_partial_present",
-            "has(nested_test_all_types.child.payload.standalone_message.bb)",
-            {},
-            [](google::protobuf::Arena* arena, Activation& act) {
-              auto* custom_struct =
-                  google::protobuf::Arena::Create<TestPartialQualifyStruct>(arena,
-                                                                  IntValue(42));
-              act.InsertOrAssignValue("nested_test_all_types",
-                                      CustomStructValue(custom_struct, arena));
-              return absl::OkStatus();
-            },
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "chained_select_not_bound",
-            "nested_test_all_types.child.payload.standalone_message.bb",
-            {},  // not set
-            ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 0);
+                    },
+                },
+                {
+                    "chained_select_partial_success",
+                    "nested_test_all_types.child.payload.standalone_message.bb",
+                    {},
+                    [](google::protobuf::Arena* arena, Activation& act) {
+                      auto* custom_struct =
+                          google::protobuf::Arena::Create<TestPartialQualifyStruct>(
+                              arena, IntValue(42));
+                      act.InsertOrAssignValue(
+                          "nested_test_all_types",
+                          CustomStructValue(custom_struct, arena));
+                      return absl::OkStatus();
+                    },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "chained_select_presence_partial_present",
+                    "has(nested_test_all_types.child.payload.standalone_"
+                    "message."
+                    "bb)",
+                    {},
+                    [](google::protobuf::Arena* arena, Activation& act) {
+                      auto* custom_struct =
+                          google::protobuf::Arena::Create<TestPartialQualifyStruct>(
+                              arena, IntValue(42));
+                      act.InsertOrAssignValue(
+                          "nested_test_all_types",
+                          CustomStructValue(custom_struct, arena));
+                      return absl::OkStatus();
+                    },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "chained_select_not_bound",
+                    "nested_test_all_types.child.payload.standalone_message.bb",
+                    {},  // not set
+                    ActivationSetupFn(),
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
-              EXPECT_THAT(result.GetError().NativeValue(),
-                          StatusIs(absl::StatusCode::kUnknown,
-                                   HasSubstr("nested_test_all_types")));
-            },
-        },
-        {
-            // Some clients will use maps to represent a protobuf message at
-            // runtime. This is not yet supported.
-            "chained_select_map_as_root_unsupported",
-            "nested_test_all_types.child.payload.standalone_message.bb",
-            {},  // not set
-            [](google::protobuf::Arena* arena, Activation& act) -> absl::Status {
-              auto builder = cel::NewMapValueBuilder(arena);
-              CEL_RETURN_IF_ERROR(builder->Put(
-                  cel::StringValue::WrapUnsafe("child"), cel::NullValue()));
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kUnknown,
+                                           HasSubstr("nested_test_all_types")));
+                    },
+                },
+                {
+                    // Some clients will use maps to represent a protobuf
+                    // message at runtime. This is not yet supported.
+                    "chained_select_map_as_root_unsupported",
+                    "nested_test_all_types.child.payload.standalone_message.bb",
+                    {},  // not set
+                    [](google::protobuf::Arena* arena, Activation& act) -> absl::Status {
+                      auto builder = cel::NewMapValueBuilder(arena);
+                      CEL_RETURN_IF_ERROR(
+                          builder->Put(cel::StringValue::WrapUnsafe("child"),
+                                       cel::NullValue()));
 
-              auto value = std::move(*builder).Build();
+                      auto value = std::move(*builder).Build();
 
-              act.InsertOrAssignValue("nested_test_all_types",
-                                      std::move(value));
+                      act.InsertOrAssignValue("nested_test_all_types",
+                                              std::move(value));
 
-              return absl::OkStatus();
-            },
+                      return absl::OkStatus();
+                    },
 
-            [](const absl::StatusOr<Value>& got) {
-              EXPECT_THAT(got.status(),
-                          StatusIs(absl::StatusCode::kInvalidArgument));
-            },
-        },
-        {
-            // Some clients will use maps to represent a protobuf at runtime,
-            // this is not yet supported.
-            "chained_select_noncontainer_as_root_unsupported",
-            "nested_test_all_types.child.payload.standalone_message.bb",
-            {},  // not set
-            [](google::protobuf::Arena* arena, Activation& act) {
-              act.InsertOrAssignValue("nested_test_all_types",
-                                      cel::DurationValue(absl::Seconds(1)));
-              return absl::OkStatus();
-            },
+                    [](const absl::StatusOr<Value>& got) {
+                      EXPECT_THAT(got.status(),
+                                  StatusIs(absl::StatusCode::kInvalidArgument));
+                    },
+                },
+                {
+                    // Some clients will use maps to represent a protobuf at
+                    // runtime, this is not yet supported.
+                    "chained_select_noncontainer_as_root_unsupported",
+                    "nested_test_all_types.child.payload.standalone_message.bb",
+                    {},  // not set
+                    [](google::protobuf::Arena* arena, Activation& act) {
+                      act.InsertOrAssignValue(
+                          "nested_test_all_types",
+                          cel::DurationValue(absl::Seconds(1)));
+                      return absl::OkStatus();
+                    },
 
-            [](const absl::StatusOr<Value>& got) {
-              EXPECT_THAT(got.status(),
-                          StatusIs(absl::StatusCode::kInvalidArgument));
-            },
-        },
-        {
-            "complex_select_success",
-            "((false)? a.child.child : b.child).child.payload.single_int64",
-            {{"a", ""},
-             {"b",
-              R"pb(
-                child { child { payload { single_int64: -42 } } }
-              )pb"}},
-            ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      EXPECT_THAT(got.status(),
+                                  StatusIs(absl::StatusCode::kInvalidArgument));
+                    },
+                },
+                {
+                    "complex_select_success",
+                    "((false)? a.child.child : "
+                    "b.child).child.payload.single_int64",
+                    {{"a", ""},
+                     {"b",
+                      R"pb(
+                        child { child { payload { single_int64: -42 } } }
+                      )pb"}},
+                    ActivationSetupFn(),
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), -42);
-            },
-        },
-        {
-            "chained_select_presence_present",
-            "has(nested_test_all_types.child.payload.standalone_message.bb)",
-            {{"nested_test_all_types",
-              R"pb(
-                child { payload { standalone_message { bb: 2 } } }
-              )pb"}},
-            ActivationSetupFn(),
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "chained_select_presence_not_present",
-            "has(nested_test_all_types.child.payload.standalone_message.bb)",
-            {{"nested_test_all_types",
-              R"pb(
-                child { payload { standalone_message {} } }
-              )pb"}},
-            ActivationSetupFn(),
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_FALSE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "select_with_map_supported",
-            "nested_test_all_types.payload.map_string_message['$not_a_field']."
-            "bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  map_string_message {
-                    key: "$not_a_field",
-                    value { bb: 5 }
-                  }
-                }
-              )pb"}},
-            ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), -42);
+                    },
+                },
+                {
+                    "chained_select_presence_present",
+                    "has(nested_test_all_types.child.payload.standalone_"
+                    "message."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        child { payload { standalone_message { bb: 2 } } }
+                      )pb"}},
+                    ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "chained_select_presence_not_present",
+                    "has(nested_test_all_types.child.payload.standalone_"
+                    "message."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        child { payload { standalone_message {} } }
+                      )pb"}},
+                    ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_map_supported",
+                    "nested_test_all_types.payload.map_string_message['$not_a_"
+                    "field']."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_message {
+                            key: "$not_a_field",
+                            value { bb: 5 }
+                          }
+                        }
+                      )pb"}},
+                    ActivationSetupFn(),
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 5);
-            },
-        },
-        {
-            "select_with_map_no_such_key",
-            "nested_test_all_types.payload.map_string_message['$not_a_field']."
-            "bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  map_string_message {
-                    key: "a_different_field",
-                    value { bb: 5 }
-                  }
-                }
-              )pb"}},
-            ActivationSetupFn(),
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
-              EXPECT_THAT(result.GetError().NativeValue(),
-                          StatusIs(absl::StatusCode::kNotFound,
-                                   AllOf(HasSubstr("Key not found"),
-                                         HasSubstr("$not_a_field"))));
-            },
-        },
-        {
-            "select_with_repeated_supported",
-            "nested_test_all_types.payload.repeated_nested_message[1].bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  repeated_nested_message {}
-                  repeated_nested_message { bb: 7 }
-                }
-              )pb"}},
-            ActivationSetupFn(),
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 7);
-            },
-        },
-        {
-            "select_with_repeated_index_out_of_bounds",
-            "nested_test_all_types.payload.repeated_nested_message[1].bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { repeated_nested_message {} }
-              )pb"}},
-            ActivationSetupFn(),
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
-              EXPECT_THAT(result.GetError().NativeValue(),
-                          StatusIs(absl::StatusCode::kInvalidArgument,
-                                   HasSubstr("index out of bounds")));
-            },
-        },
-        {
-            // -2^32, which would read element 0 if truncated to an int.
-            "select_with_repeated_index_beyond_int32",
-            "nested_test_all_types.payload.repeated_nested_message"
-            "[-4294967296].bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { repeated_nested_message {} }
-              )pb"}},
-            ActivationSetupFn(),
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
-              EXPECT_THAT(result.GetError().NativeValue(),
-                          StatusIs(absl::StatusCode::kInvalidArgument));
-            },
-        },
-        {
-            "unknown_field",
-            "((false)? a.child.child : b.child).child.payload.single_int64",
-            {{"a", ""},
-             {"b",
-              R"pb(
-                child { child { payload { single_int64: -42 } } }
-              )pb"}},
-            [](google::protobuf::Arena*, Activation& act) {
-              return act.SetUnknownPatterns({AttributePattern(
-                  "b", {AttributeQualifierPattern::OfString("child"),
-                        AttributeQualifierPattern::OfString("child")})});
-            },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 5);
+                    },
+                },
+                {
+                    "select_with_map_no_such_key",
+                    "nested_test_all_types.payload.map_string_message['$not_a_"
+                    "field']."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_message {
+                            key: "a_different_field",
+                            value { bb: 5 }
+                          }
+                        }
+                      )pb"}},
+                    ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kNotFound,
+                                           AllOf(HasSubstr("Key not found"),
+                                                 HasSubstr("$not_a_field"))));
+                    },
+                },
+                {
+                    "select_with_repeated_supported",
+                    "nested_test_all_types.payload.repeated_nested_message[1]."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          repeated_nested_message {}
+                          repeated_nested_message { bb: 7 }
+                        }
+                      )pb"}},
+                    ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 7);
+                    },
+                },
+                {
+                    "select_with_repeated_index_out_of_bounds",
+                    "nested_test_all_types.payload.repeated_nested_message[1]."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_nested_message {} }
+                      )pb"}},
+                    ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kInvalidArgument,
+                                           HasSubstr("index out of bounds")));
+                    },
+                },
+                {
+                    // -2^32, which would read element 0 if truncated to an int.
+                    "select_with_repeated_index_beyond_int32",
+                    "nested_test_all_types.payload.repeated_nested_message"
+                    "[-4294967296].bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_nested_message {} }
+                      )pb"}},
+                    ActivationSetupFn(),
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kInvalidArgument));
+                    },
+                },
+                {
+                    "unknown_field",
+                    "((false)? a.child.child : "
+                    "b.child).child.payload.single_int64",
+                    {{"a", ""},
+                     {"b",
+                      R"pb(
+                        child { child { payload { single_int64: -42 } } }
+                      )pb"}},
+                    [](google::protobuf::Arena*, Activation& act) {
+                      return act.SetUnknownPatterns({AttributePattern(
+                          "b",
+                          {AttributeQualifierPattern::OfString("child"),
+                           AttributeQualifierPattern::OfString("child")})});
+                    },
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<UnknownValue>()) << result->DebugString();
-              EXPECT_THAT(
-                  result.GetUnknown().ToAttributeSet(),
-                  ElementsAre(Eq(Attribute(
-                      "b", {
-                               AttributeQualifier::OfString("child"),
-                               AttributeQualifier::OfString("child"),
-                           }))));
-            },
-        },
-        {
-            "unknown_field_partial",
-            "((false)? a.child.child : b.child).child.payload.single_int64",
-            {{"a", ""},
-             {"b",
-              R"pb(
-                child { child { payload { single_int64: -42 } } }
-              )pb"}},
-            [](google::protobuf::Arena*, Activation& act) {
-              return act.SetUnknownPatterns({AttributePattern(
-                  "b", {AttributeQualifierPattern::OfString("child"),
-                        AttributeQualifierPattern::OfString("child"),
-                        AttributeQualifierPattern::OfString("child")})});
-            },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<UnknownValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(
+                          result.GetUnknown().ToAttributeSet(),
+                          ElementsAre(Eq(Attribute(
+                              "b", {
+                                       AttributeQualifier::OfString("child"),
+                                       AttributeQualifier::OfString("child"),
+                                   }))));
+                    },
+                },
+                {
+                    "unknown_field_partial",
+                    "((false)? a.child.child : "
+                    "b.child).child.payload.single_int64",
+                    {{"a", ""},
+                     {"b",
+                      R"pb(
+                        child { child { payload { single_int64: -42 } } }
+                      )pb"}},
+                    [](google::protobuf::Arena*, Activation& act) {
+                      return act.SetUnknownPatterns({AttributePattern(
+                          "b",
+                          {AttributeQualifierPattern::OfString("child"),
+                           AttributeQualifierPattern::OfString("child"),
+                           AttributeQualifierPattern::OfString("child")})});
+                    },
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), -42);
-            },
-        },
-        {
-            "unknown_ident",
-            "((false)? a.child.child : b.child).child.payload.single_int64",
-            {{"a", ""},
-             {"b",
-              R"pb(
-                child { child { payload { single_int64: -42 } } }
-              )pb"}},
-            [](google::protobuf::Arena*, Activation& act) {
-              return act.SetUnknownPatterns({
-                  AttributePattern("b", {}),
-              });
-            },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), -42);
+                    },
+                },
+                {
+                    "unknown_ident",
+                    "((false)? a.child.child : "
+                    "b.child).child.payload.single_int64",
+                    {{"a", ""},
+                     {"b",
+                      R"pb(
+                        child { child { payload { single_int64: -42 } } }
+                      )pb"}},
+                    [](google::protobuf::Arena*, Activation& act) {
+                      return act.SetUnknownPatterns({
+                          AttributePattern("b", {}),
+                      });
+                    },
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<UnknownValue>()) << result->DebugString();
-              EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
-                          ElementsAre(Truly([](const Attribute& attr) {
-                            return attr.variable_name() == "b";
-                          })));
-            },
-        },
-        {
-            "unknown_pruned",
-            "((false)? a.child.child : b.child).child.payload.single_int64",
-            {{"a", ""},
-             {"b",
-              R"pb(
-                child { child { payload { single_int64: -42 } } }
-              )pb"}},
-            [](google::protobuf::Arena*, Activation& act) {
-              return act.SetUnknownPatterns({
-                  AttributePattern("a", {}),
-              });
-            },
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), -42);
-            },
-        },
-        {
-            "missing_field",
-            "custom_predicate(nested_test_all_types.child.payload.standalone_"
-            "message)",
-            {{"nested_test_all_types",
-              R"pb(
-                child { payload { standalone_message { bb: 20 } } }
-              )pb"}},
-            [](google::protobuf::Arena*, Activation& act) {
-              return act.SetMissingPatterns({AttributePattern(
-                  "nested_test_all_types",
-                  {
-                      AttributeQualifierPattern::OfString("child"),
-                  })});
-            },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<UnknownValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetUnknown().ToAttributeSet(),
+                                  ElementsAre(Truly([](const Attribute& attr) {
+                                    return attr.variable_name() == "b";
+                                  })));
+                    },
+                },
+                {
+                    "unknown_pruned",
+                    "((false)? a.child.child : "
+                    "b.child).child.payload.single_int64",
+                    {{"a", ""},
+                     {"b",
+                      R"pb(
+                        child { child { payload { single_int64: -42 } } }
+                      )pb"}},
+                    [](google::protobuf::Arena*, Activation& act) {
+                      return act.SetUnknownPatterns({
+                          AttributePattern("a", {}),
+                      });
+                    },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), -42);
+                    },
+                },
+                {
+                    "missing_field",
+                    "custom_predicate(nested_test_all_types.child.payload."
+                    "standalone_"
+                    "message)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        child { payload { standalone_message { bb: 20 } } }
+                      )pb"}},
+                    [](google::protobuf::Arena*, Activation& act) {
+                      return act.SetMissingPatterns({AttributePattern(
+                          "nested_test_all_types",
+                          {
+                              AttributeQualifierPattern::OfString("child"),
+                          })});
+                    },
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
-              EXPECT_THAT(result.GetError().NativeValue().message(),
-                          HasSubstr("nested_test_all_types.child"));
-            },
-        },
-        {
-            "missing_field_partial",
-            "custom_predicate(nested_test_all_types.child.payload.standalone_"
-            "message)",
-            {{"nested_test_all_types",
-              R"pb(
-                child { payload { standalone_message { bb: 20 } } }
-              )pb"}},
-            [](google::protobuf::Arena*, Activation& act) {
-              return act.SetMissingPatterns({AttributePattern(
-                  "b", {AttributeQualifierPattern::OfString("child"),
-                        AttributeQualifierPattern::OfString("child")})});
-            },
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue().message(),
+                                  HasSubstr("nested_test_all_types.child"));
+                    },
+                },
+                {
+                    "missing_field_partial",
+                    "custom_predicate(nested_test_all_types.child.payload."
+                    "standalone_"
+                    "message)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        child { payload { standalone_message { bb: 20 } } }
+                      )pb"}},
+                    [](google::protobuf::Arena*, Activation& act) {
+                      return act.SetMissingPatterns({AttributePattern(
+                          "b",
+                          {AttributeQualifierPattern::OfString("child"),
+                           AttributeQualifierPattern::OfString("child")})});
+                    },
 
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "select_wrapper_int_leaf",
-            "nested_test_all_types.payload.single_int64_wrapper",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { single_int64_wrapper { value: 10 } }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 10);
-            },
-        },
-        {
-            "select_repeated_leaf",
-            "nested_test_all_types.payload.repeated_int64",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { repeated_int64: 10 }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<ListValue>()) << result->DebugString();
-            },
-        },
-        {
-            "select_map_leaf",
-            "nested_test_all_types.payload.map_string_int64",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { map_string_int64 { key: "key", value: 12 } }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<MapValue>()) << result->DebugString();
-            },
-        },
-        {
-            "select_with_map_dot",
-            "nested_test_all_types.payload.map_string_message.field_like_key."
-            "bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  map_string_message {
-                    key: "field_like_key",
-                    value { bb: 42 }
-                  }
-                }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "select_with_map_bool",
-            "nested_test_all_types.payload.map_bool_message[false].bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  map_bool_message {
-                    key: false,
-                    value { bb: 42 }
-                  }
-                }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "select_with_map_int",
-            "nested_test_all_types.payload.map_int64_message[-1].bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  map_int64_message {
-                    key: -1,
-                    value { bb: 42 }
-                  }
-                }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "select_with_map_uint",
-            "nested_test_all_types.payload.map_uint64_message[1u].bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  map_uint64_message {
-                    key: 1,
-                    value { bb: 42 }
-                  }
-                }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "select_with_repeated",
-            "nested_test_all_types.payload.repeated_nested_message[1].bb",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  repeated_nested_message {}
-                  repeated_nested_message { bb: 42 }
-                }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "select_with_any",
-            "nested_test_all_types.payload.single_any.single_int64",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {
-                  single_any {
-                    [type.googleapis.com/cel.expr.conformance.proto2
-                         .TestAllTypes] { single_int64: 42 }
-                  }
-                }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
-              EXPECT_EQ(result.GetInt().NativeValue(), 42);
-            },
-        },
-        {
-            "has_repeated_leaf_true",
-            "has(nested_test_all_types.payload.repeated_int64)",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { repeated_int64: 42 }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "has_repeated_leaf_false",
-            "has(nested_test_all_types.payload.repeated_int64)",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {}
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_FALSE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "has_map_leaf_true",
-            "has(nested_test_all_types.payload.map_string_int64)",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { map_string_int64 { key: "string" value: 12 } }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "has_map_leaf_false",
-            "has(nested_test_all_types.payload.map_string_int64)",
-            {{"nested_test_all_types",
-              R"pb(
-                payload {}
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_FALSE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "has_map_field_like_key",
-            "has(nested_test_all_types.payload.map_string_int64.field_like_"
-            "key)",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { map_string_int64 { key: "field_like_key" value: 12 } }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "has_map_field_like_key_false",
-            "has(nested_test_all_types.payload.map_string_int64.field_like_"
-            "key)",
-            {{"nested_test_all_types",
-              R"pb(
-                payload { map_string_int64 { key: "wrong_key" value: 12 } }
-              )pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_FALSE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "select_wrong_runtime_type",
-            "test_all_types.single_int64",
-            {{}},
-            [](google::protobuf::Arena* arena, Activation& activation) {
-              activation.InsertOrAssignValue("test_all_types",
-                                             cel::IntValue(42));
-              return absl::OkStatus();
-            },
-            [](const absl::StatusOr<Value>& got) {
-              EXPECT_THAT(got, StatusIs(absl::StatusCode::kInvalidArgument,
-                                        HasSubstr("Expected struct type")));
-            },
-        },
-        {
-            "select_with_struct",
-            "nested_test_all_types.payload.single_struct['key']['subkey']",
-            {{"nested_test_all_types",
-              R"pb(payload {
-                     single_struct {
-                       fields {
-                         key: "key"
-                         value {
-                           struct_value {
-                             fields {
-                               key: "subkey"
-                               value { bool_value: true }
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_wrapper_int_leaf",
+                    "nested_test_all_types.payload.single_int64_wrapper",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { single_int64_wrapper { value: 10 } }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 10);
+                    },
+                },
+                {
+                    "select_repeated_leaf",
+                    "nested_test_all_types.payload.repeated_int64",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_int64: 10 }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ListValue>())
+                          << result->DebugString();
+                    },
+                },
+                {
+                    "select_map_leaf",
+                    "nested_test_all_types.payload.map_string_int64",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { map_string_int64 { key: "key", value: 12 } }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<MapValue>())
+                          << result->DebugString();
+                    },
+                },
+                {
+                    "select_with_map_dot",
+                    "nested_test_all_types.payload.map_string_message.field_"
+                    "like_"
+                    "key."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_message {
+                            key: "field_like_key",
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_map_bool",
+                    "nested_test_all_types.payload.map_bool_message[false].bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_bool_message {
+                            key: false,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_map_int",
+                    "nested_test_all_types.payload.map_int64_message[-1].bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_int64_message {
+                            key: -1,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_map_uint",
+                    "nested_test_all_types.payload.map_uint64_message[1u].bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_uint64_message {
+                            key: 1,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_repeated",
+                    "nested_test_all_types.payload.repeated_nested_message[1]."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          repeated_nested_message {}
+                          repeated_nested_message { bb: 42 }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_any",
+                    "nested_test_all_types.payload.single_any.single_int64",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          single_any {
+                            [type.googleapis.com/cel.expr.conformance.proto2
+                                 .TestAllTypes] { single_int64: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "has_repeated_leaf_true",
+                    "has(nested_test_all_types.payload.repeated_int64)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_int64: 42 }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_repeated_leaf_false",
+                    "has(nested_test_all_types.payload.repeated_int64)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {}
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_map_leaf_true",
+                    "has(nested_test_all_types.payload.map_string_int64)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { map_string_int64 { key: "string" value: 12 } }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_map_leaf_false",
+                    "has(nested_test_all_types.payload.map_string_int64)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {}
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_map_field_like_key",
+                    "has(nested_test_all_types.payload.map_string_int64.field_"
+                    "like_"
+                    "key)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_int64 { key: "field_like_key" value: 12 }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_map_field_like_key_false",
+                    "has(nested_test_all_types.payload.map_string_int64.field_"
+                    "like_"
+                    "key)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_int64 { key: "wrong_key" value: 12 }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_simple_true",
+                    "has(nested_test_all_types.child)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        child {}
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_simple_false",
+                    "has(nested_test_all_types.child)",
+                    {{"nested_test_all_types", R"pb()pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_through_map_true",
+                    "has(nested_test_all_types.payload.map_string_message['key'"
+                    "]."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_message {
+                            key: "key"
+                            value { bb: 5 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_through_map_false",
+                    "has(nested_test_all_types.payload.map_string_message['key'"
+                    "]."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_message {
+                            key: "key"
+                            value {}
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_through_map_no_such_key",
+                    "has(nested_test_all_types.payload.map_string_message['"
+                    "missing_"
+                    "key'].bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_message {
+                            key: "other_key"
+                            value { bb: 5 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kNotFound,
+                                           AllOf(HasSubstr("Key not found"),
+                                                 HasSubstr("missing_key"))));
+                    },
+                },
+                {
+                    "has_through_map_int32_overflow",
+                    "has(nested_test_all_types.payload.map_int32_message["
+                    "2147483648].bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_int32_message {
+                            key: 1
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(
+                          result.GetError().NativeValue(),
+                          testing::AnyOf(
+                              StatusIs(absl::StatusCode::kOutOfRange,
+                                       HasSubstr("integer overflow")),
+                              StatusIs(absl::StatusCode::kInvalidArgument,
+                                       HasSubstr("Invalid map key type"))));
+                    },
+                },
+                {
+                    "has_through_repeated_true",
+                    "has(nested_test_all_types.payload.repeated_nested_message["
+                    "1]."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          repeated_nested_message {}
+                          repeated_nested_message { bb: 7 }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_through_repeated_false",
+                    "has(nested_test_all_types.payload.repeated_nested_message["
+                    "1]."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          repeated_nested_message {}
+                          repeated_nested_message {}
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_through_repeated_index_out_of_bounds",
+                    "has(nested_test_all_types.payload.repeated_nested_message["
+                    "1]."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_nested_message { bb: 7 } }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kInvalidArgument,
+                                           HasSubstr("index out of bounds")));
+                    },
+                },
+                {
+                    "has_through_repeated_negative_index",
+                    "has(nested_test_all_types.payload.repeated_nested_message["
+                    "-1]."
+                    "bb)",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_nested_message { bb: 7 } }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kInvalidArgument));
+                    },
+                },
+                {
+                    "select_wrong_runtime_type",
+                    "test_all_types.single_int64",
+                    {{}},
+                    [](google::protobuf::Arena* arena, Activation& activation) {
+                      activation.InsertOrAssignValue("test_all_types",
+                                                     cel::IntValue(42));
+                      return absl::OkStatus();
+                    },
+                    [](const absl::StatusOr<Value>& got) {
+                      EXPECT_THAT(got,
+                                  StatusIs(absl::StatusCode::kInvalidArgument,
+                                           HasSubstr("Expected struct type")));
+                    },
+                },
+                {
+                    "select_with_struct",
+                    "nested_test_all_types.payload.single_struct['key']['"
+                    "subkey']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_struct {
+                               fields {
+                                 key: "key"
+                                 value {
+                                   struct_value {
+                                     fields {
+                                       key: "subkey"
+                                       value { bool_value: true }
+                                     }
+                                   }
+                                 }
+                               }
                              }
-                           }
-                         }
-                       }
-                     }
-                   })pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "select_with_list_value",
-            "nested_test_all_types.payload.list_value[0]['subkey']",
-            {{"nested_test_all_types",
-              R"pb(payload {
-                     list_value {
-                       values {
-                         struct_value {
-                           fields {
-                             key: "subkey"
-                             value { bool_value: true }
-                           }
-                         }
-                       }
-                     }
-                   })pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-        {
-            "select_with_value",
-            "nested_test_all_types.payload.single_value['key']['subkey']",
-            {{"nested_test_all_types",
-              R"pb(payload {
-                     single_value {
-                       struct_value {
-                         fields {
-                           key: "key"
-                           value {
-                             struct_value {
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_list_value",
+                    "nested_test_all_types.payload.list_value[0]['subkey']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             list_value {
+                               values {
+                                 struct_value {
+                                   fields {
+                                     key: "subkey"
+                                     value { bool_value: true }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_value",
+                    "nested_test_all_types.payload.single_value['key']['subkey'"
+                    "]",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_value {
+                               struct_value {
+                                 fields {
+                                   key: "key"
+                                   value {
+                                     struct_value {
+                                       fields {
+                                         key: "subkey"
+                                         value { bool_value: true }
+                                       }
+                                     }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_map_int32",
+                    "nested_test_all_types.payload.map_int32_message[-1].bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_int32_message {
+                            key: -1,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_map_int32_overflow",
+                    "nested_test_all_types.payload.map_int32_message["
+                    "2147483648]."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_int32_message {
+                            key: 1,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(
+                          result.GetError().NativeValue(),
+                          testing::AnyOf(
+                              StatusIs(absl::StatusCode::kOutOfRange,
+                                       HasSubstr("integer overflow")),
+                              StatusIs(absl::StatusCode::kInvalidArgument,
+                                       HasSubstr("Invalid map key type"))));
+                    },
+                },
+                {
+                    "select_with_map_int32_underflow",
+                    "nested_test_all_types.payload.map_int32_message[-"
+                    "2147483649]."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_int32_message {
+                            key: -1,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(
+                          result.GetError().NativeValue(),
+                          testing::AnyOf(
+                              StatusIs(absl::StatusCode::kOutOfRange,
+                                       HasSubstr("integer overflow")),
+                              StatusIs(absl::StatusCode::kInvalidArgument,
+                                       HasSubstr("Invalid map key type"))));
+                    },
+                },
+                {
+                    "select_with_map_uint32",
+                    "nested_test_all_types.payload.map_uint32_message[1u].bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_uint32_message {
+                            key: 1,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_map_uint32_overflow",
+                    "nested_test_all_types.payload.map_uint32_message["
+                    "4294967296u]."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_uint32_message {
+                            key: 1,
+                            value { bb: 42 }
+                          }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(
+                          result.GetError().NativeValue(),
+                          testing::AnyOf(
+                              StatusIs(absl::StatusCode::kOutOfRange,
+                                       HasSubstr("unsigned integer over")),
+                              StatusIs(absl::StatusCode::kInvalidArgument,
+                                       HasSubstr("Invalid map key type"))));
+                    },
+                },
+                {
+                    "select_map_element_leaf",
+                    "nested_test_all_types.payload.map_string_int64['key']",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { map_string_int64 { key: "key", value: 12 } }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 12);
+                    },
+                },
+                {
+                    "select_map_dot_leaf",
+                    "nested_test_all_types.payload.map_string_int64.field_like_"
+                    "key",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload {
+                          map_string_int64 { key: "field_like_key", value: 12 }
+                        }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 12);
+                    },
+                },
+                {
+                    "select_repeated_element_leaf",
+                    "nested_test_all_types.payload.repeated_int64[1]",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_int64: 10 repeated_int64: 42 }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<IntValue>())
+                          << result->DebugString();
+                      EXPECT_EQ(result.GetInt().NativeValue(), 42);
+                    },
+                },
+                {
+                    "select_with_repeated_negative_index",
+                    "nested_test_all_types.payload.repeated_nested_message[-1]."
+                    "bb",
+                    {{"nested_test_all_types",
+                      R"pb(
+                        payload { repeated_nested_message { bb: 42 } }
+                      )pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetError().NativeValue(),
+                                  StatusIs(absl::StatusCode::kInvalidArgument));
+                    },
+                },
+                {
+                    "select_with_map_struct",
+                    "nested_test_all_types.payload.map_string_struct['key']['"
+                    "subkey']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             map_string_struct {
+                               key: "key"
+                               value {
+                                 fields {
+                                   key: "subkey"
+                                   value { bool_value: true }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_map_list_value",
+                    "nested_test_all_types.payload.map_string_list_value['key']"
+                    "[0]["
+                    "'subkey']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             map_string_list_value {
+                               key: "key"
+                               value {
+                                 values {
+                                   struct_value {
+                                     fields {
+                                       key: "subkey"
+                                       value { bool_value: true }
+                                     }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_map_value",
+                    "nested_test_all_types.payload.map_string_value['key']['"
+                    "subkey'"
+                    "]",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             map_string_value {
+                               key: "key"
+                               value {
+                                 struct_value {
+                                   fields {
+                                     key: "subkey"
+                                     value { bool_value: true }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_repeated_struct",
+                    "nested_test_all_types.payload.repeated_struct[0]['subkey'"
+                    "]",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             repeated_struct {
                                fields {
                                  key: "subkey"
                                  value { bool_value: true }
                                }
                              }
-                           }
-                         }
-                       }
-                     }
-                   })pb"}},
-            nullptr,
-            [](const absl::StatusOr<Value>& got) {
-              ASSERT_OK_AND_ASSIGN(Value result, got);
-              ASSERT_TRUE(result->Is<BoolValue>()) << result->DebugString();
-              EXPECT_TRUE(result.GetBool().NativeValue());
-            },
-        },
-    }),
-
-    [](const testing::TestParamInfo<ProgramOptimizerTestCase>& info) {
-      return info.param.case_name;
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_repeated_list_value",
+                    "nested_test_all_types.payload.repeated_list_value[0][0]['"
+                    "subkey']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             repeated_list_value {
+                               values {
+                                 struct_value {
+                                   fields {
+                                     key: "subkey"
+                                     value { bool_value: true }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_repeated_value",
+                    "nested_test_all_types.payload.repeated_value[0]['subkey']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             repeated_value {
+                               struct_value {
+                                 fields {
+                                   key: "subkey"
+                                   value { bool_value: true }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_bad_any_fallback",
+                    "nested_test_all_types.payload.single_any['subkey']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_any {
+                               type_url: "type.googleapis.com/UnknownType"
+                               value: "invalid"
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ErrorValue>())
+                          << result->DebugString();
+                    },
+                },
+                {
+                    "select_struct_leaf",
+                    "nested_test_all_types.payload.single_struct",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_struct {
+                               fields {
+                                 key: "key"
+                                 value { bool_value: true }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<MapValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetMap().Size(),
+                                  absl_testing::IsOkAndHolds(1));
+                    },
+                },
+                {
+                    "select_struct_leaf_unset",
+                    "nested_test_all_types.payload.single_struct",
+                    {{"nested_test_all_types", R"pb(payload {})pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<MapValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetMap().Size(),
+                                  absl_testing::IsOkAndHolds(0));
+                    },
+                },
+                {
+                    "select_value_leaf",
+                    "nested_test_all_types.payload.single_value",
+                    {{"nested_test_all_types",
+                      R"pb(payload { single_value { bool_value: true } })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_value_leaf_unset",
+                    "nested_test_all_types.payload.single_value",
+                    {{"nested_test_all_types", R"pb(payload {})pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      EXPECT_TRUE(result->Is<NullValue>())
+                          << result->DebugString();
+                    },
+                },
+                {
+                    "select_list_value_leaf",
+                    "nested_test_all_types.payload.list_value",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             list_value { values { bool_value: true } }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ListValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetList().Size(),
+                                  absl_testing::IsOkAndHolds(1));
+                    },
+                },
+                {
+                    "select_list_value_leaf_unset",
+                    "nested_test_all_types.payload.list_value",
+                    {{"nested_test_all_types", R"pb(payload {})pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ListValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetList().Size(),
+                                  absl_testing::IsOkAndHolds(0));
+                    },
+                },
+                {
+                    "has_struct_leaf_true",
+                    "has(nested_test_all_types.payload.single_struct)",
+                    {{"nested_test_all_types",
+                      R"pb(payload { single_struct {} })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_struct_leaf_false",
+                    "has(nested_test_all_types.payload.single_struct)",
+                    {{"nested_test_all_types", R"pb(payload {})pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_value_leaf_true",
+                    "has(nested_test_all_types.payload.single_value)",
+                    {{"nested_test_all_types", R"pb(payload {
+                                                      single_value {
+                                                        null_value: NULL_VALUE
+                                                      }
+                                                    })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_value_leaf_false",
+                    "has(nested_test_all_types.payload.single_value)",
+                    {{"nested_test_all_types", R"pb(payload {})pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_list_value_leaf_true",
+                    "has(nested_test_all_types.payload.list_value)",
+                    {{"nested_test_all_types",
+                      R"pb(payload { list_value {} })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_list_value_leaf_false",
+                    "has(nested_test_all_types.payload.list_value)",
+                    {{"nested_test_all_types", R"pb(payload {})pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_map_struct_leaf",
+                    "nested_test_all_types.payload.map_string_struct['key']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             map_string_struct {
+                               key: "key"
+                               value {
+                                 fields {
+                                   key: "subkey"
+                                   value { bool_value: true }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<MapValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetMap().Size(),
+                                  absl_testing::IsOkAndHolds(1));
+                    },
+                },
+                {
+                    "select_map_list_value_leaf",
+                    "nested_test_all_types.payload.map_string_list_value['key'"
+                    "]",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             map_string_list_value {
+                               key: "key"
+                               value { values { bool_value: true } }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ListValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetList().Size(),
+                                  absl_testing::IsOkAndHolds(1));
+                    },
+                },
+                {
+                    "select_map_value_leaf",
+                    "nested_test_all_types.payload.map_string_value['key']",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             map_string_value {
+                               key: "key"
+                               value { bool_value: true }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_repeated_struct_leaf",
+                    "nested_test_all_types.payload.repeated_struct[0]",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             repeated_struct {
+                               fields {
+                                 key: "subkey"
+                                 value { bool_value: true }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<MapValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetMap().Size(),
+                                  absl_testing::IsOkAndHolds(1));
+                    },
+                },
+                {
+                    "select_repeated_list_value_leaf",
+                    "nested_test_all_types.payload.repeated_list_value[0]",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             repeated_list_value { values { bool_value: true } }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<ListValue>())
+                          << result->DebugString();
+                      EXPECT_THAT(result.GetList().Size(),
+                                  absl_testing::IsOkAndHolds(1));
+                    },
+                },
+                {
+                    "select_repeated_value_leaf",
+                    "nested_test_all_types.payload.repeated_value[0]",
+                    {{"nested_test_all_types", R"pb(payload {
+                                                      repeated_value {
+                                                        bool_value: true
+                                                      }
+                                                    })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_struct_dot",
+                    "nested_test_all_types.payload.single_struct.key.subkey",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_struct {
+                               fields {
+                                 key: "key"
+                                 value {
+                                   struct_value {
+                                     fields {
+                                       key: "subkey"
+                                       value { bool_value: true }
+                                     }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_with_struct_dot_true",
+                    "has(nested_test_all_types.payload.single_struct.key)",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_struct {
+                               fields {
+                                 key: "key"
+                                 value { bool_value: false }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_with_struct_dot_false",
+                    "has(nested_test_all_types.payload.single_struct.key)",
+                    {{"nested_test_all_types",
+                      R"pb(payload { single_struct {} })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_with_struct_nested_dot_true",
+                    "has(nested_test_all_types.payload.single_struct.key."
+                    "subkey)",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_struct {
+                               fields {
+                                 key: "key"
+                                 value {
+                                   struct_value {
+                                     fields {
+                                       key: "subkey"
+                                       value { bool_value: false }
+                                     }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_with_struct_nested_dot_false",
+                    "has(nested_test_all_types.payload.single_struct.key."
+                    "subkey)",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_struct {
+                               fields {
+                                 key: "key"
+                                 value { struct_value {} }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_value_dot",
+                    "nested_test_all_types.payload.single_value.key.subkey",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_value {
+                               struct_value {
+                                 fields {
+                                   key: "key"
+                                   value {
+                                     struct_value {
+                                       fields {
+                                         key: "subkey"
+                                         value { bool_value: true }
+                                       }
+                                     }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_with_value_dot_true",
+                    "has(nested_test_all_types.payload.single_value.key)",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             single_value {
+                               struct_value {
+                                 fields {
+                                   key: "key"
+                                   value { bool_value: false }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "has_with_value_dot_false",
+                    "has(nested_test_all_types.payload.single_value.key)",
+                    {{"nested_test_all_types",
+                      R"pb(payload { single_value { struct_value {} } })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_FALSE(result.GetBool().NativeValue());
+                    },
+                },
+                {
+                    "select_with_list_value_dot",
+                    "nested_test_all_types.payload.list_value[0].subkey",
+                    {{"nested_test_all_types",
+                      R"pb(payload {
+                             list_value {
+                               values {
+                                 struct_value {
+                                   fields {
+                                     key: "subkey"
+                                     value { bool_value: true }
+                                   }
+                                 }
+                               }
+                             }
+                           })pb"}},
+                    nullptr,
+                    [](const absl::StatusOr<Value>& got) {
+                      ASSERT_OK_AND_ASSIGN(Value result, got);
+                      ASSERT_TRUE(result->Is<BoolValue>())
+                          << result->DebugString();
+                      EXPECT_TRUE(result.GetBool().NativeValue());
+                    },
+                },
+            }),
+        testing::Bool()),
+    [](const testing::TestParamInfo<
+        SelectOptimizationProgramOptimizerTest::ParamType>& info) {
+      return absl::StrCat(std::get<0>(info.param).case_name, "_",
+                          std::get<1>(info.param) ? "cached" : "uncached");
     });
 
 // Tests covering unexpected / malformed ASTs.
@@ -1828,6 +3250,18 @@ class SelectOptimizationUnexpectedAstTest : public SelectOptimizationTest {
     return result;
   }
 
+  Expr NextUint(uint64_t value) {
+    Expr result = NextExpr();
+    result.mutable_const_expr().set_uint64_value(value);
+    return result;
+  }
+
+  Expr NextBool(bool value) {
+    Expr result = NextExpr();
+    result.mutable_const_expr().set_bool_value(value);
+    return result;
+  }
+
   // Plans `fn(ident, args...)` with only the select program optimizer.
   template <typename... Exprs>
   absl::Status PlanSelectCall(absl::string_view fn, Exprs... args) {
@@ -1839,6 +3273,41 @@ class SelectOptimizationUnexpectedAstTest : public SelectOptimizationTest {
     FlatExprBuilder builder(env_, runtime_options_);
     builder.AddProgramOptimizer(CreateSelectOptimizationProgramOptimizer());
     return builder.CreateExpressionImpl(std::move(ast), nullptr).status();
+  }
+
+  // Helper for testing malformed / type mismatched optimized select chains.
+  absl::StatusOr<Value> EvalTypedSelectCall(absl::string_view fn,
+                                            Expr select_list,
+                                            const NestedTestAllTypes& msg) {
+    auto ast = std::make_unique<Ast>(NextExpr(), SourceInfo());
+    CallExpr& call = ast->mutable_root_expr().mutable_call_expr();
+    call.set_function(fn);
+    Expr ident = NextExpr();
+    int64_t ident_id = ident.id();
+    ident.mutable_ident_expr().set_name("ident");
+    call.mutable_args().push_back(std::move(ident));
+    call.mutable_args().push_back(std::move(select_list));
+    ast->mutable_type_map()[ident_id] = TypeSpec(
+        MessageTypeSpec("cel.expr.conformance.proto2.NestedTestAllTypes"));
+
+    SelectOptimizationOptions select_options;
+    select_options.enable_field_descriptor_caching = true;
+    FlatExprBuilder builder(env_, runtime_options_);
+    builder.AddProgramOptimizer(
+        CreateSelectOptimizationProgramOptimizer(select_options));
+    CEL_ASSIGN_OR_RETURN(FlatExpression plan,
+                         builder.CreateExpressionImpl(std::move(ast), nullptr));
+
+    cel::Activation act;
+    google::protobuf::Message* var =
+        runtime_internal::MakeTestingEnvDynamicProto(msg, &arena_);
+    act.InsertOrAssignValue("ident", cel::ParsedMessageValue(var, &arena_));
+    google::api::expr::runtime::FlatExpressionEvaluatorState state =
+        plan.MakeEvaluatorState(env_->descriptor_pool.get(),
+                                env_->MutableMessageFactory(), &arena_);
+    return plan.EvaluateWithCallback(
+        act, /*embedder_context=*/nullptr,
+        google::api::expr::runtime::EvaluationListener(), state);
   }
 
  protected:
@@ -2035,6 +3504,276 @@ TEST_F(SelectOptimizationUnexpectedAstTest,
                                        NextInt(5), NextInt(0), NextInt(0)))),
       StatusIs(absl::StatusCode::kInvalidArgument,
                HasSubstr("Invalid cel.attribute select list")));
+}
+
+TEST_F(SelectOptimizationUnexpectedAstTest, CachedFieldDescriptorMapKeyErrors) {
+  NestedTestAllTypes msg;
+
+  // map<bool, bool> (field 63) with int key
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelAttribute,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(63), NextString("map_bool_bool")),
+                     NextInt(1)),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Invalid map key type")));
+  }
+
+  // map<int32, int32> (field 77) with string key
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelAttribute,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(77), NextString("map_int32_int32")),
+                     NextString("bad_key")),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Invalid map key type")));
+  }
+
+  // map<int64, int64> (field 89) with bool key
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelAttribute,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(89), NextString("map_int64_int64")),
+                     NextBool(true)),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Invalid map key type")));
+  }
+
+  // map<uint32, uint32> (field 201) with int key
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelAttribute,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(201), NextString("map_uint32_uint32")),
+                     NextInt(1)),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Invalid map key type")));
+  }
+
+  // map<uint64, uint64> (field 213) with int key
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelAttribute,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(213), NextString("map_uint64_uint64")),
+                     NextInt(1)),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Invalid map key type")));
+  }
+
+  // map<string, string> (field 61) with int key
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelAttribute,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(61), NextString("map_string_string")),
+                     NextInt(1)),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Invalid map key type")));
+  }
+}
+
+TEST_F(SelectOptimizationUnexpectedAstTest,
+       CachedFieldDescriptorMapPresenceErrors) {
+  NestedTestAllTypes msg;
+
+  // has(ident.payload.map_int64_int64[1]) -> non-string qualifier for has()
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelHasField,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(89), NextString("map_int64_int64")),
+                     NextInt(1)),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kUnknown,
+                         HasSubstr("No matching overloads found : has")));
+  }
+
+  // has(ident.payload.map_int64_int64.key) -> string qualifier on int64 map
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelHasField,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(89), NextString("map_int64_int64")),
+                     NextString("key")),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Invalid map key type")));
+  }
+}
+
+TEST_F(SelectOptimizationUnexpectedAstTest, CachedFieldDescriptorListErrors) {
+  NestedTestAllTypes msg;
+
+  // has(ident.payload.repeated_int32[0]) -> presence test on list element
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelHasField,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(31), NextString("repeated_int32")),
+                     NextInt(0)),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kUnknown,
+                         HasSubstr("No matching overloads found : has")));
+  }
+
+  // ident.payload.repeated_int32['bad_index'] -> non-int64 list index
+  {
+    ASSERT_OK_AND_ASSIGN(
+        Value result,
+        EvalTypedSelectCall(
+            kCelAttribute,
+            NextList(NextList(NextInt(2), NextString("payload")),
+                     NextList(NextInt(31), NextString("repeated_int32")),
+                     NextString("bad_index")),
+            msg));
+    ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+    EXPECT_THAT(result.GetError().NativeValue(),
+                StatusIs(absl::StatusCode::kUnknown,
+                         HasSubstr("No matching overloads found : _[_]")));
+  }
+}
+
+// Tests for overlay pool with cross-pool extensions.
+// We specifically recommend against doing this, but some clients do it.
+// Behavior is not totally consistent with normal select implementation so
+// this test is just confirming we don't crash or return garbage.
+TEST_F(SelectOptimizationTest,
+       CachedFieldDescriptorCrossPoolExtensionFallback) {
+  auto overlay_pool = std::make_shared<google::protobuf::DescriptorPool>(
+      google::protobuf::DescriptorPool::generated_pool());
+  ASSERT_NE(
+      overlay_pool->BuildFile(test::GetTestExternalExtensionsFileDescriptor()),
+      nullptr);
+
+  CompilerOptions compiler_options;
+  compiler_options.parser_options.enable_quoted_identifiers = true;
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::CompilerBuilder> compiler_builder,
+                       cel::NewCompilerBuilder(overlay_pool, compiler_options));
+  ASSERT_THAT(compiler_builder->AddLibrary(cel::StandardCompilerLibrary()),
+              IsOk());
+  const google::protobuf::Descriptor* desc = overlay_pool->FindMessageTypeByName(
+      "cel.expr.conformance.proto2.NestedTestAllTypes");
+  ASSERT_NE(desc, nullptr);
+  ASSERT_THAT(compiler_builder->GetCheckerBuilder().AddVariable(
+                  MakeVariableDecl("ident", MessageType(desc))),
+              IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Compiler> compiler,
+                       compiler_builder->Build());
+  ASSERT_OK_AND_ASSIGN(
+      cel::ValidationResult validation,
+      compiler->Compile(
+          "ident.payload.`cel.cpp.testutil.test_external_extensions_message`."
+          "int64_field"));
+  ASSERT_TRUE(validation.IsValid()) << validation.FormatError();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast, validation.ReleaseAst());
+
+  ASSERT_OK_AND_ASSIGN(
+      cel::RuntimeBuilder runtime_builder,
+      cel::CreateStandardRuntimeBuilder(overlay_pool, runtime_options_));
+  SelectOptimizationOptions select_options;
+  select_options.enable_field_descriptor_caching = true;
+  ASSERT_THAT(EnableSelectOptimization(runtime_builder, select_options),
+              IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<const cel::Runtime> runtime,
+                       std::move(runtime_builder).Build());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Program> program,
+                       runtime->CreateProgram(std::move(ast)));
+
+  const google::protobuf::FieldDescriptor* payload_field =
+      desc->FindFieldByName("payload");
+  ASSERT_NE(payload_field, nullptr);
+  const google::protobuf::FieldDescriptor* ext_field = overlay_pool->FindExtensionByName(
+      "cel.cpp.testutil.test_external_extensions_message");
+  ASSERT_NE(ext_field, nullptr);
+  const google::protobuf::FieldDescriptor* int64_field =
+      ext_field->message_type()->FindFieldByName("int64_field");
+  ASSERT_NE(int64_field, nullptr);
+
+  google::protobuf::DynamicMessageFactory overlay_factory(overlay_pool.get());
+  google::protobuf::Message* msg = overlay_factory.GetPrototype(desc)->New(&arena_);
+  google::protobuf::Message* payload = msg->GetReflection()->MutableMessage(
+      msg, payload_field, &overlay_factory);
+  google::protobuf::Message* ext_msg = payload->GetReflection()->MutableMessage(
+      payload, ext_field, &overlay_factory);
+  ext_msg->GetReflection()->SetInt64(ext_msg, int64_field, 99);
+
+  // This works for the SelectOptimization, but not normal field access. Here,
+  // we are able to resolve the extension using the message reflection extension
+  // table (by number) without having to look up against the descriptor pool
+  // directly.
+  cel::Activation act;
+  act.InsertOrAssignValue("ident", cel::ParsedMessageValue(msg, &arena_));
+  cel::EvaluateOptions eval_options;
+  eval_options.message_factory = &overlay_factory;
+  ASSERT_OK_AND_ASSIGN(Value result,
+                       program->Evaluate(&arena_, act, eval_options));
+  ASSERT_TRUE(result->Is<IntValue>()) << result->DebugString();
+  EXPECT_EQ(result.GetInt().NativeValue(), 99);
+
+  // Also test when the extension message is unset, where Reflection::GetMessage
+  // has to construct the default message instance.
+  google::protobuf::Message* unset_msg = overlay_factory.GetPrototype(desc)->New(&arena_);
+  act.InsertOrAssignValue("ident", cel::ParsedMessageValue(unset_msg, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value unset_result,
+                       program->Evaluate(&arena_, act, eval_options));
+  ASSERT_TRUE(unset_result->Is<IntValue>()) << unset_result->DebugString();
+  EXPECT_EQ(unset_result.GetInt().NativeValue(), 0);
+
+  // Also test when `payload` comes from a different MessageFactory (the
+  // generated factory) while `runtime` uses its default DynamicMessageFactory.
+  NestedTestAllTypes* empty_generated =
+      NestedTestAllTypes::default_instance().New(&arena_);
+  act.InsertOrAssignValue("ident",
+                          cel::ParsedMessageValue(empty_generated, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value underlay_result, program->Evaluate(&arena_, act));
+  EXPECT_TRUE(underlay_result->Is<ErrorValue>())
+      << underlay_result->DebugString();
 }
 
 }  // namespace

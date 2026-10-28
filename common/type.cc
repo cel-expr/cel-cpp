@@ -31,6 +31,8 @@
 #include "common/types/types.h"
 #include "google/protobuf/descriptor.h"
 
+#undef GetMessage
+
 namespace cel {
 
 using ::google::protobuf::Descriptor;

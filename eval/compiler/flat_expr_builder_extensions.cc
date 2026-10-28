@@ -29,7 +29,10 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/types/variant.h"
+#include "common/ast.h"
 #include "common/expr.h"
+#include "common/type.h"
+#include "common/type_spec_resolver.h"
 #include "common/value.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/ident_step.h"
@@ -416,6 +419,21 @@ absl::Status PlannerContext::ReplaceSubplan(const cel::Expr& node,
   subexpression->flattened_elements() = std::move(path);
 
   return absl::OkStatus();
+}
+
+std::optional<cel::Type> PlannerContext::TryResolveType(
+    int64_t expr_id, const cel::TypeSpec& ast_type) {
+  auto it = resolved_types_.find(expr_id);
+  if (it != resolved_types_.end()) {
+    return it->second;
+  }
+  absl::StatusOr<cel::Type> type =
+      cel::ConvertTypeSpecToType(ast_type, type_reflector_, MutableArena());
+  if (!type.ok()) {
+    return std::nullopt;
+  }
+  resolved_types_.insert(it, {expr_id, *type});
+  return *type;
 }
 
 void ProgramBuilder::Reset() {

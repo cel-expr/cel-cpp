@@ -25,6 +25,8 @@
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 
+#undef GetMessage
+
 namespace google::api::expr::runtime {
 
 namespace {

@@ -33,6 +33,8 @@
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 
+#undef GetMessage
+
 namespace cel {
 namespace {
 

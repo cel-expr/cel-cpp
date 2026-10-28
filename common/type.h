@@ -69,6 +69,10 @@
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 
+// GetMessage in windows API headers might be defined as a macro.
+#pragma push_macro("GetMessage")
+#undef GetMessage
+
 namespace cel {
 
 class Type;
@@ -1299,5 +1303,7 @@ Type LegacyRuntimeType(absl::string_view name);
 }  // namespace common_internal
 
 }  // namespace cel
+
+#pragma pop_macro("GetMessage")
 
 #endif  // THIRD_PARTY_CEL_CPP_COMMON_TYPE_H_

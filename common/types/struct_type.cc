@@ -22,6 +22,8 @@
 #include "common/type.h"
 #include "common/types/types.h"
 
+#undef GetMessage
+
 namespace cel {
 
 absl::string_view StructType::name() const {

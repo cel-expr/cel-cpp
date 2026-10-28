@@ -54,6 +54,9 @@
 #include "google/protobuf/io/zero_copy_stream.h"
 #include "google/protobuf/message.h"
 
+#pragma push_macro("GetMessage")
+#undef GetMessage
+
 namespace cel {
 
 class StructValue;
@@ -369,5 +372,7 @@ class StructValueBuilder {
 using StructValueBuilderPtr = std::unique_ptr<StructValueBuilder>;
 
 }  // namespace cel
+
+#pragma pop_macro("GetMessage")
 
 #endif  // THIRD_PARTY_CEL_CPP_COMMON_VALUES_STRUCT_VALUE_H_

@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -26,12 +27,14 @@
 
 #include "absl/algorithm/container.h"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/functional/overload.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/match.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "absl/types/variant.h"
@@ -44,6 +47,7 @@
 #include "common/function_descriptor.h"
 #include "common/internal/attribute_trail.h"
 #include "common/kind.h"
+#include "common/legacy_value.h"
 #include "common/native_type.h"
 #include "common/type.h"
 #include "common/value.h"
@@ -51,6 +55,7 @@
 #include "eval/compiler/flat_expr_builder_extensions.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
+#include "extensions/protobuf/internal/map_reflection.h"
 #include "internal/casts.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
@@ -61,7 +66,12 @@
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
+#include "google/protobuf/map_field.h"
 #include "google/protobuf/message.h"
+#include "google/protobuf/reflection.h"
+
+// undef for Windows
+#undef GetMessage
 
 namespace cel::extensions {
 namespace {
@@ -153,7 +163,7 @@ Expr MakeSelectPathExpr(
 // Returns a single select operation based on the inferred type of the operand
 // and the field name. If the operand type doesn't define the field, returns
 // nullopt.
-std::optional<SelectInstruction> GetSelectInstruction(
+std::optional<SelectInstruction> MakeFieldStepAst(
     const StructType& runtime_type, PlannerContext& planner_context,
     absl::string_view field_name) {
   auto field_or = planner_context.type_reflector()
@@ -165,6 +175,30 @@ std::optional<SelectInstruction> GetSelectInstruction(
   return std::nullopt;
 }
 
+// Returns a qualifier instruction derived from a unoptimized ast.
+absl::StatusOr<QualifierInstruction> MakeIndexStepAst(
+    const Constant& constant) {
+  if (constant.has_int_value()) {
+    return QualifierInstruction(constant.int_value());
+  } else if (constant.has_uint_value()) {
+    return QualifierInstruction(constant.uint_value());
+  } else if (constant.has_bool_value()) {
+    return QualifierInstruction(constant.bool_value());
+  } else if (constant.has_string_value()) {
+    return QualifierInstruction(constant.string_value());
+  } else if (constant.has_double_value()) {
+    cel::internal::Number number(constant.double_value());
+    if (number.LosslessConvertibleToInt()) {
+      return QualifierInstruction(number.AsInt());
+    } else if (number.LosslessConvertibleToUint()) {
+      return QualifierInstruction(number.AsUint());
+    }
+  }
+
+  return absl::InvalidArgumentError("invalid index constant for cel.attribute");
+}
+
+// Derives select step info from the optimized AST.
 absl::StatusOr<SelectQualifier> SelectQualifierFromList(const ListExpr& list) {
   // Type codes may follow [number, name]; they're unused here.
   if (list.elements().size() < 2 || list.elements().size() > 4) {
@@ -190,29 +224,7 @@ absl::StatusOr<SelectQualifier> SelectQualifierFromList(const ListExpr& list) {
                         field_name.const_expr().string_value()};
 }
 
-// Returns a qualifier instruction derived from a unoptimized ast.
-absl::StatusOr<QualifierInstruction> SelectInstructionFromConstant(
-    const Constant& constant) {
-  if (constant.has_int_value()) {
-    return QualifierInstruction(constant.int_value());
-  } else if (constant.has_uint_value()) {
-    return QualifierInstruction(constant.uint_value());
-  } else if (constant.has_bool_value()) {
-    return QualifierInstruction(constant.bool_value());
-  } else if (constant.has_string_value()) {
-    return QualifierInstruction(constant.string_value());
-  } else if (constant.has_double_value()) {
-    cel::internal::Number number(constant.double_value());
-    if (number.LosslessConvertibleToInt()) {
-      return QualifierInstruction(number.AsInt());
-    } else if (number.LosslessConvertibleToUint()) {
-      return QualifierInstruction(number.AsUint());
-    }
-  }
-
-  return absl::InvalidArgumentError("invalid index constant for cel.attribute");
-}
-
+// Derives index step info from the optimized AST.
 absl::StatusOr<SelectQualifier> SelectQualifierFromConstant(
     const Constant& constant) {
   if (constant.has_int_value()) {
@@ -375,6 +387,9 @@ absl::StatusOr<std::vector<SelectQualifier>> SelectInstructionsFromCall(
   instructions.reserve(ast_path.size());
 
   for (const ListExprElement& element : ast_path) {
+    if (element.optional()) {
+      return absl::InvalidArgumentError("Invalid cel.attribute call");
+    }
     // Optimized field select.
     if (element.has_expr()) {
       const auto& element_expr = element.expr();
@@ -411,20 +426,20 @@ class RewriterImpl : public AstRewriterBase {
     const std::string& field_name = select.field();
     // Select optimization can generalize to lists and maps, but for now only
     // support message traversal.
-    const TypeSpec checker_type = ast_.GetTypeOrDyn(operand.id());
-
+    const TypeSpec ast_type = ast_.GetTypeOrDyn(operand.id());
     std::optional<Type> rt_type =
-        (checker_type.has_message_type())
-            ? GetRuntimeType(checker_type.message_type().type())
-            : std::nullopt;
-    if (rt_type.has_value() && (*rt_type).Is<StructType>()) {
+        planner_context_.TryResolveType(operand.id(), ast_type);
+    if (!rt_type.has_value()) {
+      return;
+    }
+    if (rt_type->IsStruct()) {
       const StructType& runtime_type = rt_type->GetStruct();
       std::optional<SelectInstruction> field_or =
-          GetSelectInstruction(runtime_type, planner_context_, field_name);
+          MakeFieldStepAst(runtime_type, planner_context_, field_name);
       if (field_or.has_value()) {
         candidates_[&expr] = std::move(field_or).value();
       }
-    } else if (checker_type.has_map_type()) {
+    } else if (rt_type->IsMap()) {
       candidates_[&expr] = QualifierInstruction(field_name);
     }
     // else
@@ -439,8 +454,7 @@ class RewriterImpl : public AstRewriterBase {
 
     const auto& qualifier_expr = call.args()[1];
     if (qualifier_expr.has_const_expr()) {
-      auto qualifier_or =
-          SelectInstructionFromConstant(qualifier_expr.const_expr());
+      auto qualifier_or = MakeIndexStepAst(qualifier_expr.const_expr());
       if (!qualifier_or.ok()) {
         // TODO(uncreated-issue/54): should warn, but by default warnings fail overall
         // program planning.
@@ -548,11 +562,6 @@ class RewriterImpl : public AstRewriterBase {
     return candidates_.find(operand) != candidates_.end();
   }
 
-  std::optional<Type> GetRuntimeType(absl::string_view type_name) {
-    return planner_context_.type_reflector().FindType(type_name).value_or(
-        std::nullopt);
-  }
-
   void SetProgressStatus(const absl::Status& status) {
     if (progress_status_.ok() && !status.ok()) {
       progress_status_ = status;
@@ -568,12 +577,101 @@ class RewriterImpl : public AstRewriterBase {
   absl::Status progress_status_;
 };
 
+struct FieldSelectStep {
+  const google::protobuf::Descriptor* absl_nonnull containing_type;
+  const google::protobuf::FieldDescriptor* absl_nonnull field;
+};
+
+struct MapSelectStep {
+  const google::protobuf::FieldDescriptor* absl_nonnull map_field;
+  const google::protobuf::FieldDescriptor* absl_nonnull key_field;
+  const google::protobuf::FieldDescriptor* absl_nonnull value_field;
+  // Store the error to propagate on access at runtime.
+  // The map key might alias string data owned by the SelectOptimizationImpl
+  // object.
+  absl::StatusOr<google::protobuf::MapKey> key;
+};
+
+struct ListSelectStep {
+  const google::protobuf::FieldDescriptor* absl_nonnull repeated_field;
+};
+
+using TypedSelectStep =
+    std::variant<FieldSelectStep, MapSelectStep, ListSelectStep>;
+
+absl::StatusOr<google::protobuf::MapKey> CreateProtoMapKey(
+    const google::protobuf::FieldDescriptor* absl_nonnull key_desc,
+    const cel::AttributeQualifier& key) {
+  google::protobuf::MapKey proto_key;
+  switch (key_desc->cpp_type()) {
+    case google::protobuf::FieldDescriptor::CPPTYPE_BOOL:
+      if (key.kind() != cel::Kind::kBool) {
+        return runtime_internal::CreateInvalidMapKeyTypeError(
+            key_desc->cpp_type_name());
+      }
+      proto_key.SetBoolValue(*key.AsBool());
+      return proto_key;
+    case google::protobuf::FieldDescriptor::CPPTYPE_INT32: {
+      if (key.kind() != cel::Kind::kInt64) {
+        return runtime_internal::CreateInvalidMapKeyTypeError(
+            key_desc->cpp_type_name());
+      }
+      int64_t key_value = *key.AsInt();
+      if (key_value > std::numeric_limits<int32_t>::max() ||
+          key_value < std::numeric_limits<int32_t>::lowest()) {
+        return absl::OutOfRangeError("integer overflow");
+      }
+      proto_key.SetInt32Value(static_cast<int32_t>(key_value));
+      return proto_key;
+    }
+    case google::protobuf::FieldDescriptor::CPPTYPE_INT64:
+      if (key.kind() != cel::Kind::kInt64) {
+        return runtime_internal::CreateInvalidMapKeyTypeError(
+            key_desc->cpp_type_name());
+      }
+      proto_key.SetInt64Value(*key.AsInt());
+      return proto_key;
+    case google::protobuf::FieldDescriptor::CPPTYPE_STRING:
+      if (key.kind() != cel::Kind::kString) {
+        return runtime_internal::CreateInvalidMapKeyTypeError(
+            key_desc->cpp_type_name());
+      }
+      // This is an alias. The underlying string should be stable.
+      proto_key.SetStringValue(*key.AsString());
+      return proto_key;
+    case google::protobuf::FieldDescriptor::CPPTYPE_UINT32: {
+      if (key.kind() != cel::Kind::kUint64) {
+        return runtime_internal::CreateInvalidMapKeyTypeError(
+            key_desc->cpp_type_name());
+      }
+      uint64_t key_value = *key.AsUint();
+      if (key_value > std::numeric_limits<uint32_t>::max()) {
+        return absl::OutOfRangeError("unsigned integer overflow");
+      }
+      proto_key.SetUInt32Value(static_cast<uint32_t>(key_value));
+      return proto_key;
+    }
+    case google::protobuf::FieldDescriptor::CPPTYPE_UINT64:
+      if (key.kind() != cel::Kind::kUint64) {
+        return runtime_internal::CreateInvalidMapKeyTypeError(
+            key_desc->cpp_type_name());
+      }
+      proto_key.SetUInt64Value(*key.AsUint());
+      return proto_key;
+    default:
+      return runtime_internal::CreateInvalidMapKeyTypeError(
+          key_desc->cpp_type_name());
+  }
+}
+
 class OptimizedSelectImpl {
  public:
   OptimizedSelectImpl(std::vector<SelectQualifier> select_path,
+                      std::vector<TypedSelectStep> typed_select_path,
                       std::vector<AttributeQualifier> qualifiers,
                       bool presence_test, SelectOptimizationOptions options)
       : select_path_(std::move(select_path)),
+        typed_select_path_(std::move(typed_select_path)),
         qualifiers_(std::move(qualifiers)),
         presence_test_(presence_test),
         options_(options)
@@ -588,8 +686,8 @@ class OptimizedSelectImpl {
   OptimizedSelectImpl(OptimizedSelectImpl&&) = default;
   OptimizedSelectImpl& operator=(OptimizedSelectImpl&&) = delete;
 
-  absl::StatusOr<Value> ApplySelect(ExecutionFrameBase& frame,
-                                    const StructValue& struct_value) const;
+  absl::Status ApplySelect(ExecutionFrameBase& frame,
+                           Value& result_in_out) const;
 
   std::optional<Attribute> attribute() const { return attribute_; }
 
@@ -598,41 +696,363 @@ class OptimizedSelectImpl {
   }
 
  private:
+  absl::Status ContinueFromValue(ExecutionFrameBase& frame, Value step_result,
+                                 size_t next_index, Value& result_in_out) const;
+
   std::optional<Attribute> attribute_;
   std::vector<SelectQualifier> select_path_;
+  std::vector<TypedSelectStep> typed_select_path_;
   std::vector<AttributeQualifier> qualifiers_;
   bool presence_test_;
   SelectOptimizationOptions options_;
 };
 
-absl::StatusOr<Value> OptimizedSelectImpl::ApplySelect(
-    ExecutionFrameBase& frame, const StructValue& struct_value) const {
-  auto value_or =
-      (options_.force_fallback_implementation)
+bool SupportsCachedFieldDescriptor(const google::protobuf::Message* absl_nonnull message,
+                                   const TypedSelectStep& step) {
+  if (const FieldSelectStep* field_step = absl::get_if<FieldSelectStep>(&step);
+      field_step != nullptr) {
+    ABSL_DCHECK_EQ(field_step->field->containing_type(),
+                   field_step->containing_type);
+    ABSL_DCHECK_EQ(field_step->containing_type->file()->pool(),
+                   field_step->field->file()->pool());
+    return message->GetDescriptor() == field_step->containing_type;
+  }
+  return false;
+}
+
+Value WrapMessageField(
+    const google::protobuf::Message* absl_nonnull message,
+    const google::protobuf::FieldDescriptor* absl_nonnull field_descriptor,
+    bool is_unsafe, const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  if (is_unsafe) {
+    return Value::WrapFieldUnsafe(ProtoWrapperTypeOptions::kUnsetNull, message,
+                                  field_descriptor, descriptor_pool,
+                                  message_factory, arena);
+  }
+  return Value::WrapField(ProtoWrapperTypeOptions::kUnsetNull, message,
+                          field_descriptor, descriptor_pool, message_factory,
+                          arena);
+}
+
+Value WrapMapElement(
+    const google::protobuf::MapValueConstRef& value_ref,
+    const google::protobuf::Message* absl_nonnull message,
+    const google::protobuf::FieldDescriptor* absl_nonnull value_descriptor,
+    bool is_unsafe, const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  if (is_unsafe) {
+    return Value::WrapMapFieldValueUnsafe(value_ref, message, value_descriptor,
+                                          descriptor_pool, message_factory,
+                                          arena);
+  }
+  return Value::WrapMapFieldValue(value_ref, message, value_descriptor,
+                                  descriptor_pool, message_factory, arena);
+}
+
+Value WrapRepeatedElement(
+    int index, const google::protobuf::Message* absl_nonnull message,
+    const google::protobuf::FieldDescriptor* absl_nonnull repeated_descriptor,
+    bool is_unsafe, const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  if (is_unsafe) {
+    return Value::WrapRepeatedFieldUnsafe(index, message, repeated_descriptor,
+                                          descriptor_pool, message_factory,
+                                          arena);
+  }
+  return Value::WrapRepeatedField(index, message, repeated_descriptor,
+                                  descriptor_pool, message_factory, arena);
+}
+
+absl::StatusOr<Value> QualifyOrFallback(
+    ExecutionFrameBase& frame, const StructValue& struct_value,
+    absl::Span<const SelectQualifier> select_path, bool presence_test,
+    bool force_fallback_implementation) {
+  absl::StatusOr<std::pair<Value, int>> value_and_count =
+      (force_fallback_implementation)
           ? absl::UnimplementedError("Forced fallback impl")
-          : struct_value.Qualify(select_path_, presence_test_,
+          : struct_value.Qualify(select_path, presence_test,
                                  frame.descriptor_pool(),
                                  frame.message_factory(), frame.arena());
 
-  if (!value_or.ok()) {
-    if (value_or.status().code() == absl::StatusCode::kUnimplemented) {
-      return FallbackSelect(struct_value, select_path_, presence_test_,
+  if (!value_and_count.ok()) {
+    if (value_and_count.status().code() == absl::StatusCode::kUnimplemented) {
+      return FallbackSelect(struct_value, select_path, presence_test,
                             frame.descriptor_pool(), frame.message_factory(),
                             frame.arena());
     }
 
-    return value_or.status();
+    return value_and_count.status();
   }
 
-  if (value_or->second < 0 || value_or->second >= select_path_.size()) {
-    return std::move(value_or->first);
+  if (value_and_count->second < 0 ||
+      value_and_count->second >= select_path.size()) {
+    return std::move(value_and_count->first);
   }
 
-  return FallbackSelect(
-      value_or->first,
-      absl::MakeConstSpan(select_path_).subspan(value_or->second),
-      presence_test_, frame.descriptor_pool(), frame.message_factory(),
-      frame.arena());
+  return FallbackSelect(value_and_count->first,
+                        select_path.subspan(value_and_count->second),
+                        presence_test, frame.descriptor_pool(),
+                        frame.message_factory(), frame.arena());
+}
+
+absl::Status OptimizedSelectImpl::ContinueFromValue(
+    ExecutionFrameBase& frame, Value step_result, size_t next_index,
+    Value& result_in_out) const {
+  if (step_result.IsError() || next_index >= select_path_.size()) {
+    result_in_out = std::move(step_result);
+    return absl::OkStatus();
+  }
+  absl::Span<const SelectQualifier> remaining =
+      absl::MakeConstSpan(select_path_).subspan(next_index);
+  if (step_result.IsStruct()) {
+    CEL_ASSIGN_OR_RETURN(
+        result_in_out,
+        QualifyOrFallback(frame, step_result.GetStruct(), remaining,
+                          presence_test_,
+                          options_.force_fallback_implementation));
+    return absl::OkStatus();
+  }
+  CEL_ASSIGN_OR_RETURN(result_in_out,
+                       FallbackSelect(step_result, remaining, presence_test_,
+                                      frame.descriptor_pool(),
+                                      frame.message_factory(), frame.arena()));
+  return absl::OkStatus();
+}
+
+absl::Status OptimizedSelectImpl::ApplySelect(ExecutionFrameBase& frame,
+                                              Value& result_in_out) const {
+  if (options_.force_fallback_implementation || typed_select_path_.empty()) {
+    CEL_ASSIGN_OR_RETURN(
+        result_in_out,
+        QualifyOrFallback(frame, result_in_out.GetStruct(), select_path_,
+                          presence_test_,
+                          options_.force_fallback_implementation));
+    return absl::OkStatus();
+  }
+  const google::protobuf::Message* current_message = nullptr;
+  bool is_unsafe = false;
+  if (result_in_out.IsParsedMessage()) {
+    ParsedMessageValue parsed_message = result_in_out.GetParsedMessage();
+    current_message = &(*parsed_message);
+    is_unsafe =
+        cel::interop_internal::IsUnsafeParsedMessageValue(parsed_message);
+  } else if (const google::protobuf::Message* legacy_message =
+                 cel::interop_internal::GetLegacyMessage(result_in_out);
+             legacy_message != nullptr) {
+    current_message = legacy_message;
+    is_unsafe = true;
+  } else {
+    CEL_ASSIGN_OR_RETURN(
+        result_in_out,
+        QualifyOrFallback(frame, result_in_out.GetStruct(), select_path_,
+                          presence_test_,
+                          options_.force_fallback_implementation));
+    return absl::OkStatus();
+  }
+
+  if (!SupportsCachedFieldDescriptor(current_message, typed_select_path_[0])) {
+    CEL_ASSIGN_OR_RETURN(
+        result_in_out,
+        QualifyOrFallback(frame, result_in_out.GetStruct(), select_path_,
+                          presence_test_,
+                          options_.force_fallback_implementation));
+    return absl::OkStatus();
+  }
+
+  for (size_t i = 0; i < typed_select_path_.size(); ++i) {
+    const TypedSelectStep& step = typed_select_path_[i];
+
+    // handle singular
+    if (const FieldSelectStep* field_step =
+            absl::get_if<FieldSelectStep>(&step);
+        field_step != nullptr) {
+      const google::protobuf::FieldDescriptor* field_descriptor = field_step->field;
+      // We consumed the whole select path. Materialize the leaf.
+      if (i + 1 == select_path_.size()) {
+        if (presence_test_) {
+          result_in_out =
+              BoolValue{cel::UnsafeParsedMessageValue(current_message)
+                            .HasField(field_descriptor)};
+          return absl::OkStatus();
+        }
+        result_in_out = WrapMessageField(
+            current_message, field_descriptor, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return absl::OkStatus();
+      }
+
+      if (i + 1 >= typed_select_path_.size()) {
+        Value step_result = WrapMessageField(
+            current_message, field_descriptor, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return ContinueFromValue(frame, std::move(step_result), i + 1,
+                                 result_in_out);
+      }
+
+      if (field_descriptor->is_repeated()) {
+        // The next step in `typed_select_path_` is a `MapSelectStep` or
+        // `ListSelectStep` that operates on `current_message`.
+        continue;
+      }
+
+      const google::protobuf::Message* next_message =
+          &current_message->GetReflection()->GetMessage(*current_message,
+                                                        field_descriptor);
+      // Check for messages extended by overlays. This is redundant if all
+      // messages are from hermetic pools, which we cannot guarantee.
+      if (!SupportsCachedFieldDescriptor(next_message,
+                                         typed_select_path_[i + 1])) {
+        Value step_result = WrapMessageField(
+            current_message, field_descriptor, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return ContinueFromValue(frame, std::move(step_result), i + 1,
+                                 result_in_out);
+      }
+      current_message = next_message;
+      continue;
+    }
+
+    // Handle map
+    if (const MapSelectStep* map_step = absl::get_if<MapSelectStep>(&step);
+        map_step != nullptr) {
+      if (i + 1 == select_path_.size() && presence_test_) {
+        const AttributeQualifier& qualifier =
+            absl::get<AttributeQualifier>(select_path_[i]);
+        if (qualifier.kind() != cel::Kind::kString) {
+          result_in_out = ErrorValue::From(
+              runtime_internal::CreateNoMatchingOverloadError("has"),
+              frame.arena());
+          return absl::OkStatus();
+        }
+        if (!map_step->key.ok()) {
+          result_in_out =
+              ErrorValue::From(map_step->key.status(), frame.arena());
+          return absl::OkStatus();
+        }
+        bool found = protobuf_internal::ContainsMapKey(
+            *current_message->GetReflection(), *current_message,
+            *map_step->map_field, *map_step->key);
+        result_in_out = BoolValue{found};
+        return absl::OkStatus();
+      }
+
+      if (!map_step->key.ok()) {
+        result_in_out = ErrorValue::From(map_step->key.status(), frame.arena());
+        return absl::OkStatus();
+      }
+      google::protobuf::MapValueConstRef value_ref;
+      bool found = protobuf_internal::LookupMapValue(
+          *current_message->GetReflection(), *current_message,
+          *map_step->map_field, *map_step->key, &value_ref);
+      if (!found) {
+        const AttributeQualifier& qualifier =
+            absl::get<AttributeQualifier>(select_path_[i]);
+        result_in_out = ErrorValue::From(
+            runtime_internal::CreateNoSuchKeyError(qualifier.ToString()),
+            frame.arena());
+        return absl::OkStatus();
+      }
+
+      if (i + 1 == select_path_.size()) {
+        result_in_out = WrapMapElement(
+            value_ref, current_message, map_step->value_field, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return absl::OkStatus();
+      }
+
+      // We don't have a typed select step for the next step, so we fall back.
+      if (i + 1 >= typed_select_path_.size()) {
+        Value step_result = WrapMapElement(
+            value_ref, current_message, map_step->value_field, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return ContinueFromValue(frame, std::move(step_result), i + 1,
+                                 result_in_out);
+      }
+
+      const google::protobuf::Message* next_message = &value_ref.GetMessageValue();
+      if (!SupportsCachedFieldDescriptor(next_message,
+                                         typed_select_path_[i + 1])) {
+        Value step_result = WrapMapElement(
+            value_ref, current_message, map_step->value_field, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return ContinueFromValue(frame, std::move(step_result), i + 1,
+                                 result_in_out);
+      }
+      current_message = next_message;
+      continue;
+    }
+
+    // handle list
+    if (const ListSelectStep* list_step = absl::get_if<ListSelectStep>(&step);
+        list_step != nullptr) {
+      if (i + 1 == select_path_.size() && presence_test_) {
+        result_in_out = ErrorValue::From(
+            runtime_internal::CreateNoMatchingOverloadError("has"),
+            frame.arena());
+        return absl::OkStatus();
+      }
+
+      const AttributeQualifier& qualifier =
+          absl::get<AttributeQualifier>(select_path_[i]);
+      if (qualifier.kind() != cel::Kind::kInt64) {
+        result_in_out =
+            ErrorValue::From(runtime_internal::CreateNoMatchingOverloadError(
+                                 cel::builtin::kIndex),
+                             frame.arena());
+        return absl::OkStatus();
+      }
+      int64_t index = *qualifier.AsInt();
+      const google::protobuf::Reflection* reflection = current_message->GetReflection();
+      int size =
+          reflection->FieldSize(*current_message, list_step->repeated_field);
+      if (index < 0 || index >= size) {
+        result_in_out = ErrorValue::From(
+            absl::InvalidArgumentError(absl::StrCat(
+                "index out of bounds: index=", index, " size=", size)),
+            frame.arena());
+        return absl::OkStatus();
+      }
+      int int_index = static_cast<int>(index);
+
+      if (i + 1 == select_path_.size()) {
+        result_in_out = WrapRepeatedElement(
+            int_index, current_message, list_step->repeated_field, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return absl::OkStatus();
+      }
+
+      // We don't have a typed select step for the next step, so we fall back.
+      if (i + 1 >= typed_select_path_.size()) {
+        Value step_result = WrapRepeatedElement(
+            int_index, current_message, list_step->repeated_field, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return ContinueFromValue(frame, std::move(step_result), i + 1,
+                                 result_in_out);
+      }
+
+      const google::protobuf::Message* next_message = &reflection->GetRepeatedMessage(
+          *current_message, list_step->repeated_field, int_index);
+      if (!SupportsCachedFieldDescriptor(next_message,
+                                         typed_select_path_[i + 1])) {
+        Value step_result = WrapRepeatedElement(
+            int_index, current_message, list_step->repeated_field, is_unsafe,
+            frame.descriptor_pool(), frame.message_factory(), frame.arena());
+        return ContinueFromValue(frame, std::move(step_result), i + 1,
+                                 result_in_out);
+      }
+      current_message = next_message;
+      continue;
+    }
+
+    ABSL_UNREACHABLE();
+    return absl::InternalError("Unknown select step type");
+  }
+
+  return absl::OkStatus();
 }
 
 class StackMachineImpl : public ExpressionStepBase {
@@ -649,7 +1069,6 @@ class StackMachineImpl : public ExpressionStepBase {
 void StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
   // TODO(uncreated-issue/51): add support for variable qualifiers and string literal
   // variable names.
-
   // For now, we expect the operand to be top of stack.
   Value& operand = frame->value_stack().Peek();
   AttributeTrail& trail = frame->value_stack().PeekAttribute();
@@ -672,19 +1091,16 @@ void StackMachineImpl::Evaluate(ExecutionFrame* frame) const {
     }
   }
 
-  if (!operand->Is<StructValue>()) {
+  if (!operand.Is<StructValue>()) {
     frame->Abort(absl::InvalidArgumentError(
         "Expected struct type for select optimization."));
     return;
   }
 
-  absl::StatusOr<Value> result = impl_.ApplySelect(*frame, operand.GetStruct());
-  if (!result.ok()) {
-    frame->Abort(std::move(result).status());
-    return;
+  absl::Status status = impl_.ApplySelect(*frame, operand);
+  if (!status.ok()) {
+    frame->Abort(std::move(status));
   }
-
-  operand = *result;
 }
 
 class SelectOptimizer : public ProgramOptimizer {
@@ -701,6 +1117,74 @@ class SelectOptimizer : public ProgramOptimizer {
  private:
   SelectOptimizationOptions options_;
 };
+
+std::vector<TypedSelectStep> BuildTypedSelectPath(
+    PlannerContext& context, const Expr& operand,
+    absl::Span<const SelectQualifier> instructions) {
+  std::vector<TypedSelectStep> typed_select_path;
+  std::optional<cel::Type> current_type = context.GetResolvedType(operand.id());
+  for (const SelectQualifier& instruction : instructions) {
+    if (!current_type.has_value()) {
+      break;
+    }
+    if (const FieldSpecifier* field_specifier =
+            absl::get_if<FieldSpecifier>(&instruction);
+        field_specifier != nullptr) {
+      if (!current_type->IsMessage()) {
+        break;
+      }
+      cel::MessageType message_type = current_type->GetMessage();
+      absl::StatusOr<std::optional<cel::StructTypeField>> field =
+          context.type_reflector().FindStructTypeFieldByName(
+              message_type, field_specifier->name);
+      if (!field.ok() || !field->has_value() || !(*field)->IsMessage()) {
+        break;
+      }
+      const google::protobuf::Descriptor* containing_descriptor =
+          message_type.descriptor();
+      const google::protobuf::FieldDescriptor* field_descriptor =
+          (*field)->GetMessage().descriptor();
+      if (containing_descriptor->file()->pool() !=
+          field_descriptor->file()->pool()) {
+        break;
+      }
+      typed_select_path.push_back(
+          FieldSelectStep{containing_descriptor, field_descriptor});
+      current_type = (*field)->GetType();
+    } else if (const AttributeQualifier* attr_qualifier =
+                   absl::get_if<AttributeQualifier>(&instruction);
+               attr_qualifier != nullptr) {
+      if (typed_select_path.empty() ||
+          !absl::holds_alternative<FieldSelectStep>(typed_select_path.back())) {
+        break;
+      }
+      const google::protobuf::FieldDescriptor* prev_field =
+          absl::get<FieldSelectStep>(typed_select_path.back()).field;
+      if (prev_field->is_map() && current_type->IsMap()) {
+        const google::protobuf::Descriptor* entry_descriptor = prev_field->message_type();
+        const google::protobuf::FieldDescriptor* key_field = entry_descriptor->map_key();
+        const google::protobuf::FieldDescriptor* value_field =
+            entry_descriptor->map_value();
+        if (key_field == nullptr || value_field == nullptr) {
+          break;
+        }
+        typed_select_path.push_back(
+            MapSelectStep{prev_field, key_field, value_field,
+                          CreateProtoMapKey(key_field, *attr_qualifier)});
+        current_type = current_type->GetMap().GetValue();
+      } else if (prev_field->is_repeated() && !prev_field->is_map() &&
+                 current_type->IsList()) {
+        typed_select_path.push_back(ListSelectStep{prev_field});
+        current_type = current_type->GetList().GetElement();
+      } else {
+        break;
+      }
+    } else {
+      break;
+    }
+  }
+  return typed_select_path;
+}
 
 absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
                                           const Expr& node) {
@@ -758,7 +1242,14 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
     return absl::OkStatus();
   }
 
-  OptimizedSelectImpl impl(std::move(instructions), std::move(qualifiers),
+  std::vector<TypedSelectStep> typed_select_path;
+  if (options_.enable_field_descriptor_caching &&
+      context.options().enable_typed_field_access) {
+    typed_select_path = BuildTypedSelectPath(context, operand, instructions);
+  }
+
+  OptimizedSelectImpl impl(std::move(instructions),
+                           std::move(typed_select_path), std::move(qualifiers),
                            presence_test, options_);
 
   google::api::expr::runtime::ExecutionPath path;
@@ -804,6 +1295,9 @@ google::api::expr::runtime::ProgramOptimizerFactory
 CreateSelectOptimizationProgramOptimizer(
     const SelectOptimizationOptions& options) {
   return [=](PlannerContext& context, const Ast& ast) {
+    if (options.enable_field_descriptor_caching) {
+      context.set_resolve_types();
+    }
     return std::make_unique<SelectOptimizer>(options);
   };
 }

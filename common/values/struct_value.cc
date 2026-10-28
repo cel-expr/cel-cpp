@@ -39,6 +39,8 @@
 #include "google/protobuf/io/zero_copy_stream.h"
 #include "google/protobuf/message.h"
 
+#undef GetMessage
+
 namespace cel {
 
 StructType StructValue::GetRuntimeType() const {

@@ -33,6 +33,9 @@
 #include "common/types/message_type.h"
 #include "common/types/types.h"
 
+#pragma push_macro("GetMessage")
+#undef GetMessage
+
 namespace cel {
 
 class Type;
@@ -154,5 +157,7 @@ inline std::ostream& operator<<(std::ostream& out, const StructType& type) {
 }
 
 }  // namespace cel
+
+#pragma pop_macro("GetMessage")
 
 #endif  // THIRD_PARTY_CEL_CPP_COMMON_TYPES_STRUCT_TYPE_H_
