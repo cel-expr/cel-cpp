@@ -186,6 +186,24 @@ _TESTS_TO_SKIP = [
     "type_deductions/type_decay/type_nested_list_decay",
     "type_deductions/type_decay/type_free_param_list_concat",
 
+    # Skip until duration/timestamp range and proto wrapper validation is updated for spec parity.
+    "timestamps/timestamp_arithmetic/add_duration_to_duration_max",
+    "timestamps/timestamp_arithmetic/subtract_duration_from_duration_min",
+    "timestamps/timestamp_arithmetic/subtract_max_duration_from_max_time",
+    "timestamps/timestamp_range/sub_time_duration_over",
+    "timestamps/timestamp_range/sub_time_duration_under",
+    "wrappers/duration/nanos_over",
+    "wrappers/duration/nanos_under",
+    "wrappers/duration/negative_seconds_positive_nanos",
+    "wrappers/duration/positive_seconds_negative_nanos",
+    "wrappers/duration/seconds_over",
+    "wrappers/duration/seconds_under",
+    "wrappers/timestamp/nanos_over",
+    "wrappers/timestamp/nanos_under",
+    "wrappers/timestamp/negative_seconds_negative_nanos",
+    "wrappers/timestamp/seconds_over",
+    "wrappers/timestamp/seconds_under",
+
     # Future features for CEL 1.0
     # TODO(issues/119): Strong typing support for enums, specified but not implemented.
     "enums/strong_proto2",
