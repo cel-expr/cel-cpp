@@ -139,36 +139,12 @@ struct FixedJumpStepInfo {
   int offset : 32;
 };
 
+// Friend of ExpressionStep that allows the interpreter loop in the source file
+// to access the internal expression step data.
+struct ExpressionStepData;
+
 class ExpressionStep {
  public:
-  union Data {
-    std::nullptr_t empty;
-    ExpressionStepLogic* logic;
-    int64_t int_val;
-    uint64_t uint_val;
-    double double_val;
-    bool bool_val;
-    cel::Value* other_val;
-    LazyInitStepInfo lazy_init;
-    size_t slot_index;
-    ClearSlotStepInfo clear_slots;
-    size_t arg_count;
-    ComprehensionCondStep cond_step;
-    ComprehensionNextStep next_step;
-    BoolJumpStepInfo bool_jump_step;
-    TernaryJumpStepInfo ternary_jump_step;
-    FixedJumpStepInfo fixed_jump_step;
-    EagerFunctionStep* eager_function_step;
-    LazyFunctionStep* lazy_function_step;
-    IdentStepInfo ident_step;
-    ListStepInfo* create_list_step;
-    SmallListStepInfo create_small_list_step;
-    uint64_t bitmask;
-
-    Data() : empty(nullptr) {}
-    ~Data() {}
-  };
-
   // Move-only.
   ExpressionStep(const ExpressionStep&) = delete;
   ExpressionStep& operator=(const ExpressionStep&) = delete;
@@ -191,13 +167,6 @@ class ExpressionStep {
 
   // Returns if the execution step comes from AST.
   bool comes_from_ast() const { return header_.id >= 0; }
-
-  // Only for use by the interpreter loop. This should not be used anywhere
-  // else.
-  [[nodiscard]]
-  const Data& data() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    return u_;
-  }
 
   const ExpressionStepLogic* GetGenericStep() const;
   bool IsGenericStep() const;
@@ -434,11 +403,41 @@ class ExpressionStep {
   }
 
  private:
+  friend struct ExpressionStepData;
+
   struct Header {
     ExpressionStepKind kind;
     // Note: This can be moved if steps are all migrated.
     int16_t stack_delta;
     int32_t id;
+  };
+
+  union Data {
+    std::nullptr_t empty;
+    ExpressionStepLogic* logic;
+    int64_t int_val;
+    uint64_t uint_val;
+    double double_val;
+    bool bool_val;
+    cel::Value* other_val;
+    LazyInitStepInfo lazy_init;
+    size_t slot_index;
+    ClearSlotStepInfo clear_slots;
+    size_t arg_count;
+    ComprehensionCondStep cond_step;
+    ComprehensionNextStep next_step;
+    BoolJumpStepInfo bool_jump_step;
+    TernaryJumpStepInfo ternary_jump_step;
+    FixedJumpStepInfo fixed_jump_step;
+    EagerFunctionStep* eager_function_step;
+    LazyFunctionStep* lazy_function_step;
+    IdentStepInfo ident_step;
+    ListStepInfo* create_list_step;
+    SmallListStepInfo create_small_list_step;
+    uint64_t bitmask;
+
+    Data() : empty(nullptr) {}
+    ~Data() {}
   };
 
   ExpressionStep() : header_{ExpressionStepKind::kMovedFrom, 0, -1} {}

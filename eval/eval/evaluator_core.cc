@@ -77,6 +77,14 @@
 
 namespace google::api::expr::runtime {
 
+struct ExpressionStepData {
+  [[nodiscard]]
+  ABSL_ATTRIBUTE_ALWAYS_INLINE static const ExpressionStep::Data& Get(
+      const ExpressionStep& step ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return step.u_;
+  }
+};
+
 void FlatExpressionEvaluatorState::Reset() {
   if (!dirty_) {
     return;
@@ -473,34 +481,38 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
     ExecutionFrame& frame, const ExpressionStep& step) {
   switch (step.kind()) {
     case ExpressionStepKind::kGenericLogic:
-      step.data().logic->Evaluate(&frame);
+      ExpressionStepData::Get(step).logic->Evaluate(&frame);
       break;
     case ExpressionStepKind::kIntConstant:
-      frame.value_stack().Push(cel::IntValue(step.data().int_val));
+      frame.value_stack().Push(
+          cel::IntValue(ExpressionStepData::Get(step).int_val));
       break;
     case ExpressionStepKind::kBoolConstant:
-      frame.value_stack().Push(cel::BoolValue(step.data().bool_val));
+      frame.value_stack().Push(
+          cel::BoolValue(ExpressionStepData::Get(step).bool_val));
       break;
     case ExpressionStepKind::kDoubleConstant:
-      frame.value_stack().Push(cel::DoubleValue(step.data().double_val));
+      frame.value_stack().Push(
+          cel::DoubleValue(ExpressionStepData::Get(step).double_val));
       break;
     case ExpressionStepKind::kNullConstant:
       frame.value_stack().Push(cel::NullValue());
       break;
     case ExpressionStepKind::kUintConstant:
-      frame.value_stack().Push(cel::UintValue(step.data().uint_val));
+      frame.value_stack().Push(
+          cel::UintValue(ExpressionStepData::Get(step).uint_val));
       break;
     case ExpressionStepKind::kOtherConstant:
-      frame.value_stack().Push(*step.data().other_val);
+      frame.value_stack().Push(*ExpressionStepData::Get(step).other_val);
       break;
     case ExpressionStepKind::kLazyInit:
-      EvaluateLazyInitStep(frame, step.data().lazy_init);
+      EvaluateLazyInitStep(frame, ExpressionStepData::Get(step).lazy_init);
       break;
     case ExpressionStepKind::kAssignSlotAndPop:
-      EvaluateAssignSlotAndPop(frame, step.data().slot_index);
+      EvaluateAssignSlotAndPop(frame, ExpressionStepData::Get(step).slot_index);
       break;
     case ExpressionStepKind::kClearSlots:
-      EvaluateClearSlotStep(frame, step.data().clear_slots);
+      EvaluateClearSlotStep(frame, ExpressionStepData::Get(step).clear_slots);
       break;
     case ExpressionStepKind::kBooleanNot:
       EvaluateNotStep(frame);
@@ -509,51 +521,57 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
       EvaluateNotStrictlyFalseStep(frame);
       break;
     case ExpressionStepKind::kBooleanOr:
-      EvaluateBoolLogicStep(frame, step.data().arg_count, BoolLogicKind::kOr);
+      EvaluateBoolLogicStep(frame, ExpressionStepData::Get(step).arg_count,
+                            BoolLogicKind::kOr);
       break;
     case ExpressionStepKind::kBooleanAnd:
-      EvaluateBoolLogicStep(frame, step.data().arg_count, BoolLogicKind::kAnd);
+      EvaluateBoolLogicStep(frame, ExpressionStepData::Get(step).arg_count,
+                            BoolLogicKind::kAnd);
       break;
     case ExpressionStepKind::kComprehensionFinish:
-      EvaluateComprehensionFinishStep(step.data().slot_index, frame);
+      EvaluateComprehensionFinishStep(ExpressionStepData::Get(step).slot_index,
+                                      frame);
       break;
     case ExpressionStepKind::kComprehensionNext:
-      step.data().next_step.Evaluate1(&frame);
+      ExpressionStepData::Get(step).next_step.Evaluate1(&frame);
       break;
     case ExpressionStepKind::kComprehensionNext2:
-      step.data().next_step.Evaluate2(&frame);
+      ExpressionStepData::Get(step).next_step.Evaluate2(&frame);
       break;
     case ExpressionStepKind::kComprehensionCond:
-      step.data().cond_step.Evaluate1(&frame);
+      ExpressionStepData::Get(step).cond_step.Evaluate1(&frame);
       break;
     case ExpressionStepKind::kComprehensionCond2:
-      step.data().cond_step.Evaluate2(&frame);
+      ExpressionStepData::Get(step).cond_step.Evaluate2(&frame);
       break;
     case ExpressionStepKind::kReadSlot:
-      EvaluateReadSlotStep(frame, step.data().slot_index);
+      EvaluateReadSlotStep(frame, ExpressionStepData::Get(step).slot_index);
       break;
     case ExpressionStepKind::kBooleanOrJump:
-      EvaluateBoolJumpStep(frame, step.data().bool_jump_step, true);
+      EvaluateBoolJumpStep(frame, ExpressionStepData::Get(step).bool_jump_step,
+                           true);
       break;
     case ExpressionStepKind::kBooleanAndJump:
-      EvaluateBoolJumpStep(frame, step.data().bool_jump_step, false);
+      EvaluateBoolJumpStep(frame, ExpressionStepData::Get(step).bool_jump_step,
+                           false);
       break;
     case ExpressionStepKind::kTernaryJump:
-      EvaluateTernaryJumpStep(frame, step.data().ternary_jump_step);
+      EvaluateTernaryJumpStep(frame,
+                              ExpressionStepData::Get(step).ternary_jump_step);
       break;
     case ExpressionStepKind::kFixedJump:
-      ABSL_DCHECK(step.data().fixed_jump_step.set)
+      ABSL_DCHECK(ExpressionStepData::Get(step).fixed_jump_step.set)
           << "FixedJumpStep did not have a value set.";
-      frame.JumpToOrAbort(step.data().fixed_jump_step.offset);
+      frame.JumpToOrAbort(ExpressionStepData::Get(step).fixed_jump_step.offset);
       break;
     case ExpressionStepKind::kIdentifier:
-      EvaluateIdentifierStep(frame, step.data().ident_step);
+      EvaluateIdentifierStep(frame, ExpressionStepData::Get(step).ident_step);
       break;
     case ExpressionStepKind::kEagerFunction:
-      step.data().eager_function_step->Evaluate(frame);
+      ExpressionStepData::Get(step).eager_function_step->Evaluate(frame);
       break;
     case ExpressionStepKind::kLazyFunction:
-      step.data().lazy_function_step->Evaluate(frame);
+      ExpressionStepData::Get(step).lazy_function_step->Evaluate(frame);
       break;
     case ExpressionStepKind::kFastIn:
       EvaluateFastInStep(frame);
@@ -573,22 +591,23 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
       EvaluateMutableListAppendStep(frame);
       break;
     case ExpressionStepKind::kCreateList:
-      EvaluateListStep(*step.data().create_list_step, frame);
+      EvaluateListStep(*ExpressionStepData::Get(step).create_list_step, frame);
       break;
     case ExpressionStepKind::kCreateSmallList:
-      EvaluateSmallListStep(step.data().create_small_list_step, frame);
+      EvaluateSmallListStep(
+          ExpressionStepData::Get(step).create_small_list_step, frame);
       break;
     case ExpressionStepKind::kBitIsSet:
-      EvaluateBitIsSetStep(step.data().bitmask, frame);
+      EvaluateBitIsSetStep(ExpressionStepData::Get(step).bitmask, frame);
       break;
     case ExpressionStepKind::kBitAndIsNonZero:
-      EvaluateBitAndIsNonZeroStep(step.data().bitmask, frame);
+      EvaluateBitAndIsNonZeroStep(ExpressionStepData::Get(step).bitmask, frame);
       break;
     case ExpressionStepKind::kBitAndEqual:
-      EvaluateBitAndEqualStep(step.data().bitmask, frame);
+      EvaluateBitAndEqualStep(ExpressionStepData::Get(step).bitmask, frame);
       break;
     case ExpressionStepKind::kBitEqual:
-      EvaluateBitEqualStep(step.data().bitmask, frame);
+      EvaluateBitEqualStep(ExpressionStepData::Get(step).bitmask, frame);
       break;
     case ExpressionStepKind::kMovedFrom:
       frame.Abort(absl::InternalError(
