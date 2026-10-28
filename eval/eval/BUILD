@@ -42,7 +42,6 @@ cc_library(
         "evaluator_core.cc",
         "function_step.cc",
         "lazy_init_step.cc",
-        "logic_step.cc",
     ],
     hdrs = [
         "bitset_steps.h",
@@ -53,7 +52,6 @@ cc_library(
         "function_step.h",
         "ident_step.h",
         "lazy_init_step.h",
-        "logic_step.h",
     ],
     deps = [
         ":attribute_trail",

@@ -47,7 +47,6 @@
 #include "eval/eval/ident_step.h"
 #include "eval/eval/iterator_stack.h"
 #include "eval/eval/lazy_init_step.h"
-#include "eval/eval/logic_step.h"
 #include "runtime/activation_interface.h"
 #include "runtime/runtime.h"
 #include "runtime/runtime_options.h"

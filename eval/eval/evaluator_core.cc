@@ -32,6 +32,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/builtins.h"
 #include "common/internal/attribute_trail.h"
 #include "common/value.h"
 #include "common/value_kind.h"
@@ -44,7 +45,6 @@
 #include "eval/eval/equality_steps.h"
 #include "eval/eval/ident_step.h"
 #include "eval/eval/lazy_init_step.h"
-#include "eval/eval/logic_step.h"
 #include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
 #include "runtime/internal/errors.h"
@@ -320,6 +320,127 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateMutableListAppendStep(
       absl::InvalidArgumentError("Unexpected call to runtime list append."));
 }
 
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateNotStep(
+    ExecutionFrame& frame) {
+  if (ABSL_PREDICT_FALSE(!frame.value_stack().HasEnough(1))) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+    return;
+  }
+  const cel::Value& operand = frame.value_stack().Peek();
+
+  switch (operand.kind()) {
+    case cel::ValueKind::kBool:
+      frame.value_stack().PopAndPush(
+          cel::BoolValue{!operand.GetBool().NativeValue()});
+      break;
+    case cel::ValueKind::kUnknown:
+    case cel::ValueKind::kError:
+      // just forward.
+      break;
+    default:
+      frame.value_stack().PopAndPush(cel::ErrorValue::From(
+          cel::runtime_internal::CreateNoMatchingOverloadError(
+              cel::builtin::kNot),
+          frame.arena()));
+      break;
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateNotStrictlyFalseStep(
+    ExecutionFrame& frame) {
+  if (ABSL_PREDICT_FALSE(!frame.value_stack().HasEnough(1))) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+    return;
+  }
+  const cel::Value& operand = frame.value_stack().Peek();
+
+  switch (operand.kind()) {
+    case cel::ValueKind::kBool:
+      // just forward.
+      break;
+    case cel::ValueKind::kUnknown:
+    case cel::ValueKind::kError:
+      frame.value_stack().PopAndPush(cel::TrueValue());
+      break;
+    default:
+      frame.value_stack().PopAndPush(cel::ErrorValue::From(
+          cel::runtime_internal::CreateNoMatchingOverloadError(
+              cel::builtin::kNot),
+          frame.arena()));
+      break;
+  }
+}
+
+enum class BoolLogicKind {
+  kAnd,
+  kOr,
+};
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateBoolLogicStep(
+    ExecutionFrame& frame, size_t num_args, BoolLogicKind kind) {
+  if (ABSL_PREDICT_FALSE(!frame.value_stack().HasEnough(num_args))) {
+    frame.Abort(absl::InternalError("Value stack underflow"));
+    return;
+  }
+
+  const bool shortcircuit = kind == BoolLogicKind::kOr;
+  const absl::string_view op_name =
+      kind == BoolLogicKind::kOr ? cel::builtin::kOr : cel::builtin::kAnd;
+  absl::Span<const cel::Value> args = frame.value_stack().GetSpan(num_args);
+  std::optional<size_t> error_pos;
+
+  for (size_t i = 0; i < args.size(); i++) {
+    const cel::Value& arg = args[i];
+    switch (arg.kind()) {
+      case cel::ValueKind::kBool:
+        if (arg.GetBool() == shortcircuit) {
+          frame.value_stack().PopAndPush(num_args,
+                                         cel::BoolValue(shortcircuit));
+          return;
+        }
+        break;
+      case cel::ValueKind::kUnknown:
+        break;
+      case cel::ValueKind::kError:
+      default:
+        if (!error_pos.has_value()) {
+          error_pos = i;
+        }
+        break;
+    }
+  }
+
+  // As opposed to regular function, logical operation treat Unknowns with
+  // higher precedence than error. This is due to the fact that after Unknown
+  // is resolved to actual value, it may short-circuit and thus hide the
+  // error.
+  if (frame.enable_unknowns()) {
+    // Check if unknown?
+    UnknownAccumulator accumulator(frame.unknown_tree());
+    for (const auto& arg : args) {
+      accumulator.MaybeAdd(arg);
+    }
+    if (auto accumulated = std::move(accumulator).Accumulate();
+        accumulated.has_value()) {
+      frame.value_stack().PopAndPush(num_args, *accumulated);
+      return;
+    }
+  }
+
+  if (!error_pos.has_value()) {
+    frame.value_stack().PopAndPush(num_args, cel::BoolValue(!shortcircuit));
+    return;
+  }
+
+  cel::Value result = args[error_pos.value()];
+  if (!result.IsError()) {
+    result = cel::ErrorValue::From(
+        cel::runtime_internal::CreateNoMatchingOverloadError(op_name),
+        frame.arena());
+  }
+  frame.value_stack().PopAndPush(num_args, std::move(result));
+}
+
 ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
     ExecutionFrame& frame, const ExpressionStep& step) {
   switch (step.kind()) {
@@ -360,10 +481,10 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
       EvaluateNotStrictlyFalseStep(frame);
       break;
     case ExpressionStepKind::kBooleanOr:
-      EvaluateBoolLogicStep(BoolLogicKind::kOr, step.data().arg_count, frame);
+      EvaluateBoolLogicStep(frame, step.data().arg_count, BoolLogicKind::kOr);
       break;
     case ExpressionStepKind::kBooleanAnd:
-      EvaluateBoolLogicStep(BoolLogicKind::kAnd, step.data().arg_count, frame);
+      EvaluateBoolLogicStep(frame, step.data().arg_count, BoolLogicKind::kAnd);
       break;
     case ExpressionStepKind::kComprehensionFinish:
       EvaluateComprehensionFinishStep(step.data().slot_index, frame);
