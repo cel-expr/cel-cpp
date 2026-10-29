@@ -1,0 +1,95 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package cel.types;
+
+import "common/typedef/typedef.proto";
+
+option cc_enable_arenas = true;
+
+// Protocol Buffers schema properties attached to a Struct ("proto" aspect).
+message ProtoStructProperties {
+  string name = 1;
+}
+
+// Protocol Buffers schema properties attached to a Struct.Field ("proto"
+// aspect).
+message ProtoFieldProperties {
+  string name = 1;
+  int32 id = 2;
+  string json_name = 3;
+}
+
+// Protocol Buffers schema properties attached to an Enum ("proto" aspect).
+message ProtoEnumProperties {
+  string name = 1;
+  bool allow_alias = 2;
+}
+
+// Protocol Buffers schema properties attached to an Enum.EnumConstant ("proto"
+// aspect).
+message ProtoEnumConstantProperties {
+  string name = 1;
+}
+
+// Represents a declared protobuf extension range [start, end) on a message.
+message ProtoExtensionRange {
+  int32 start = 1;
+  int32 end = 2;
+}
+
+// Protocol Buffers v2 schema properties attached to a Struct ("proto2" aspect).
+message Proto2StructProperties {
+  repeated ProtoExtensionRange extension_ranges = 1;
+}
+
+// Protocol Buffers v2 schema properties attached to a Struct.Field ("proto2"
+// aspect).
+message Proto2FieldProperties {
+  bool required = 1;
+  bool packed = 2;
+}
+
+// Protocol Buffers v3 schema properties attached to a Struct.Field ("proto3"
+// aspect).
+message Proto3FieldProperties {
+  bool optional = 1;
+  bool packed = 2;
+}
+
+// Extensions for Protocol Buffers schema aspects.
+//
+// "proto" captures common schema properties across all protobuf flavors.
+// "proto2" and "proto3" capture only flavor-differentiating properties.
+
+extend Struct {
+  ProtoStructProperties proto_struct_aspect = 1001;
+  Proto2StructProperties proto2_struct_aspect = 1002;
+}
+
+extend Struct.Field {
+  ProtoFieldProperties proto_field_aspect = 1001;
+  Proto2FieldProperties proto2_field_aspect = 1002;
+  Proto3FieldProperties proto3_field_aspect = 1003;
+}
+
+extend Enum {
+  ProtoEnumProperties proto_enum_aspect = 1001;
+}
+
+extend Enum.EnumConstant {
+  ProtoEnumConstantProperties proto_enum_constant_aspect = 1001;
+}

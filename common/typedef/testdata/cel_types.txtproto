@@ -1,0 +1,359 @@
+# proto-file: common/typedef/typedef.proto
+# proto-message: cel.types.TypeDefSet
+
+# Empty struct and enum
+types {
+  struct_type {}
+}
+types {
+  enum_type {
+    [cel.types.proto_enum_aspect] {}
+  }
+}
+
+# Struct with name, doc, and empty aspects
+types {
+  struct_type {
+    name: "NoFields"
+    doc: "Empty struct."
+    [cel.types.proto_struct_aspect] {}
+    [cel.types.proto2_struct_aspect] {}
+  }
+}
+
+# Enum with constants, doc, and aspects
+types {
+  enum_type {
+    name: "com.example.OrderStatus"
+    doc: "Order lifecycle state."
+    constants { name: "UNSPECIFIED" id: 0 doc: "Default value." }
+    constants {
+      name: "PENDING"
+      id: 1
+      [cel.types.proto_enum_constant_aspect] {}
+    }
+    constants {
+      name: "SHIPPED"
+      id: 10
+      doc: "Shipped to customer."
+      [cel.types.proto_enum_constant_aspect] {
+        name: "STATUS_SHIPPED"
+      }
+    }
+    [cel.types.proto_enum_aspect] {
+      name: "com.example.proto.OrderStatus"
+      allow_alias: true
+    }
+  }
+}
+
+# Struct with fields and aspects
+types {
+  struct_type {
+    name: "com.example.store.Order"
+    members {
+      field {
+        name: "items"
+        type {
+          list_type {
+            elem_type {
+              abstract_type { name: "com.example.store.Item" }
+            }
+          }
+        }
+        [cel.types.proto_field_aspect] {
+          name: "order_items"
+          id: 1
+          json_name: "orderItems"
+        }
+        [cel.types.proto2_field_aspect] {
+          required: true
+          packed: true
+        }
+        [cel.types.proto3_field_aspect] {
+          optional: true
+          packed: false
+        }
+      }
+    }
+    members {
+      field {
+        name: "metadata"
+        type {
+          map_type {
+            key_type { primitive: STRING }
+            value_type { dyn {} }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "notes"
+        type { wrapper: STRING }
+        [cel.types.proto_field_aspect] {}
+        [cel.types.proto2_field_aspect] {}
+        [cel.types.proto3_field_aspect] {}
+      }
+    }
+    [cel.types.proto_struct_aspect] {
+      name: "com.example.proto.Order"
+    }
+    [cel.types.proto2_struct_aspect] {
+      extension_ranges {
+        start: 100
+        end: 200
+      }
+    }
+  }
+}
+
+# Struct with oneof
+types {
+  struct_type {
+    name: "com.example.OneofStruct"
+    members {
+      field {
+        name: "a"
+        type { primitive: STRING }
+      }
+    }
+    members {
+      oneof_type {
+        fields {
+          name: "b"
+          type { primitive: INT64 }
+          doc: "Int option."
+          default_value { int64_value: 7 }
+          [cel.types.proto_field_aspect] {
+            name: "proto_b"
+            id: 2
+            json_name: "protoB"
+          }
+          [cel.types.proto2_field_aspect] {
+            required: true
+            packed: true
+          }
+          [cel.types.proto3_field_aspect] {
+            optional: true
+            packed: false
+          }
+        }
+        fields {
+          name: "c"
+          type {
+            list_type {
+              elem_type { primitive: DOUBLE }
+            }
+          }
+          [cel.types.proto_field_aspect] {}
+          [cel.types.proto2_field_aspect] {}
+          [cel.types.proto3_field_aspect] {}
+        }
+      }
+    }
+    members {
+      oneof_type {}
+    }
+    members {
+      field {
+        name: "d"
+        type { well_known: DURATION }
+      }
+    }
+  }
+}
+
+# All remaining supported field types and default constant kinds
+types {
+  struct_type {
+    name: "AllSupportedFieldTypes"
+    members {
+      field {
+        name: "null_field"
+        type { null: NULL_VALUE }
+        default_value { null_value: NULL_VALUE }
+      }
+    }
+    members {
+      field {
+        name: "bool_field"
+        type { primitive: BOOL }
+        default_value { bool_value: true }
+      }
+    }
+    members {
+      field {
+        name: "uint_field"
+        type { primitive: UINT64 }
+        default_value { uint64_value: 456 }
+      }
+    }
+    members {
+      field {
+        name: "double_field"
+        type { primitive: DOUBLE }
+        default_value { double_value: 3.25 }
+      }
+    }
+    members {
+      field {
+        name: "bytes_field"
+        type { primitive: BYTES }
+        default_value { bytes_value: "\001\002\003" }
+      }
+    }
+    members {
+      field {
+        name: "string_field"
+        type { primitive: STRING }
+        default_value { string_value: "hello" }
+      }
+    }
+    members {
+      field {
+        name: "duration_field"
+        type { well_known: DURATION }
+        default_value { duration_value { seconds: 10 } }
+      }
+    }
+    members {
+      field {
+        name: "timestamp_field"
+        type { well_known: TIMESTAMP }
+        default_value { timestamp_value { seconds: 1791158400 } }
+      }
+    }
+    members {
+      field {
+        name: "enum_field"
+        type { abstract_type { name: "com.example.Status" } }
+        default_value { string_value: "ACTIVE" }
+      }
+    }
+    members {
+      field {
+        name: "any_field"
+        type { well_known: ANY }
+      }
+    }
+    members {
+      field {
+        name: "func_field"
+        type {
+          function {
+            result_type { primitive: BOOL }
+            arg_types { primitive: INT64 }
+            arg_types { primitive: STRING }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "type_param_f"
+        type { type_param: "T" }
+      }
+    }
+    members {
+      field {
+        name: "unspec_prim_f"
+        type { primitive: PRIMITIVE_TYPE_UNSPECIFIED }
+      }
+    }
+    members {
+      field {
+        name: "bool_w_f"
+        type { wrapper: BOOL }
+      }
+    }
+    members {
+      field {
+        name: "int_w_f"
+        type { wrapper: INT64 }
+      }
+    }
+    members {
+      field {
+        name: "uint_w_f"
+        type { wrapper: UINT64 }
+      }
+    }
+    members {
+      field {
+        name: "double_w_f"
+        type { wrapper: DOUBLE }
+      }
+    }
+    members {
+      field {
+        name: "bytes_w_f"
+        type { wrapper: BYTES }
+      }
+    }
+    members {
+      field {
+        name: "unspec_w_f"
+        type { wrapper: PRIMITIVE_TYPE_UNSPECIFIED }
+      }
+    }
+    members {
+      field {
+        name: "unspec_wk_f"
+        type { well_known: WELL_KNOWN_TYPE_UNSPECIFIED }
+      }
+    }
+    members {
+      field {
+        name: "map_val_only_f"
+        type {
+          map_type {
+            key_type {}
+            value_type { primitive: INT64 }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "type_int_f"
+        type {
+          type { primitive: INT64 }
+        }
+      }
+    }
+    members {
+      field {
+        name: "type_unspec_f"
+        type {
+          type {}
+        }
+      }
+    }
+    members {
+      field {
+        name: "abstract_params_f"
+        type {
+          abstract_type {
+            name: "MyGeneric"
+            parameter_types { primitive: INT64 }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "shipping_addr"
+        type {
+          message_type: "com.example.Address"
+        }
+      }
+    }
+    members {
+      field {
+        name: "error_f"
+        type { error {} }
+      }
+    }
+  }
+}
