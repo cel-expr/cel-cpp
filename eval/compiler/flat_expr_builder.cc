@@ -445,7 +445,6 @@ class ComprehensionVisitor {
                                 size_t iter_slot, size_t iter2_slot,
                                 size_t accu_slot)
       : visitor_(visitor),
-        init_step_(nullptr),
         is_trivial_(is_trivial),
         accu_init_extracted_(false),
         iter_slot_(iter_slot),
@@ -473,12 +472,12 @@ class ComprehensionVisitor {
   absl::Status PostVisitArgDefault(cel::ComprehensionArg arg_num,
                                    const cel::Expr* comprehension_expr);
 
+  ComprehensionInitStepInfo* absl_nullable GetInitStep();
   ComprehensionCondStepInfo* absl_nullable GetCondStep();
   ComprehensionNextStepInfo* absl_nullable GetNextStep();
 
   FlatExprVisitor* visitor_;
-  ComprehensionInitStep* init_step_;
-  ProgramStepIndex init_step_pos_;
+  std::optional<ProgramStepIndex> init_step_pos_;
   std::optional<ProgramStepIndex> next_step_pos_;
   std::optional<ProgramStepIndex> cond_step_pos_;
   bool is_trivial_;
@@ -2094,6 +2093,18 @@ void ComprehensionVisitor::PreVisit(const cel::Expr* expr) {
   }
 }
 
+ComprehensionInitStepInfo* absl_nullable ComprehensionVisitor::GetInitStep() {
+  if (!init_step_pos_) {
+    return nullptr;
+  }
+  ExpressionStep* step =
+      init_step_pos_->subexpression->GetIfExpressionStep(init_step_pos_->index);
+  if (!step) {
+    return nullptr;
+  }
+  return GetIfComprehensionInitStep(*step);
+}
+
 ComprehensionCondStepInfo* absl_nullable ComprehensionVisitor::GetCondStep() {
   if (!cond_step_pos_) {
     return nullptr;
@@ -2124,11 +2135,14 @@ absl::Status ComprehensionVisitor::PostVisitArgDefault(
     case cel::ITER_RANGE: {
       init_step_pos_ = visitor_->GetCurrentIndex();
       if (iter_slot_ != iter2_slot_) {
-        init_step_ = visitor_->AddStep(std::make_unique<ComprehensionInitStep>(
-            iter_slot_, iter2_slot_, accu_slot_));
+        ABSL_DCHECK_EQ(iter2_slot_, iter_slot_ + 1);
+        ABSL_DCHECK_EQ(accu_slot_, iter2_slot_ + 1);
+        visitor_->AddStep(ExpressionStep::MakeComprehensionInitStep(
+            static_cast<uint32_t>(iter_slot_), ComprehensionVersion::kV2));
       } else {
-        init_step_ = visitor_->AddStep(
-            std::make_unique<ComprehensionInitStep>(iter_slot_, accu_slot_));
+        ABSL_DCHECK_EQ(accu_slot_, iter_slot_ + 1);
+        visitor_->AddStep(ExpressionStep::MakeComprehensionInitStep(
+            static_cast<uint32_t>(iter_slot_), ComprehensionVersion::kV1));
       }
       break;
     }
@@ -2186,17 +2200,21 @@ absl::Status ComprehensionVisitor::PostVisitArgDefault(
       break;
     }
     case cel::RESULT: {
-      if (!init_step_ || !next_step_pos_ || !cond_step_pos_) {
+      if (!init_step_pos_ || !next_step_pos_ || !cond_step_pos_) {
         // Encountered an error earlier. Can't determine where to jump.
         break;
       }
       visitor_->AddStep(
           ExpressionStep::MakeComprehensionFinishStep(accu_slot_, expr->id()));
       // Set offsets jumping past the result step in case of errors.
-      CEL_ASSIGN_OR_RETURN(
-          int jump_from_init,
-          Jump::CalculateOffset(init_step_pos_, visitor_->GetCurrentIndex()));
-      init_step_->set_error_jump_offset(jump_from_init);
+      if (auto* init_step = GetInitStep(); init_step != nullptr) {
+        CEL_ASSIGN_OR_RETURN(int jump_from_init,
+                             Jump::CalculateOffset(
+                                 *init_step_pos_, visitor_->GetCurrentIndex()));
+        init_step->set_error_jump_offset(jump_from_init);
+      } else {
+        return absl::InvalidArgumentError("Comprehension is malformed");
+      }
 
       if (auto* next_step = GetNextStep(); next_step != nullptr) {
         CEL_ASSIGN_OR_RETURN(int jump_from_next,

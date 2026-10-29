@@ -480,11 +480,6 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateClearSlotStep(
   }
 }
 
-enum class IterableKind {
-  kList = 1,
-  kMap,
-};
-
 cel::AttributeQualifier AttributeQualifierFromValue(const cel::Value& v) {
   switch (v.kind()) {
     case cel::ValueKind::kString:
@@ -498,6 +493,60 @@ cel::AttributeQualifier AttributeQualifierFromValue(const cel::Value& v) {
     default:
       // Non-matching qualifier.
       return cel::AttributeQualifier();
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateComprehensionInitStep(
+    ExecutionFrame* frame, const ComprehensionInitStepInfo& step) {
+  if (ABSL_PREDICT_FALSE(!frame->value_stack().HasEnough(1))) {
+    frame->Abort(absl::InternalError("Value stack underflow"));
+    return;
+  }
+
+  const cel::Value& top = frame->value_stack().Peek();
+  if (top.IsError() || top.IsUnknown()) {
+    frame->JumpToOrAbort(step.error_jump_offset);
+    return;
+  }
+
+  if (frame->enable_unknowns() && top.IsMap()) {
+    const AttributeTrail& top_attr = frame->value_stack().PeekAttribute();
+    if (auto unknown = top_attr.PartialUnknownMatch(frame->unknown_tree());
+        unknown.has_value()) {
+      frame->value_stack().PopAndPush(*unknown);
+      frame->JumpToOrAbort(step.error_jump_offset);
+      return;
+    }
+  }
+
+  absl::StatusOr<cel::ValueIteratorPtr> iterator;
+  switch (top.kind()) {
+    case cel::ValueKind::kList:
+      iterator = top.GetList().NewIterator();
+      break;
+    case cel::ValueKind::kMap:
+      iterator = top.GetMap().NewIterator();
+      break;
+    default:
+      // Replace <iter_range> with an error and jump past
+      // ComprehensionFinishStep.
+      frame->value_stack().PopAndPush(cel::ErrorValue::From(
+          cel::runtime_internal::CreateNoMatchingOverloadError("<iter_range>"),
+          frame->arena()));
+      frame->JumpToOrAbort(step.error_jump_offset);
+      return;
+  }
+
+  if (!iterator.ok()) {
+    frame->Abort(std::move(iterator).status());
+    return;
+  }
+  if (step.v2) {
+    frame->iterator_stack().Push(*std::move(iterator), step.iter_slot(),
+                                 step.iter2_slot(), step.accu_slot());
+  } else {
+    frame->iterator_stack().Push(*std::move(iterator), step.iter_slot(),
+                                 step.accu_slot());
   }
 }
 
@@ -900,6 +949,10 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
     case ExpressionStepKind::kBitEqual:
       EvaluateBitEqualStep(ExpressionStepData::Get(step).bitmask, frame);
       break;
+    case ExpressionStepKind::kComprehensionInit:
+      EvaluateComprehensionInitStep(&frame,
+                                    ExpressionStepData::Get(step).init_step);
+      break;
     case ExpressionStepKind::kMovedFrom:
       frame.Abort(absl::InternalError(
           "ExpressionStep::Evaluate called on moved-from step"));
@@ -1090,6 +1143,13 @@ ComprehensionNextStepInfo* GetIfComprehensionNextStep(ExpressionStep& step) {
   return nullptr;
 }
 
+ComprehensionInitStepInfo* GetIfComprehensionInitStep(ExpressionStep& step) {
+  if (step.header_.kind == ExpressionStepKind::kComprehensionInit) {
+    return &step.u_.init_step;
+  }
+  return nullptr;
+}
+
 BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step) {
   if (step.header_.kind == ExpressionStepKind::kBooleanOrJump ||
       step.header_.kind == ExpressionStepKind::kBooleanAndJump) {
@@ -1146,6 +1206,7 @@ std::optional<int64_t> ExpressionStep::StackDelta() const {
     case ExpressionStepKind::kReadSlot:
     case ExpressionStepKind::kIdentifier:
     case ExpressionStepKind::kNewMutableList:
+    case ExpressionStepKind::kComprehensionInit:
       return 1;
     case ExpressionStepKind::kAssignSlotAndPop:
     case ExpressionStepKind::kComprehensionFinish:

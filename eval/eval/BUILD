@@ -36,7 +36,6 @@ cc_library(
     name = "evaluator_core",
     srcs = [
         "bitset_steps.cc",
-        "comprehension_step.cc",
         "create_list_step.cc",
         "equality_steps.cc",
         "evaluator_core.cc",

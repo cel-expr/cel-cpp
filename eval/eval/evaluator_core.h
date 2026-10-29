@@ -85,7 +85,6 @@ enum class ExpressionStepKind : uint16_t {
   kBooleanOr = 13,
   kBooleanAnd = 14,
   // Comprehension steps.
-  // Init step doesn't fit inline and is slow anyway, so it uses a generic step.
   kComprehensionFinish = 15,
   kComprehensionNext = 16,
   kComprehensionCond = 17,
@@ -119,6 +118,8 @@ enum class ExpressionStepKind : uint16_t {
   kBitAndIsNonZero = 36,  // Any  (intersect) <arg as mask> & mask != 0
   kBitAndEqual = 37,      // All  (contains) <arg as mask> & mask == mask
   kBitEqual = 38,         // Equivalent <arg as mask> == mask
+  // Comprehension init step.
+  kComprehensionInit = 39,
 };
 
 struct BoolJumpStepInfo {
@@ -402,6 +403,17 @@ class ExpressionStep {
     return step;
   }
 
+  static ExpressionStep MakeComprehensionInitStep(uint32_t first_slot,
+                                                  ComprehensionVersion version,
+                                                  int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kComprehensionInit, id);
+    step.u_.init_step = ComprehensionInitStepInfo{
+        .first_slot = first_slot,
+        .v2 = version == ComprehensionVersion::kV2,
+    };
+    return step;
+  }
+
  private:
   friend struct ExpressionStepData;
 
@@ -435,6 +447,7 @@ class ExpressionStep {
     ListStepInfo* create_list_step;
     SmallListStepInfo create_small_list_step;
     uint64_t bitmask;
+    ComprehensionInitStepInfo init_step;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -467,6 +480,8 @@ class ExpressionStep {
   friend ComprehensionCondStepInfo* GetIfComprehensionCondStep(
       ExpressionStep& step);
   friend ComprehensionNextStepInfo* GetIfComprehensionNextStep(
+      ExpressionStep& step);
+  friend ComprehensionInitStepInfo* GetIfComprehensionInitStep(
       ExpressionStep& step);
   friend BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step);
   friend TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step);
@@ -1056,6 +1071,7 @@ bool IsConstant(const ExpressionStep& step);
 
 ComprehensionCondStepInfo* GetIfComprehensionCondStep(ExpressionStep& step);
 ComprehensionNextStepInfo* GetIfComprehensionNextStep(ExpressionStep& step);
+ComprehensionInitStepInfo* GetIfComprehensionInitStep(ExpressionStep& step);
 
 BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step);
 BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep* step);
@@ -1159,6 +1175,7 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kBitAndIsNonZero:
     case ExpressionStepKind::kBitAndEqual:
     case ExpressionStepKind::kBitEqual:
+    case ExpressionStepKind::kComprehensionInit:
       break;
     default:
       ABSL_UNREACHABLE();

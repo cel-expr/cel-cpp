@@ -77,10 +77,9 @@ MATCHER_P(CelStringValue, val, "") {
 TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
   ExecutionPath path;
   path.push_back(ExpressionStep::MakeIdentifierStep(0));
-  auto init_step =
-      std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
-  init_step->set_error_jump_offset(1);
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
+  path.push_back(ExpressionStep::MakeComprehensionInitStep(
+      /*first_slot=*/0, ComprehensionVersion::kV2));
+  GetIfComprehensionInitStep(path.back())->error_jump_offset = 1;
   path.push_back(ExpressionStep::MakeGenericStep(
       std::make_unique<GetListKeysResultStep>()));
 
@@ -117,10 +116,9 @@ TEST_F(ListKeysStepTest, MapPartiallyUnknown) {
 TEST_F(ListKeysStepTest, ErrorPassedThrough) {
   ExecutionPath path;
   path.push_back(ExpressionStep::MakeIdentifierStep(0));
-  auto init_step =
-      std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
-  init_step->set_error_jump_offset(1);
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
+  path.push_back(ExpressionStep::MakeComprehensionInitStep(
+      /*first_slot=*/0, ComprehensionVersion::kV2));
+  GetIfComprehensionInitStep(path.back())->error_jump_offset = 1;
   path.push_back(ExpressionStep::MakeGenericStep(
       std::make_unique<GetListKeysResultStep>()));
 
@@ -142,10 +140,9 @@ TEST_F(ListKeysStepTest, ErrorPassedThrough) {
 TEST_F(ListKeysStepTest, UnknownSetPassedThrough) {
   ExecutionPath path;
   path.push_back(ExpressionStep::MakeIdentifierStep(0));
-  auto init_step =
-      std::make_unique<ComprehensionInitStep>(/*iter_slot=*/0, /*accu_slot=*/0);
-  init_step->set_error_jump_offset(1);
-  path.push_back(ExpressionStep::MakeGenericStep(std::move(init_step)));
+  path.push_back(ExpressionStep::MakeComprehensionInitStep(
+      /*first_slot=*/0, ComprehensionVersion::kV2));
+  GetIfComprehensionInitStep(path.back())->error_jump_offset = 1;
   path.push_back(ExpressionStep::MakeGenericStep(
       std::make_unique<GetListKeysResultStep>()));
 
