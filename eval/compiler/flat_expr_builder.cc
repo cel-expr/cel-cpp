@@ -58,7 +58,6 @@
 #include "common/expr.h"
 #include "common/kind.h"
 #include "common/type.h"
-#include "common/type_spec_resolver.h"
 #include "common/value.h"
 #include "eval/compiler/check_ast_extensions.h"
 #include "eval/compiler/flat_expr_builder_extensions.h"
@@ -474,8 +473,8 @@ class ComprehensionVisitor {
   absl::Status PostVisitArgDefault(cel::ComprehensionArg arg_num,
                                    const cel::Expr* comprehension_expr);
 
-  ComprehensionCondStep* absl_nullable GetCondStep();
-  ComprehensionNextStep* absl_nullable GetNextStep();
+  ComprehensionCondStepInfo* absl_nullable GetCondStep();
+  ComprehensionNextStepInfo* absl_nullable GetNextStep();
 
   FlatExprVisitor* visitor_;
   ComprehensionInitStep* init_step_;
@@ -2095,7 +2094,7 @@ void ComprehensionVisitor::PreVisit(const cel::Expr* expr) {
   }
 }
 
-ComprehensionCondStep* absl_nullable ComprehensionVisitor::GetCondStep() {
+ComprehensionCondStepInfo* absl_nullable ComprehensionVisitor::GetCondStep() {
   if (!cond_step_pos_) {
     return nullptr;
   }
@@ -2107,7 +2106,7 @@ ComprehensionCondStep* absl_nullable ComprehensionVisitor::GetCondStep() {
   return GetIfComprehensionCondStep(*step);
 }
 
-ComprehensionNextStep* absl_nullable ComprehensionVisitor::GetNextStep() {
+ComprehensionNextStepInfo* absl_nullable ComprehensionVisitor::GetNextStep() {
   if (!next_step_pos_) {
     return nullptr;
   }

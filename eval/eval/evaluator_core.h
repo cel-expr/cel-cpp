@@ -253,25 +253,25 @@ class ExpressionStep {
 
   static ExpressionStep MakeComprehensionNextStep(int64_t id = -1) {
     ExpressionStep step(ExpressionStepKind::kComprehensionNext, id);
-    step.u_.next_step = ComprehensionNextStep();
+    step.u_.next_step = ComprehensionNextStepInfo();
     return step;
   }
 
   static ExpressionStep MakeComprehensionNext2Step(int64_t id = -1) {
     ExpressionStep step(ExpressionStepKind::kComprehensionNext2, id);
-    step.u_.next_step = ComprehensionNextStep();
+    step.u_.next_step = ComprehensionNextStepInfo();
     return step;
   }
 
   static ExpressionStep MakeComprehensionCondStep(int64_t id = -1) {
     ExpressionStep step(ExpressionStepKind::kComprehensionCond, id);
-    step.u_.cond_step = ComprehensionCondStep();
+    step.u_.cond_step = ComprehensionCondStepInfo();
     return step;
   }
 
   static ExpressionStep MakeComprehensionCond2Step(int64_t id = -1) {
     ExpressionStep step(ExpressionStepKind::kComprehensionCond2, id);
-    step.u_.cond_step = ComprehensionCondStep();
+    step.u_.cond_step = ComprehensionCondStepInfo();
     return step;
   }
 
@@ -424,8 +424,8 @@ class ExpressionStep {
     size_t slot_index;
     ClearSlotStepInfo clear_slots;
     size_t arg_count;
-    ComprehensionCondStep cond_step;
-    ComprehensionNextStep next_step;
+    ComprehensionCondStepInfo cond_step;
+    ComprehensionNextStepInfo next_step;
     BoolJumpStepInfo bool_jump_step;
     TernaryJumpStepInfo ternary_jump_step;
     FixedJumpStepInfo fixed_jump_step;
@@ -464,9 +464,9 @@ class ExpressionStep {
 
   friend bool GetIfConstant(const ExpressionStep& step, cel::Value& out);
   friend bool IsConstant(const ExpressionStep& step);
-  friend ComprehensionCondStep* GetIfComprehensionCondStep(
+  friend ComprehensionCondStepInfo* GetIfComprehensionCondStep(
       ExpressionStep& step);
-  friend ComprehensionNextStep* GetIfComprehensionNextStep(
+  friend ComprehensionNextStepInfo* GetIfComprehensionNextStep(
       ExpressionStep& step);
   friend BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step);
   friend TernaryJumpStepInfo* GetIfTernaryJumpStep(ExpressionStep& step);
@@ -1054,8 +1054,8 @@ bool GetIfConstant(const ExpressionStep& step, cel::Value& out);
 // Checks if the step is a constant.
 bool IsConstant(const ExpressionStep& step);
 
-ComprehensionCondStep* GetIfComprehensionCondStep(ExpressionStep& step);
-ComprehensionNextStep* GetIfComprehensionNextStep(ExpressionStep& step);
+ComprehensionCondStepInfo* GetIfComprehensionCondStep(ExpressionStep& step);
+ComprehensionNextStepInfo* GetIfComprehensionNextStep(ExpressionStep& step);
 
 BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep& step);
 BoolJumpStepInfo* GetIfBoolJumpStep(ExpressionStep* step);

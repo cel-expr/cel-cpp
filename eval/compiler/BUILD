@@ -104,7 +104,6 @@ cc_library(
         "//common:expr",
         "//common:kind",
         "//common:type",
-        "//common:type_spec_resolver",
         "//common:value",
         "//eval/eval:container_access_step",
         "//eval/eval:create_map_step",

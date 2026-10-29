@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <limits>
 
+#include "absl/base/macros.h"
 #include "eval/eval/expression_step_logic.h"
 
 namespace google::api::expr::runtime {
@@ -46,44 +47,27 @@ class ComprehensionInitStep final : public ExpressionStepLogic {
   int error_jump_offset_ = std::numeric_limits<int>::max();
 };
 
-class ComprehensionNextStep final {
- public:
-  ComprehensionNextStep() = default;
+struct ComprehensionNextStepInfo {
+  ABSL_DEPRECATE_AND_INLINE()
+  void set_jump_offset(int offset) { jump_offset = offset; }
 
-  void set_jump_offset(int offset) { jump_offset_ = offset; }
+  ABSL_DEPRECATE_AND_INLINE()
+  void set_error_jump_offset(int offset) { error_jump_offset = offset; }
 
-  void set_error_jump_offset(int offset) { error_jump_offset_ = offset; }
-
-  void Evaluate1(ExecutionFrame* frame) const;
-
-  void Evaluate2(ExecutionFrame* frame) const;
-
- private:
-  int32_t jump_offset_ = std::numeric_limits<int32_t>::max();
-  int32_t error_jump_offset_ = std::numeric_limits<int32_t>::max();
+  int32_t jump_offset = std::numeric_limits<int32_t>::max();
+  int32_t error_jump_offset = std::numeric_limits<int32_t>::max();
 };
 
-class ComprehensionCondStep final {
- public:
-  ComprehensionCondStep() = default;
+struct ComprehensionCondStepInfo {
+  ABSL_DEPRECATE_AND_INLINE()
+  void set_jump_offset(int offset) { jump_offset = offset; }
 
-  void set_jump_offset(int offset) { jump_offset_ = offset; }
+  ABSL_DEPRECATE_AND_INLINE()
+  void set_error_jump_offset(int offset) { error_jump_offset = offset; }
 
-  void set_error_jump_offset(int offset) { error_jump_offset_ = offset; }
-
-  void Evaluate1(ExecutionFrame* frame) const;
-
-  void Evaluate2(ExecutionFrame* frame) const;
-
- private:
-  int32_t jump_offset_ = std::numeric_limits<int32_t>::max();
-  int32_t error_jump_offset_ = std::numeric_limits<int32_t>::max();
+  int32_t jump_offset = std::numeric_limits<int32_t>::max();
+  int32_t error_jump_offset = std::numeric_limits<int32_t>::max();
 };
-
-// Runs a cleanup step for the comprehension.
-// Removes the comprehension context then pushes the 'result' sub expression to
-// the top of the stack.
-void EvaluateComprehensionFinishStep(size_t accu_slot, ExecutionFrame& frame);
 
 }  // namespace google::api::expr::runtime
 

@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "absl/base/attributes.h"
+#include "absl/base/casts.h"
 #include "absl/base/config.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
@@ -32,6 +33,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "base/attribute.h"
 #include "base/builtins.h"
 #include "common/internal/attribute_trail.h"
 #include "common/value.h"
@@ -44,6 +46,7 @@
 #include "eval/eval/create_list_step.h"
 #include "eval/eval/equality_steps.h"
 #include "eval/eval/ident_step.h"
+#include "eval/eval/iterator_stack.h"
 #include "eval/eval/lazy_init_step.h"
 #include "internal/status_macros.h"
 #include "runtime/activation_interface.h"
@@ -477,6 +480,290 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateClearSlotStep(
   }
 }
 
+enum class IterableKind {
+  kList = 1,
+  kMap,
+};
+
+cel::AttributeQualifier AttributeQualifierFromValue(const cel::Value& v) {
+  switch (v.kind()) {
+    case cel::ValueKind::kString:
+      return cel::AttributeQualifier::OfString(v.GetString().ToString());
+    case cel::ValueKind::kInt64:
+      return cel::AttributeQualifier::OfInt(v.GetInt().NativeValue());
+    case cel::ValueKind::kUint64:
+      return cel::AttributeQualifier::OfUint(v.GetUint().NativeValue());
+    case cel::ValueKind::kBool:
+      return cel::AttributeQualifier::OfBool(v.GetBool().NativeValue());
+    default:
+      // Non-matching qualifier.
+      return cel::AttributeQualifier();
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateComprehensionNextStep1(
+    ExecutionFrame* frame, const ComprehensionNextStepInfo& step) {
+  if (ABSL_PREDICT_FALSE(frame->iterator_stack().empty())) {
+    frame->Abort(absl::InternalError("Iterator stack underflow"));
+    return;
+  }
+  const cel::runtime_internal::IteratorStack::Entry& entry =
+      *frame->iterator_stack().Peek();
+  if (ABSL_PREDICT_FALSE(!frame->value_stack().HasEnough(2))) {
+    frame->Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+
+  {
+    cel::Value& accu_var = frame->value_stack().Peek();
+    AttributeTrail& accu_var_attr = frame->value_stack().PeekAttribute();
+    frame->comprehension_slots().Set(entry.accu_slot, std::move(accu_var),
+                                     std::move(accu_var_attr));
+    frame->value_stack().Pop(1);
+  }
+
+  ComprehensionSlots::Slot* iter_slot =
+      frame->comprehension_slots().Get(entry.iter_slot);
+  ABSL_DCHECK(iter_slot != nullptr);
+  iter_slot->Set();
+
+  if (frame->enable_unknowns()) {
+    cel::Value key_or_value;
+    cel::Value* key;
+    cel::Value* value;
+    switch (frame->value_stack().Peek().kind()) {
+      case cel::ValueKind::kList:
+        key = &key_or_value;
+        value = iter_slot->mutable_value();
+        break;
+      case cel::ValueKind::kMap:
+        key = iter_slot->mutable_value();
+        value = nullptr;
+        break;
+      default:
+        ABSL_UNREACHABLE();
+    }
+    absl::StatusOr<bool> ok = entry.iterator->Next2(frame->descriptor_pool(),
+                                                    frame->message_factory(),
+                                                    frame->arena(), key, value);
+    if (ABSL_PREDICT_FALSE(!ok.ok())) {
+      frame->Abort(std::move(ok).status());
+      return;
+    }
+    if (!*ok) {
+      iter_slot->Clear();
+      frame->JumpToOrAbort(step.jump_offset);
+      return;
+    }
+    absl::Status inc_status = frame->IncrementIterations();
+    if (ABSL_PREDICT_FALSE(!inc_status.ok())) {
+      frame->Abort(std::move(inc_status));
+      return;
+    }
+    cel::AttributeQualifier qualifier = AttributeQualifierFromValue(*key);
+    if (qualifier) {
+      static_cast<void>(
+          frame->value_stack().PeekAttribute().Match<AttributeTrail::kFull>(
+              qualifier, *iter_slot->mutable_value(),
+              *iter_slot->mutable_attribute(), frame->unknown_tree()));
+    }
+  } else {
+    absl::StatusOr<bool> ok = entry.iterator->Next1(
+        frame->descriptor_pool(), frame->message_factory(), frame->arena(),
+        iter_slot->mutable_value());
+    if (ABSL_PREDICT_FALSE(!ok.ok())) {
+      frame->Abort(std::move(ok).status());
+      return;
+    }
+    if (!*ok) {
+      iter_slot->Clear();
+      frame->JumpToOrAbort(step.jump_offset);
+      return;
+    }
+    absl::Status inc_status = frame->IncrementIterations();
+    if (ABSL_PREDICT_FALSE(!inc_status.ok())) {
+      frame->Abort(std::move(inc_status));
+      return;
+    }
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateComprehensionNextStep2(
+    ExecutionFrame* frame, const ComprehensionNextStepInfo& step) {
+  if (ABSL_PREDICT_FALSE(frame->iterator_stack().empty())) {
+    frame->Abort(absl::InternalError("Iterator stack underflow"));
+    return;
+  }
+  const cel::runtime_internal::IteratorStack::Entry& entry =
+      *frame->iterator_stack().Peek();
+  if (ABSL_PREDICT_FALSE(!frame->value_stack().HasEnough(2))) {
+    frame->Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+
+  {
+    cel::Value& accu_var = frame->value_stack().Peek();
+    AttributeTrail& accu_var_attr = frame->value_stack().PeekAttribute();
+    frame->comprehension_slots().Set(entry.accu_slot, std::move(accu_var),
+                                     std::move(accu_var_attr));
+    frame->value_stack().Pop(1);
+  }
+
+  ComprehensionSlots::Slot* iter_slot =
+      frame->comprehension_slots().Get(entry.iter_slot);
+  ABSL_DCHECK(iter_slot != nullptr);
+  iter_slot->Set();
+
+  ComprehensionSlots::Slot* iter2_slot =
+      frame->comprehension_slots().Get(entry.iter2_slot);
+  ABSL_DCHECK(iter2_slot != nullptr);
+  iter2_slot->Set();
+
+  absl::StatusOr<bool> ok = entry.iterator->Next2(
+      frame->descriptor_pool(), frame->message_factory(), frame->arena(),
+      iter_slot->mutable_value(), iter2_slot->mutable_value());
+  if (ABSL_PREDICT_FALSE(!ok.ok())) {
+    frame->Abort(std::move(ok).status());
+    return;
+  }
+  if (!*ok) {
+    iter_slot->Clear();
+    iter2_slot->Clear();
+    frame->JumpToOrAbort(step.jump_offset);
+    return;
+  }
+  absl::Status inc_status = frame->IncrementIterations();
+  if (ABSL_PREDICT_FALSE(!inc_status.ok())) {
+    frame->Abort(std::move(inc_status));
+    return;
+  }
+  if (frame->enable_unknowns()) {
+    cel::AttributeQualifier qualifier =
+        AttributeQualifierFromValue(iter_slot->value());
+    if (qualifier) {
+      static_cast<void>(
+          frame->value_stack().PeekAttribute().Match<AttributeTrail::kFull>(
+              qualifier, *iter2_slot->mutable_value(),
+              *iter_slot->mutable_attribute(), frame->unknown_tree()));
+      *iter2_slot->mutable_attribute() = iter_slot->attribute();
+    }
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateComprehensionCondStep1(
+    ExecutionFrame* frame, const ComprehensionCondStepInfo& step) {
+  if (ABSL_PREDICT_FALSE(frame->iterator_stack().empty())) {
+    frame->Abort(absl::InternalError("Iterator stack underflow"));
+    return;
+  }
+  const cel::runtime_internal::IteratorStack::Entry& entry =
+      *frame->iterator_stack().Peek();
+  if (ABSL_PREDICT_FALSE(!frame->value_stack().HasEnough(2))) {
+    frame->Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  const cel::Value& top = frame->value_stack().Peek();
+  switch (top.kind()) {
+    case cel::ValueKind::kBool:
+      break;
+    case cel::ValueKind::kError:
+      ABSL_FALLTHROUGH_INTENDED;
+    case cel::ValueKind::kUnknown: {
+      frame->value_stack().SwapAndPop(2, 1);
+      frame->comprehension_slots().ClearSlot(entry.iter_slot);
+      frame->comprehension_slots().ClearSlot(entry.accu_slot);
+      frame->iterator_stack().Pop();
+      frame->JumpToOrAbort(step.error_jump_offset);
+      return;
+    }
+    default: {
+      frame->value_stack().PopAndPush(
+          2, cel::ErrorValue::From(
+                 cel::runtime_internal::CreateNoMatchingOverloadError(
+                     "<loop_condition>"),
+                 frame->arena()));
+      frame->comprehension_slots().ClearSlot(entry.iter_slot);
+      frame->comprehension_slots().ClearSlot(entry.accu_slot);
+      frame->iterator_stack().Pop();
+      frame->JumpToOrAbort(step.error_jump_offset);
+      return;
+    }
+  }
+  const bool loop_condition = absl::implicit_cast<bool>(top.GetBool());
+  const bool short_circuiting = frame->options().short_circuiting;
+  frame->value_stack().Pop(1);  // loop_condition
+  if (!loop_condition && short_circuiting) {
+    frame->JumpToOrAbort(step.jump_offset);
+    return;
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateComprehensionCondStep2(
+    ExecutionFrame* frame, const ComprehensionCondStepInfo& step) {
+  if (ABSL_PREDICT_FALSE(frame->iterator_stack().empty())) {
+    frame->Abort(absl::InternalError("Iterator stack underflow"));
+    return;
+  }
+  const cel::runtime_internal::IteratorStack::Entry& entry =
+      *frame->iterator_stack().Peek();
+  if (ABSL_PREDICT_FALSE(!frame->value_stack().HasEnough(2))) {
+    frame->Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  const cel::Value& top = frame->value_stack().Peek();
+  switch (top.kind()) {
+    case cel::ValueKind::kBool:
+      break;
+    case cel::ValueKind::kError:
+      ABSL_FALLTHROUGH_INTENDED;
+    case cel::ValueKind::kUnknown: {
+      frame->value_stack().SwapAndPop(2, 1);
+      frame->comprehension_slots().ClearSlot(entry.iter_slot);
+      frame->comprehension_slots().ClearSlot(entry.iter2_slot);
+      frame->comprehension_slots().ClearSlot(entry.accu_slot);
+      frame->iterator_stack().Pop();
+      frame->JumpToOrAbort(step.error_jump_offset);
+      return;
+    }
+    default: {
+      frame->value_stack().PopAndPush(
+          2, cel::ErrorValue::From(
+                 cel::runtime_internal::CreateNoMatchingOverloadError(
+                     "<loop_condition>"),
+                 frame->arena()));
+      frame->comprehension_slots().ClearSlot(entry.iter_slot);
+      frame->comprehension_slots().ClearSlot(entry.iter2_slot);
+      frame->comprehension_slots().ClearSlot(entry.accu_slot);
+      frame->iterator_stack().Pop();
+      frame->JumpToOrAbort(step.error_jump_offset);
+      return;
+    }
+  }
+  const bool loop_condition = absl::implicit_cast<bool>(top.GetBool());
+  const bool short_circuiting = frame->options().short_circuiting;
+  frame->value_stack().Pop(1);  // loop_condition
+  if (!loop_condition && short_circuiting) {
+    frame->JumpToOrAbort(step.jump_offset);
+    return;
+  }
+}
+
+ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateComprehensionFinishStep(
+    ExecutionFrame& frame, size_t accu_slot) {
+  if (ABSL_PREDICT_FALSE(!frame.value_stack().HasEnough(2))) {
+    frame.Abort(
+        absl::Status(absl::StatusCode::kInternal, "Value stack underflow"));
+    return;
+  }
+  frame.value_stack().SwapAndPop(2, 1);
+  frame.comprehension_slots().ClearSlot(accu_slot);
+  frame.iterator_stack().Pop();
+}
+
 ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
     ExecutionFrame& frame, const ExpressionStep& step) {
   switch (step.kind()) {
@@ -529,20 +816,24 @@ ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateStep(
                             BoolLogicKind::kAnd);
       break;
     case ExpressionStepKind::kComprehensionFinish:
-      EvaluateComprehensionFinishStep(ExpressionStepData::Get(step).slot_index,
-                                      frame);
+      EvaluateComprehensionFinishStep(frame,
+                                      ExpressionStepData::Get(step).slot_index);
       break;
     case ExpressionStepKind::kComprehensionNext:
-      ExpressionStepData::Get(step).next_step.Evaluate1(&frame);
+      EvaluateComprehensionNextStep1(&frame,
+                                     ExpressionStepData::Get(step).next_step);
       break;
     case ExpressionStepKind::kComprehensionNext2:
-      ExpressionStepData::Get(step).next_step.Evaluate2(&frame);
+      EvaluateComprehensionNextStep2(&frame,
+                                     ExpressionStepData::Get(step).next_step);
       break;
     case ExpressionStepKind::kComprehensionCond:
-      ExpressionStepData::Get(step).cond_step.Evaluate1(&frame);
+      EvaluateComprehensionCondStep1(&frame,
+                                     ExpressionStepData::Get(step).cond_step);
       break;
     case ExpressionStepKind::kComprehensionCond2:
-      ExpressionStepData::Get(step).cond_step.Evaluate2(&frame);
+      EvaluateComprehensionCondStep2(&frame,
+                                     ExpressionStepData::Get(step).cond_step);
       break;
     case ExpressionStepKind::kReadSlot:
       EvaluateReadSlotStep(frame, ExpressionStepData::Get(step).slot_index);
@@ -783,7 +1074,7 @@ bool IsConstant(const ExpressionStep& step) {
   }
 }
 
-ComprehensionCondStep* GetIfComprehensionCondStep(ExpressionStep& step) {
+ComprehensionCondStepInfo* GetIfComprehensionCondStep(ExpressionStep& step) {
   if (step.header_.kind == ExpressionStepKind::kComprehensionCond ||
       step.header_.kind == ExpressionStepKind::kComprehensionCond2) {
     return &step.u_.cond_step;
@@ -791,7 +1082,7 @@ ComprehensionCondStep* GetIfComprehensionCondStep(ExpressionStep& step) {
   return nullptr;
 }
 
-ComprehensionNextStep* GetIfComprehensionNextStep(ExpressionStep& step) {
+ComprehensionNextStepInfo* GetIfComprehensionNextStep(ExpressionStep& step) {
   if (step.header_.kind == ExpressionStepKind::kComprehensionNext ||
       step.header_.kind == ExpressionStepKind::kComprehensionNext2) {
     return &step.u_.next_step;
