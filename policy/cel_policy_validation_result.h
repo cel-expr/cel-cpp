@@ -25,6 +25,7 @@
 #include "absl/status/statusor.h"
 #include "absl/types/span.h"
 #include "common/ast.h"
+#include "common/decl.h"
 #include "policy/cel_policy.h"
 #include "policy/cel_policy_parse_result.h"
 

@@ -19,6 +19,7 @@
 #include "compiler/compiler.h"
 #include "policy/cel_policy.h"
 #include "policy/cel_policy_validation_result.h"
+#include "google/protobuf/arena.h"
 
 namespace cel {
 

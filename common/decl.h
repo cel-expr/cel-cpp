@@ -24,6 +24,7 @@
 #include "absl/base/attributes.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/hash/hash.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
@@ -382,15 +383,19 @@ struct VariableDeclEqualTo {
 
   bool operator()(const cel::VariableDecl& lhs,
                   const cel::VariableDecl& rhs) const {
-    return lhs.name() == rhs.name();
+    return (*this)(lhs.name(), rhs.name());
   }
 
   bool operator()(const cel::VariableDecl& lhs, std::string_view rhs) const {
-    return lhs.name() == rhs;
+    return (*this)(lhs.name(), rhs);
   }
 
   bool operator()(std::string_view lhs, const cel::VariableDecl& rhs) const {
-    return lhs == rhs.name();
+    return (*this)(lhs, rhs.name());
+  }
+
+  bool operator()(std::string_view lhs, std::string_view rhs) const {
+    return lhs == rhs;
   }
 };
 
@@ -432,7 +437,7 @@ struct FunctionDeclHash {
   using is_transparent = void;
 
   size_t operator()(const cel::FunctionDecl& decl) const {
-    return absl::HashOf(decl.name());
+    return (*this)(decl.name());
   }
 
   size_t operator()(std::string_view name) const { return absl::HashOf(name); }

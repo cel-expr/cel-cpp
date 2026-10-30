@@ -554,8 +554,9 @@ class FirstMatchComposer {
  public:
   FirstMatchComposer(const IntermediateCompiledPolicy& icp,
                      const Compiler& compiler,
+                     const CompilePolicyOptions& options,
                      policy_internal::IssueReporter& issues)
-      : issues_(issues), icp_(icp), compiler_(compiler) {}
+      : issues_(issues), icp_(icp), compiler_(compiler), options_(options) {}
 
   absl::Status Compose();
 
@@ -605,6 +606,7 @@ class FirstMatchComposer {
   OptimizerExprFactory factory_;
   const IntermediateCompiledPolicy& icp_;
   const Compiler& compiler_;
+  const CompilePolicyOptions& options_;
   std::vector<VariableScope> scopes_;
   bool optionalize_ = false;
   std::unique_ptr<Ast> ast_;
@@ -644,8 +646,9 @@ absl::Status FirstMatchComposer::Compose() {
         "composition failed to handle non-exhaustive rules");
   }
 
+  google::protobuf::Arena* arena = nullptr;
   CEL_ASSIGN_OR_RETURN(cel::ValidationResult result,
-                       compiler_.GetTypeChecker().Check(factory_.ast()));
+                       compiler_.GetTypeChecker().Check(factory_.ast(), arena));
   if (!result.IsValid()) {
     AdaptTypeCheckIssues(icp_.root_rule().id, result, icp_.policy_source(),
                          issues_);
@@ -932,11 +935,13 @@ bool HasComprehensionParent(const NavigableAstNode& node) {
 // Unnester implementation.
 class Unnester {
  public:
-  Unnester(const TypeChecker& type_checker, Ast ast, int height,
+  Unnester(const TypeChecker& type_checker, Ast ast,
+           const CompilePolicyOptions& options,
            policy_internal::IssueReporter& issues)
       : type_checker_(type_checker),
         factory_(std::move(ast)),
-        height_(height),
+        options_(options),
+        height_(options_.unnesting_height_limit),
         issues_(issues) {}
 
   // Run the unnesting.
@@ -968,6 +973,7 @@ class Unnester {
 
   const TypeChecker& type_checker_;
   OptimizerExprFactory factory_;
+  const CompilePolicyOptions& options_;
   int height_;
   policy_internal::IssueReporter& issues_;
   bool modified_ = false;
@@ -1127,7 +1133,7 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
   CEL_ASSIGN_OR_RETURN(base_compiler, builder->Build());
   switch (icp.semantics()) {
     case RuleSemantics::kFirstMatch: {
-      FirstMatchComposer composer(icp, *base_compiler, issues);
+      FirstMatchComposer composer(icp, *base_compiler, options, issues);
       CEL_RETURN_IF_ERROR(composer.Compose());
       if (!composer.success()) {
         return CelPolicyValidationResult(issues.ReleaseIssues(),
@@ -1136,7 +1142,7 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
 
       auto ast = composer.ReleaseAst();
       Unnester unnester(base_compiler->GetTypeChecker(), std::move(*ast),
-                        options.unnesting_height_limit, issues);
+                        options, issues);
       CEL_ASSIGN_OR_RETURN(Ast unnested_ast, unnester.Unnest());
 
       if (HasErrors(issues)) {
@@ -1144,9 +1150,10 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
                                          policy.source_ptr());
       }
 
-      return CelPolicyValidationResult(
+      CelPolicyValidationResult result = CelPolicyValidationResult(
           std::make_unique<Ast>(std::move(unnested_ast)), {},
           policy.source_ptr());
+      return result;
     }
     default:
       return absl::UnimplementedError(
