@@ -225,6 +225,9 @@ std::string Rule::DebugString() const {
     absl::StrAppend(&result, "  description: ", description_->DebugString(),
                     "\n");
   }
+  if (is_aggregate_) {
+    absl::StrAppend(&result, "  is_aggregate: true\n");
+  }
   for (const Variable& variable : variables_) {
     absl::StrAppend(&result, IndentBlock(variable.DebugString()), "\n");
   }

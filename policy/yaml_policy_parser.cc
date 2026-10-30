@@ -267,10 +267,19 @@ absl::StatusOr<bool> YamlPolicyParser::ParseRuleTag(CelPolicyParseContext& ctx,
     }
     return true;
   }
-  if (tag_name.value() == "match") {
+  if (tag_name.value() == "match" || tag_name.value() == "aggregate") {
+    const bool is_aggregate = (tag_name.value() == "aggregate");
+    if (!rule.matches().empty() || (rule.is_aggregate() && !is_aggregate)) {
+      ctx.ReportError(
+          tag_name.id(),
+          "Only one of 'match' or 'aggregate' may be set in a rule");
+      return true;
+    }
+    rule.set_is_aggregate(is_aggregate);
     if (!node.IsSequence()) {
       ctx.ReportError(CollectMetadata(ctx, node),
-                      "Policy rule 'match' is not a sequence");
+                      absl::StrCat("Policy rule '", tag_name.value(),
+                                   "' is not a sequence"));
       return true;
     }
     for (const YAML::Node& match_node : node) {

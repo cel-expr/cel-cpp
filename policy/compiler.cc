@@ -454,6 +454,9 @@ class PolicyCompiler {
 
   absl::Status CompileRule(const Rule& rule, const cel::Compiler* env,
                            CompiledRule* out) {
+    if (rule.is_aggregate()) {
+      return absl::UnimplementedError("Aggregate rules are not yet supported");
+    }
     out->id = rule.id();
     std::unique_ptr<Compiler> buf;
 

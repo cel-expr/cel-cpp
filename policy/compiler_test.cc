@@ -1318,5 +1318,39 @@ rule:
               testing::HasSubstr("no matching overload for '_?_:_'"));
 }
 
+TEST(CompilerTest, AggregateRuleReturnsUnimplementedError) {
+  absl::string_view yaml = R"yaml(
+name: aggregate_policy
+rule:
+  aggregate:
+  - condition: x > 10
+    output: '"first"'
+  - condition: y > 5
+    output: '"second"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  EXPECT_THAT(CompilePolicy(*compiler, *policy),
+              StatusIs(absl::StatusCode::kUnimplemented));
+}
+
+TEST(CompilerTest, NestedAggregateRuleReturnsUnimplementedError) {
+  absl::string_view yaml = R"yaml(
+name: nested_aggregate_policy
+rule:
+  match:
+  - condition: x > 10
+    rule:
+      aggregate:
+      - output: '"first"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  EXPECT_THAT(CompilePolicy(*compiler, *policy),
+              StatusIs(absl::StatusCode::kUnimplemented));
+}
+
 }  // namespace
 }  // namespace cel

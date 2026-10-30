@@ -216,5 +216,30 @@ TEST(CelPolicySourceTest, Build) {
       "name: #1> test_policy\n    imports:\n     - name: #2> test_import\n");
 }
 
+TEST(CelPolicyBuilderTest, AggregateRule) {
+  Rule rule;
+  EXPECT_FALSE(rule.is_aggregate());
+  rule.set_id(1);
+  rule.set_rule_id(ValueString(2, "agg_rule"));
+  rule.set_is_aggregate(true);
+  EXPECT_TRUE(rule.is_aggregate());
+
+  Match match;
+  match.set_id(3);
+  match.set_result(OutputBlock(ValueString(4, "test_result"), std::nullopt));
+  rule.mutable_matches().push_back(match);
+
+  EXPECT_EQ(rule.DebugString(), absl::StrReplaceAll(R"(#1> rule: {
+      rule_id: #2> "agg_rule"
+      is_aggregate: true
+      #3> match: {
+        result: {
+          output: #4> "test_result"
+        }
+      }
+    })",
+                                                    {{"\n    ", "\n"}}));
+}
+
 }  // namespace
 }  // namespace cel

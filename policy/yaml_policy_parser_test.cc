@@ -281,11 +281,88 @@ std::vector<ParseTestCase> GetParseTestCases() {
               "name\n"
               " | ......................^",
       },
+      ParseTestCase{
+          .yaml = R"yaml(
+                  name: test
+                  rule:
+                    match:
+                      - output: 'true'
+                    aggregate:
+                      - output: 'true'
+                )yaml",
+          .expected_error =
+              "6:21: Only one of 'match' or 'aggregate' may be set in a rule\n"
+              " |                     aggregate:\n"
+              " | ....................^",
+      },
+      ParseTestCase{
+          .yaml = R"yaml(
+                  name: test
+                  rule:
+                    aggregate:
+                      - output: 'true'
+                    match:
+                      - output: 'true'
+                )yaml",
+          .expected_error =
+              "6:21: Only one of 'match' or 'aggregate' may be set in a rule\n"
+              " |                     match:\n"
+              " | ....................^",
+      },
+      ParseTestCase{
+          .yaml = R"yaml(
+                  rule:
+                    aggregate: illegal
+                )yaml",
+          .expected_error = "3:32: Policy rule 'aggregate' is not a sequence\n"
+                            " |                     aggregate: illegal\n"
+                            " | ...............................^",
+      },
   };
 }
 
 INSTANTIATE_TEST_SUITE_P(YamlPolicyParseErrorTest, YamlPolicyParseErrorTest,
                          ::testing::ValuesIn(GetParseTestCases()));
+
+TEST(YamlPolicyParserTest, ParseAggregateRule) {
+  absl::string_view yaml = R"yaml(
+name: aggregate_policy
+rule:
+  id: top_agg
+  aggregate:
+    - condition: 'x > 0'
+      output: '"positive"'
+    - condition: 'true'
+      rule:
+        match:
+          - condition: 'y > 0'
+            rule:
+              aggregate:
+                - output: '"nested_agg"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(cel::SourcePtr source,
+                       cel::NewSource(yaml, "aggregate.yaml"));
+  std::shared_ptr<CelPolicySource> policy_source =
+      std::make_shared<CelPolicySource>(std::move(source));
+  ASSERT_OK_AND_ASSIGN(CelPolicyParseResult parse_result,
+                       cel::ParseYamlCelPolicy(policy_source));
+  ASSERT_TRUE(parse_result.IsValid()) << parse_result.FormattedIssues();
+  const CelPolicy* policy = parse_result.GetPolicy();
+  ASSERT_NE(policy, nullptr);
+  EXPECT_TRUE(policy->rule().is_aggregate());
+  ASSERT_EQ(policy->rule().matches().size(), 2);
+  EXPECT_TRUE(policy->rule().matches()[0].has_output_block());
+  ASSERT_TRUE(policy->rule().matches()[1].has_rule());
+  const Rule& sub_rule = policy->rule().matches()[1].rule();
+  EXPECT_FALSE(sub_rule.is_aggregate());
+  ASSERT_EQ(sub_rule.matches().size(), 1);
+  ASSERT_TRUE(sub_rule.matches()[0].has_rule());
+  const Rule& nested_agg_rule = sub_rule.matches()[0].rule();
+  EXPECT_TRUE(nested_agg_rule.is_aggregate());
+  ASSERT_EQ(nested_agg_rule.matches().size(), 1);
+  EXPECT_EQ(nested_agg_rule.matches()[0].output_block().output().value(),
+            "\"nested_agg\"");
+}
 
 TEST(YamlPolicyParserTest, OffsetIssueFormatting) {
   // TODO(b/506179116): will need to copy the go implementation in extracting

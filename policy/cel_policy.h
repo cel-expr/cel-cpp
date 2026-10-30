@@ -188,10 +188,19 @@ class Match {
 };
 
 // Rule is the body of the policy and contains a list of variables and matches.
-// Variables are evaluated once and stored in the activation context.
+// Variables are evaluated once and stored in the evaluation context.
+//
+// Rule kinds:
+//
+// First-match rule (default):
 // Matches are evaluated in order and the first match is returned. If the
 // match contains a sub-rule, the sub-rule is evaluated only if the match
 // condition evaluates to true.
+//
+// Aggregate rule:
+// All matches are evaluated and the results are aggregated into a list. If the
+// match condition holds, it is added to the aggregate result.
+// There can only be one aggregate rule per policy.
 class Rule {
  public:
   Rule() = default;
@@ -214,6 +223,9 @@ class Rule {
   const std::vector<Match>& matches() const { return matches_; }
   std::vector<Match>& mutable_matches() { return matches_; }
 
+  bool is_aggregate() const { return is_aggregate_; }
+  void set_is_aggregate(bool is_aggregate) { is_aggregate_ = is_aggregate; }
+
   std::string DebugString() const;
 
  private:
@@ -222,6 +234,7 @@ class Rule {
   std::optional<ValueString> description_;
   std::vector<Variable> variables_;
   std::vector<Match> matches_;
+  bool is_aggregate_ = false;
 };
 
 // CelPolicy is the top-level policy object.
