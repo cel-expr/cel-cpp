@@ -116,7 +116,10 @@ absl::StatusOr<std::unique_ptr<CelPolicy>> ParsePolicyFromYaml(
   return parse_result.ReleasePolicy();
 }
 
-const Ast* GetAstPointer(const std::unique_ptr<Ast>& ast) { return ast.get(); }
+[[maybe_unused]]
+const Ast* GetAstPointer(const std::unique_ptr<Ast>& ast) {
+  return ast.get();
+}
 
 MATCHER(MetadataMapValid, negation ? "has stale metadata map entries"
                                    : "has valid metadata maps") {
@@ -431,6 +434,90 @@ rule:
   EXPECT_FALSE(result.IsValid());
   EXPECT_THAT(result.FormatIssues(),
               testing::HasSubstr("match creates unreachable outputs"));
+}
+
+TEST(CompilerTest, UnreachableRuleAfterTriviallyTrueCondition) {
+  absl::string_view yaml = R"yaml(
+name: dead_rule_branch
+rule:
+  match:
+    - condition: true
+      output: 1
+    - rule:
+        match:
+          - output: 2
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("rule creates unreachable outputs"));
+}
+
+TEST(CompilerTest, UnreachableMatchAfterUnconditionalAggregateSubRule) {
+  absl::string_view yaml = R"yaml(
+name: dead_branch_after_aggregate
+rule:
+  match:
+    - rule:
+        aggregate:
+          - condition: x > 0
+            output: 1
+    - output: 2
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("match creates unreachable outputs"));
+}
+
+TEST(CompilerTest, LiterallyFalseConditionReportsError) {
+  absl::string_view yaml = R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  match:
+  - condition: false
+    output: dyn(1)
+  - condition: x > 5
+    output: 2
+  - output: '"default"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(), testing::SizeIs(1));
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("condition is always false"));
+}
+
+TEST(CompilerTest, AggregateRuleLiterallyFalseConditionReportsError) {
+  absl::string_view yaml = R"yaml(
+name: aggregate_false_condition_policy
+rule:
+  aggregate:
+  - condition: false
+    output: '"unreachable"'
+  - output: '"default"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("condition is always false"));
 }
 
 TEST(CompilerTest, RuleWithoutMatchesReportsError) {
@@ -1323,10 +1410,11 @@ TEST(CompilerTest, AggregateRuleReturnsUnimplementedError) {
 name: aggregate_policy
 rule:
   aggregate:
-  - condition: x > 10
-    output: '"first"'
-  - condition: y > 5
+  - output: '"first"'
+  - condition: true
     output: '"second"'
+  - condition: y > 5
+    output: '"third"'
 )yaml";
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
                        ParsePolicyFromYaml(yaml));
@@ -1350,6 +1438,49 @@ rule:
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
   EXPECT_THAT(CompilePolicy(*compiler, *policy),
               StatusIs(absl::StatusCode::kUnimplemented));
+}
+
+TEST(CompilerTest, NestedAggregateUnderAggregateReportsError) {
+  absl::string_view yaml = R"yaml(
+name: nested_aggregate_policy
+rule:
+  aggregate:
+  - condition: x > 10
+    rule:
+      aggregate:
+      - output: '"first"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("nested aggregate rules are not allowed"));
+}
+
+TEST(CompilerTest, NestedAggregateUnderMatchUnderAggregateReportsError) {
+  absl::string_view yaml = R"yaml(
+name: nested_aggregate_mixed_policy
+rule:
+  aggregate:
+  - condition: x > 10
+    rule:
+      match:
+      - condition: y > 5
+        rule:
+          aggregate:
+          - output: '"first"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("nested aggregate rules are not allowed"));
 }
 
 }  // namespace

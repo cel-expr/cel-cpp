@@ -37,6 +37,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "checker/type_check_issue.h"
+#include "checker/type_checker.h"
 #include "checker/validation_result.h"
 #include "common/ast.h"
 #include "common/ast_rewrite.h"
@@ -64,8 +65,8 @@ namespace {
 constexpr absl::string_view kCelBlock = "cel.@block";
 
 enum class RuleSemantics {
-  // TODO(b/506179116): will also need "aggregate" or similar concept.
   kFirstMatch,
+  kAggregate,
 
   kNotForUseWithExhaustiveSwitchStatements,
 };
@@ -75,6 +76,9 @@ void AbslStringify(Sink& s, RuleSemantics semantics) {
   switch (semantics) {
     case RuleSemantics::kFirstMatch:
       s.Append("first_match");
+      return;
+    case RuleSemantics::kAggregate:
+      s.Append("aggregate");
       return;
     default:
       s.Append("<unspecified>");
@@ -116,6 +120,7 @@ struct CompiledRule {
   std::vector<CompiledMatch> matches;
   // Not set if cannot be determined.
   std::optional<cel::Type> result_type;
+  RuleSemantics semantics = RuleSemantics::kFirstMatch;
 };
 
 std::optional<cel::Type> GetOutputType(
@@ -155,9 +160,6 @@ class IntermediateCompiledPolicy {
   }
   absl::string_view description() const { return description_; }
 
-  void set_semantics(RuleSemantics semantics) { semantics_ = semantics; }
-  RuleSemantics semantics() const { return semantics_; }
-
   void set_policy_source(const CelPolicySource* absl_nullable src) {
     policy_source_ = src;
   }
@@ -169,7 +171,6 @@ class IntermediateCompiledPolicy {
   std::string name_;
   std::string display_name_;
   std::string description_;
-  RuleSemantics semantics_ = RuleSemantics::kFirstMatch;
   const CelPolicySource* absl_nullable policy_source_ = nullptr;
 
   CompiledRule root_rule_;
@@ -454,10 +455,9 @@ class PolicyCompiler {
 
   absl::Status CompileRule(const Rule& rule, const cel::Compiler* env,
                            CompiledRule* out) {
-    if (rule.is_aggregate()) {
-      return absl::UnimplementedError("Aggregate rules are not yet supported");
-    }
     out->id = rule.id();
+    out->semantics = rule.is_aggregate() ? RuleSemantics::kAggregate
+                                         : RuleSemantics::kFirstMatch;
     std::unique_ptr<Compiler> buf;
 
     absl::flat_hash_set<std::string> seen_variables;
@@ -531,7 +531,6 @@ class PolicyCompiler {
                              IntermediateCompiledPolicy* out) {
     src_ = policy.source();
     out->set_policy_source(src_);
-    out->set_semantics(RuleSemantics::kFirstMatch);
     out->set_name(policy.name().value());
     out->set_display_name(
         policy.display_name().value_or(ValueString{}).value());
@@ -550,12 +549,11 @@ class PolicyCompiler {
 
 bool IsExhaustive(const CompiledRule& rule);
 
-class FirstMatchComposer {
+class PolicyComposer {
  public:
-  FirstMatchComposer(const IntermediateCompiledPolicy& icp,
-                     const Compiler& compiler,
-                     const CompilePolicyOptions& options,
-                     policy_internal::IssueReporter& issues)
+  PolicyComposer(const IntermediateCompiledPolicy& icp,
+                 const Compiler& compiler, const CompilePolicyOptions& options,
+                 policy_internal::IssueReporter& issues)
       : issues_(issues), icp_(icp), compiler_(compiler), options_(options) {}
 
   absl::Status Compose();
@@ -586,11 +584,16 @@ class FirstMatchComposer {
 
   absl::flat_hash_map<int64_t, int> ResolveBlockIndexes(const Ast& ast);
 
-  bool CheckMatchStructure(const CompiledRule& rule);
+  bool CheckMatchStructure(const CompiledRule& rule,
+                           bool has_aggregate_ancestor = false);
 
   // Returns true if already optional wrapped.
   absl::StatusOr<bool> ComposeRule(const CompiledRule& rule, Expr& init,
                                    Expr& insertion_expr);
+  absl::StatusOr<bool> ComposeFirstMatchRule(const CompiledRule& rule,
+                                             Expr& init, Expr& insertion_expr);
+  absl::Status ComposeAggregateRule(const CompiledRule& rule, Expr& init,
+                                    Expr& insertion_expr);
 
   // returns true if already optional wrapped.
   absl::StatusOr<bool> ComposeProduction(
@@ -612,9 +615,7 @@ class FirstMatchComposer {
   std::unique_ptr<Ast> ast_;
 };
 
-absl::Status FirstMatchComposer::Compose() {
-  ABSL_DCHECK(icp_.semantics() == RuleSemantics::kFirstMatch);
-
+absl::Status PolicyComposer::Compose() {
   if (icp_.policy_source() != nullptr) {
     ABSL_DCHECK(icp_.policy_source()->content() != nullptr);
     absl::Span<const SourcePosition> line_offsets =
@@ -674,6 +675,20 @@ bool IsTriviallyTrueCondition(const CompiledMatch& match) {
   return false;
 }
 
+bool IsLiterallyFalseCondition(const CompiledMatch& match) {
+  if (!match.condition.has_value() || match.condition->ast == nullptr) {
+    return false;
+  }
+  const cel::Expr& expr = match.condition->ast->root_expr();
+  if (expr.has_const_expr()) {
+    const cel::Constant& const_expr = expr.const_expr();
+    if (const_expr.has_bool_value() && !const_expr.bool_value()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool IsExhaustive(const CompiledRule& rule);
 
 bool IsExhaustive(const CompiledMatch& match) {
@@ -689,6 +704,9 @@ bool IsExhaustive(const CompiledMatch& match) {
 }
 
 bool IsExhaustive(const CompiledRule& rule) {
+  if (rule.semantics == RuleSemantics::kAggregate) {
+    return true;
+  }
   if (rule.matches.empty()) {
     // Validation should fail, but generalization would be false.
     return false;
@@ -711,17 +729,23 @@ bool IsExhaustive(const CompiledRule& rule) {
   return has_default;
 }
 
-bool FirstMatchComposer::CheckMatchStructure(const CompiledRule& rule) {
+bool PolicyComposer::CheckMatchStructure(const CompiledRule& rule,
+                                         bool has_aggregate_ancestor) {
+  bool valid = true;
+  if (has_aggregate_ancestor && rule.semantics == RuleSemantics::kAggregate) {
+    issues_.ReportError(rule.id, "nested aggregate rules are not allowed");
+    valid = false;
+  }
+
   if (rule.matches.empty()) {
     issues_.ReportError(rule.id, "rule does not specify match conditions");
     return false;
   }
 
-  bool valid = true;
   bool seen_trivially_true = false;
 
   for (const auto& match : rule.matches) {
-    if (seen_trivially_true) {
+    if (seen_trivially_true && rule.semantics == RuleSemantics::kFirstMatch) {
       if (std::holds_alternative<CompiledOutputBlock>(match.production)) {
         issues_.ReportError(match.id, "match creates unreachable outputs");
       } else if (std::holds_alternative<std::unique_ptr<CompiledRule>>(
@@ -735,11 +759,18 @@ bool FirstMatchComposer::CheckMatchStructure(const CompiledRule& rule) {
       seen_trivially_true = true;
     }
 
+    if (IsLiterallyFalseCondition(match)) {
+      issues_.ReportError(match.id, "condition is always false");
+      valid = false;
+    }
+
     if (auto* nested_rule =
             std::get_if<std::unique_ptr<CompiledRule>>(&match.production);
         nested_rule != nullptr) {
       ABSL_DCHECK(*nested_rule != nullptr);
-      if (!CheckMatchStructure(**nested_rule)) {
+      const bool next_has_aggregate_ancestor =
+          has_aggregate_ancestor || rule.semantics == RuleSemantics::kAggregate;
+      if (!CheckMatchStructure(**nested_rule, next_has_aggregate_ancestor)) {
         valid = false;
       }
     }
@@ -748,7 +779,7 @@ bool FirstMatchComposer::CheckMatchStructure(const CompiledRule& rule) {
   return valid;
 }
 
-std::optional<int> FirstMatchComposer::ResolvePolicyVariable(
+std::optional<int> PolicyComposer::ResolvePolicyVariable(
     absl::string_view reference) {
   for (auto scope_iter = scopes_.rbegin(); scope_iter != scopes_.rend();
        ++scope_iter) {
@@ -780,9 +811,20 @@ class IndexRewrite : public AstRewriterBase {
   OptimizerExprFactory& factory_;
 };
 
-absl::StatusOr<bool> FirstMatchComposer::ComposeRule(const CompiledRule& rule,
-                                                     Expr& init,
-                                                     Expr& insertion_expr) {
+absl::StatusOr<bool> PolicyComposer::ComposeRule(const CompiledRule& rule,
+                                                 Expr& init,
+                                                 Expr& insertion_expr) {
+  if (rule.semantics == RuleSemantics::kAggregate) {
+    CEL_RETURN_IF_ERROR(ComposeAggregateRule(rule, init, insertion_expr));
+    return false;
+  }
+  ABSL_DCHECK(rule.semantics == RuleSemantics::kFirstMatch);
+  return ComposeFirstMatchRule(rule, init, insertion_expr);
+}
+
+absl::StatusOr<bool> PolicyComposer::ComposeFirstMatchRule(
+    const CompiledRule& rule, Expr& init, Expr& insertion_expr) {
+  ABSL_DCHECK(rule.semantics == RuleSemantics::kFirstMatch);
   scopes_.emplace_back();
   auto pop_scope = absl::MakeCleanup([this]() { scopes_.pop_back(); });
   ComposeRuleVariables(rule, init, insertion_expr);
@@ -852,7 +894,14 @@ absl::StatusOr<bool> FirstMatchComposer::ComposeRule(const CompiledRule& rule,
   return true;
 }
 
-absl::StatusOr<bool> FirstMatchComposer::ComposeProduction(
+absl::Status PolicyComposer::ComposeAggregateRule(const CompiledRule& rule,
+                                                  Expr& init,
+                                                  Expr& insertion_expr) {
+  return absl::UnimplementedError(
+      "Aggregate rules are not supported in C++ policy engine.");
+}
+
+absl::StatusOr<bool> PolicyComposer::ComposeProduction(
     const CompiledRule& rule, const CompiledMatch::Production& production,
     Expr& init, Expr& insertion_expr) {
   if (auto* nested_rule =
@@ -877,7 +926,7 @@ absl::StatusOr<bool> FirstMatchComposer::ComposeProduction(
   return false;
 }
 
-absl::flat_hash_map<int64_t, int> FirstMatchComposer::ResolveBlockIndexes(
+absl::flat_hash_map<int64_t, int> PolicyComposer::ResolveBlockIndexes(
     const Ast& ast) {
   absl::flat_hash_map<int64_t, int> out;
   for (auto it = ast.reference_map().begin(); it != ast.reference_map().end();
@@ -896,15 +945,14 @@ absl::flat_hash_map<int64_t, int> FirstMatchComposer::ResolveBlockIndexes(
   return out;
 }
 
-void FirstMatchComposer::MapVariables(Ast& ast) {
+void PolicyComposer::MapVariables(Ast& ast) {
   absl::flat_hash_map<int64_t, int> edit_map = ResolveBlockIndexes(ast);
   IndexRewrite rewriter(std::move(edit_map), factory_);
   AstRewrite(ast.mutable_root_expr(), rewriter);
 }
 
-void FirstMatchComposer::ComposeRuleVariables(const CompiledRule& rule,
-                                              Expr& init,
-                                              Expr& insertion_expr) {
+void PolicyComposer::ComposeRuleVariables(const CompiledRule& rule, Expr& init,
+                                          Expr& insertion_expr) {
   for (const auto& variable : rule.variables) {
     Ast ast = *variable.ast.ast;
     MapVariables(ast);
@@ -1131,34 +1179,26 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
   }
 
   CEL_ASSIGN_OR_RETURN(base_compiler, builder->Build());
-  switch (icp.semantics()) {
-    case RuleSemantics::kFirstMatch: {
-      FirstMatchComposer composer(icp, *base_compiler, options, issues);
-      CEL_RETURN_IF_ERROR(composer.Compose());
-      if (!composer.success()) {
-        return CelPolicyValidationResult(issues.ReleaseIssues(),
-                                         policy.source_ptr());
-      }
-
-      auto ast = composer.ReleaseAst();
-      Unnester unnester(base_compiler->GetTypeChecker(), std::move(*ast),
-                        options, issues);
-      CEL_ASSIGN_OR_RETURN(Ast unnested_ast, unnester.Unnest());
-
-      if (HasErrors(issues)) {
-        return CelPolicyValidationResult(issues.ReleaseIssues(),
-                                         policy.source_ptr());
-      }
-
-      CelPolicyValidationResult result = CelPolicyValidationResult(
-          std::make_unique<Ast>(std::move(unnested_ast)), {},
-          policy.source_ptr());
-      return result;
-    }
-    default:
-      return absl::UnimplementedError(
-          absl::StrCat("Unsupported RuleSemantics: ", icp.semantics()));
+  PolicyComposer composer(icp, *base_compiler, options, issues);
+  CEL_RETURN_IF_ERROR(composer.Compose());
+  if (!composer.success()) {
+    return CelPolicyValidationResult(issues.ReleaseIssues(),
+                                     policy.source_ptr());
   }
+
+  auto ast = composer.ReleaseAst();
+  Unnester unnester(base_compiler->GetTypeChecker(), std::move(*ast), options,
+                    issues);
+  CEL_ASSIGN_OR_RETURN(Ast unnested_ast, unnester.Unnest());
+
+  if (HasErrors(issues)) {
+    return CelPolicyValidationResult(issues.ReleaseIssues(),
+                                     policy.source_ptr());
+  }
+
+  CelPolicyValidationResult result = CelPolicyValidationResult(
+      std::make_unique<Ast>(std::move(unnested_ast)), {}, policy.source_ptr());
+  return result;
 }
 
 }  // namespace cel

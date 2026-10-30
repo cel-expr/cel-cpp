@@ -122,6 +122,7 @@ cc_library(
         ":cel_policy_parser",
         ":cel_policy_validation_result",
         "//checker:type_check_issue",
+        "//checker:type_checker",
         "//checker:validation_result",
         "//common:ast",
         "//common:ast_rewrite",
