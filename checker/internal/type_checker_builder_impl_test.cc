@@ -95,6 +95,9 @@ INSTANTIATE_TEST_SUITE_P(
         ContextDeclsTestCase{"repeated_bytes",
                              TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
                                  PrimitiveType::kBytes)))},
+        ContextDeclsTestCase{"repeated_nested_enum",
+                             TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
+                                 PrimitiveType::kInt64)))},
         ContextDeclsTestCase{
             "repeated_nested_message",
             TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(MessageTypeSpec(
@@ -147,12 +150,21 @@ TEST_P(ContextDeclsWithProtoTypeMaskFieldsDefinedTest,
       IsOk());
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<TypeChecker> type_checker,
                        builder.Build());
-  std::vector<std::string> field_names = {
-      "single_int64",        "single_uint32",  "single_double",
-      "single_string",       "single_any",     "single_duration",
-      "single_bool_wrapper", "list_value",     "standalone_message",
-      "standalone_enum",     "repeated_bytes", "repeated_nested_message",
-      "map_int32_timestamp", "single_struct"};
+  std::vector<std::string> field_names = {"single_int64",
+                                          "single_uint32",
+                                          "single_double",
+                                          "single_string",
+                                          "single_any",
+                                          "single_duration",
+                                          "single_bool_wrapper",
+                                          "list_value",
+                                          "standalone_message",
+                                          "standalone_enum",
+                                          "repeated_bytes",
+                                          "repeated_nested_enum",
+                                          "repeated_nested_message",
+                                          "map_int32_timestamp",
+                                          "single_struct"};
   for (auto& field_name : field_names) {
     ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst(field_name));
     ASSERT_OK_AND_ASSIGN(ValidationResult result,
@@ -197,6 +209,9 @@ INSTANTIATE_TEST_SUITE_P(
         ContextDeclsTestCase{"repeated_bytes",
                              TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
                                  PrimitiveType::kBytes)))},
+        ContextDeclsTestCase{"repeated_nested_enum",
+                             TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
+                                 PrimitiveType::kInt64)))},
         ContextDeclsTestCase{
             "repeated_nested_message",
             TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(MessageTypeSpec(

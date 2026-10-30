@@ -197,6 +197,7 @@ Type TypeInferenceContext::InstantiateTypeParams(
     case TypeKind::kUint:
     case TypeKind::kIntWrapper:
     case TypeKind::kUintWrapper:
+    case TypeKind::kEnum:
       return type;
     case TypeKind::kTypeParam: {
       TypeParamType type_param = type.GetTypeParam();
