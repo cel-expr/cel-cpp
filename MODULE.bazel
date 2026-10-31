@@ -99,9 +99,9 @@ bazel_dep(
     version = "0.9.0",
 )
 
-_CEL_POLICY_TAG = "4c2c2fd5b8f20da4eb34e3ee82a4ef1b7f023347"
+_CEL_POLICY_TAG = "8e4cf0378e3f0d3406b537afbcc6f59562652ad6"
 
-_CEL_POLICY_SHA = "e2bd943f89a3cab3b6508daf0bc5aa53d00e3e6ea52ef14a1d6f618a2b2909be"
+_CEL_POLICY_SHA = "c3aaed647f04efb7f77d67de21f21720d298938a066cec7f94dd9e24f9a8d88f"
 
 http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 

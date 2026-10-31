@@ -336,9 +336,12 @@ void AdaptTypeCheckIssues(CelPolicyElementId id, const ValidationResult& r,
 // as long as the output policies.
 class PolicyCompiler {
  public:
-  explicit PolicyCompiler(policy_internal::IssueReporter* issues,
+  explicit PolicyCompiler(google::protobuf::Arena* absl_nonnull arena,
+                          policy_internal::IssueReporter* issues,
                           std::unique_ptr<Compiler> base_compiler)
-      : issues_(*issues), base_compiler_(std::move(base_compiler)) {}
+      : arena_(arena),
+        issues_(*issues),
+        base_compiler_(std::move(base_compiler)) {}
 
   absl::string_view GetSourceDescription() const {
     if (src_ == nullptr) {
@@ -366,7 +369,7 @@ class PolicyCompiler {
       CEL_ASSIGN_OR_RETURN(
           source, cel::NewSource(val, std::string(GetSourceDescription())));
     }
-    auto result = env->Compile(*source, &arena_);
+    auto result = env->Compile(*source, arena_);
     if (!result.ok()) {
       return result;
     }
@@ -522,8 +525,15 @@ class PolicyCompiler {
         }
       }
     }
-
     out->result_type = overall_type;
+    if (overall_type.has_value() &&
+        out->semantics == RuleSemantics::kAggregate) {
+      // Unlike first-match implicit optionalization (i.e. the user policy can't
+      // interact with the optional layer injected by the composer), aggregate
+      // rules are explicitly a list output and can intermingle with other rules
+      // producing compatible lists (aggregate or not).
+      out->result_type = cel::ListType(arena_, *overall_type);
+    }
     return absl::OkStatus();
   }
 
@@ -541,7 +551,7 @@ class PolicyCompiler {
   }
 
  private:
-  google::protobuf::Arena arena_;
+  google::protobuf::Arena* absl_nonnull arena_;
   const CelPolicySource* absl_nullable src_;
   policy_internal::IssueReporter& issues_;
   std::unique_ptr<Compiler> base_compiler_;
@@ -551,10 +561,11 @@ bool IsExhaustive(const CompiledRule& rule);
 
 class PolicyComposer {
  public:
-  PolicyComposer(const IntermediateCompiledPolicy& icp,
-                 const Compiler& compiler, const CompilePolicyOptions& options,
+  PolicyComposer(google::protobuf::Arena* absl_nonnull arena,
+                 const IntermediateCompiledPolicy& icp,
+                 const Compiler& compiler,
                  policy_internal::IssueReporter& issues)
-      : issues_(issues), icp_(icp), compiler_(compiler), options_(options) {}
+      : arena_(arena), issues_(issues), icp_(icp), compiler_(compiler) {}
 
   absl::Status Compose();
 
@@ -605,11 +616,11 @@ class PolicyComposer {
   void ComposeRuleVariables(const CompiledRule& rule, Expr& init,
                             Expr& insertion_expr);
 
+  google::protobuf::Arena* absl_nonnull arena_;
   policy_internal::IssueReporter& issues_;
   OptimizerExprFactory factory_;
   const IntermediateCompiledPolicy& icp_;
   const Compiler& compiler_;
-  const CompilePolicyOptions& options_;
   std::vector<VariableScope> scopes_;
   bool optionalize_ = false;
   std::unique_ptr<Ast> ast_;
@@ -647,9 +658,9 @@ absl::Status PolicyComposer::Compose() {
         "composition failed to handle non-exhaustive rules");
   }
 
-  google::protobuf::Arena* arena = nullptr;
-  CEL_ASSIGN_OR_RETURN(cel::ValidationResult result,
-                       compiler_.GetTypeChecker().Check(factory_.ast(), arena));
+  CEL_ASSIGN_OR_RETURN(
+      cel::ValidationResult result,
+      compiler_.GetTypeChecker().Check(factory_.ast(), arena_));
   if (!result.IsValid()) {
     AdaptTypeCheckIssues(icp_.root_rule().id, result, icp_.policy_source(),
                          issues_);
@@ -800,7 +811,9 @@ class IndexRewrite : public AstRewriterBase {
     if (auto it = expr_id_to_index_.find(e.id());
         it != expr_id_to_index_.end()) {
       e.mutable_ident_expr().set_name(absl::StrCat("@index", it->second));
-      factory_.RecordReplacement(e.id(), e);
+      // Keep any metadata for the rewritten ident. This still replaces
+      // any references in the macro call map.
+      factory_.RecordReplacement(e.id(), e, /*keep_metadata=*/true);
       return true;
     }
     return false;
@@ -897,8 +910,47 @@ absl::StatusOr<bool> PolicyComposer::ComposeFirstMatchRule(
 absl::Status PolicyComposer::ComposeAggregateRule(const CompiledRule& rule,
                                                   Expr& init,
                                                   Expr& insertion_expr) {
-  return absl::UnimplementedError(
-      "Aggregate rules are not supported in C++ policy engine.");
+  ABSL_DCHECK(rule.semantics == RuleSemantics::kAggregate);
+  scopes_.emplace_back();
+  auto pop_scope = absl::MakeCleanup([this]() { scopes_.pop_back(); });
+  ComposeRuleVariables(rule, init, insertion_expr);
+
+  std::vector<ListExprElement> elements;
+  elements.reserve(rule.matches.size());
+
+  for (const auto& match : rule.matches) {
+    Expr production;
+    CEL_ASSIGN_OR_RETURN(
+        bool is_wrapped,
+        ComposeProduction(rule, match.production, init, production));
+
+    if (IsTriviallyTrueCondition(match)) {
+      elements.push_back(
+          factory_.NewListElement(std::move(production), is_wrapped));
+      continue;
+    }
+
+    if (!is_wrapped) {
+      production = factory_.NewCall("optional.of", std::move(production));
+    }
+
+    Ast condition = *match.condition->ast;
+    MapVariables(condition);
+    factory_.StartCopyContext();
+    Expr cond_copy = factory_.Copy(condition.root_expr());
+    SourceInfo source_info = factory_.RemapSourceInfo(
+        condition.source_info(), GetAstOffset(match.condition->id));
+    factory_.MergeSourceInfo(source_info);
+
+    Expr ternary =
+        factory_.NewCall("_?_:_", std::move(cond_copy), std::move(production),
+                         factory_.NewCall("optional.none"));
+    elements.push_back(
+        factory_.NewListElement(std::move(ternary), /*optional=*/true));
+  }
+
+  insertion_expr = factory_.NewList(std::move(elements));
+  return absl::OkStatus();
 }
 
 absl::StatusOr<bool> PolicyComposer::ComposeProduction(
@@ -947,8 +999,10 @@ absl::flat_hash_map<int64_t, int> PolicyComposer::ResolveBlockIndexes(
 
 void PolicyComposer::MapVariables(Ast& ast) {
   absl::flat_hash_map<int64_t, int> edit_map = ResolveBlockIndexes(ast);
-  IndexRewrite rewriter(std::move(edit_map), factory_);
-  AstRewrite(ast.mutable_root_expr(), rewriter);
+  OptimizerExprFactory ast_factory(std::move(ast));
+  IndexRewrite rewriter(std::move(edit_map), ast_factory);
+  AstRewrite(ast_factory.mutable_ast().mutable_root_expr(), rewriter);
+  ast = std::move(ast_factory.mutable_ast());
 }
 
 void PolicyComposer::ComposeRuleVariables(const CompiledRule& rule, Expr& init,
@@ -983,10 +1037,11 @@ bool HasComprehensionParent(const NavigableAstNode& node) {
 // Unnester implementation.
 class Unnester {
  public:
-  Unnester(const TypeChecker& type_checker, Ast ast,
-           const CompilePolicyOptions& options,
+  Unnester(google::protobuf::Arena* absl_nonnull arena, const TypeChecker& type_checker,
+           Ast ast, const CompilePolicyOptions& options,
            policy_internal::IssueReporter& issues)
-      : type_checker_(type_checker),
+      : arena_(arena),
+        type_checker_(type_checker),
         factory_(std::move(ast)),
         options_(options),
         height_(options_.unnesting_height_limit),
@@ -999,16 +1054,13 @@ class Unnester {
       CEL_RETURN_IF_ERROR(Slice());
     }
     CEL_RETURN_IF_ERROR(Cleanup());
-    if (modified_) {
-      CEL_ASSIGN_OR_RETURN(
-          ValidationResult result,
-          type_checker_.Check(std::move(factory_.mutable_ast())));
-      ABSL_DCHECK(result.IsValid());
-      CEL_ASSIGN_OR_RETURN(std::unique_ptr<Ast> checked_ast,
-                           result.ReleaseAst());
-      return std::move(*checked_ast);
-    }
-    return std::move(factory_.mutable_ast());
+
+    CEL_ASSIGN_OR_RETURN(
+        ValidationResult result,
+        type_checker_.Check(std::move(factory_.mutable_ast()), arena_));
+    ABSL_DCHECK(result.IsValid());
+    CEL_ASSIGN_OR_RETURN(std::unique_ptr<Ast> checked_ast, result.ReleaseAst());
+    return std::move(*checked_ast);
   }
 
  private:
@@ -1019,12 +1071,12 @@ class Unnester {
 
   void ReportErrorAtId(int64_t id, absl::string_view message);
 
+  google::protobuf::Arena* absl_nonnull arena_;
   const TypeChecker& type_checker_;
   OptimizerExprFactory factory_;
   const CompilePolicyOptions& options_;
   int height_;
   policy_internal::IssueReporter& issues_;
-  bool modified_ = false;
 };
 
 class UnnestRewriter : public AstRewriterBase {
@@ -1071,7 +1123,7 @@ absl::Status Unnester::Slice() {
   bool can_cut = true;
   std::vector<int64_t> cuts;
   for (const NavigableAstNode& node : nav_ast.Root().DescendantsPostorder()) {
-    // Subsequent cuts will be height_ + 1 in the block, indices. Within the
+    // Subsequent cuts will be height_ + 1 in the block indices. Within the
     // error margin we specified.
     if (node.height() % height_ == 0) {
       if (HasComprehensionParent(node)) {
@@ -1102,7 +1154,6 @@ absl::Status Unnester::Slice() {
 
   UnnestRewriter rewriter(factory_, block_list_expr, cuts);
   AstRewrite(insertion_expr, rewriter);
-  modified_ = true;
 
   return absl::OkStatus();
 }
@@ -1128,7 +1179,6 @@ absl::Status Unnester::Cleanup() {
 
     factory_.PruneMetadata(block_id);
     factory_.PruneMetadata(list_id);
-    modified_ = true;
   }
 
   return absl::OkStatus();
@@ -1148,6 +1198,12 @@ void Unnester::ReportErrorAtId(int64_t id, absl::string_view message) {
 absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
     const Compiler& compiler, const CelPolicy& policy,
     const CompilePolicyOptions& options) {
+  google::protobuf::Arena* arena = options.arena;
+  std::optional<google::protobuf::Arena> local_arena;
+  if (arena == nullptr) {
+    local_arena.emplace();
+    arena = &(*local_arena);
+  }
   policy_internal::IssueReporter issues;
   if (options.unnesting_height_limit != 0 &&
       options.unnesting_height_limit < 2) {
@@ -1168,7 +1224,7 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
   builder->GetCheckerBuilder().SetExpressionContainer(cont);
   CEL_ASSIGN_OR_RETURN(auto base_compiler, builder->Build());
 
-  PolicyCompiler policy_compiler(&issues, std::move(base_compiler));
+  PolicyCompiler policy_compiler(arena, &issues, std::move(base_compiler));
 
   IntermediateCompiledPolicy icp;
   CEL_RETURN_IF_ERROR(policy_compiler.CompilePolicy(policy, &icp));
@@ -1179,7 +1235,7 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
   }
 
   CEL_ASSIGN_OR_RETURN(base_compiler, builder->Build());
-  PolicyComposer composer(icp, *base_compiler, options, issues);
+  PolicyComposer composer(arena, icp, *base_compiler, issues);
   CEL_RETURN_IF_ERROR(composer.Compose());
   if (!composer.success()) {
     return CelPolicyValidationResult(issues.ReleaseIssues(),
@@ -1187,8 +1243,8 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
   }
 
   auto ast = composer.ReleaseAst();
-  Unnester unnester(base_compiler->GetTypeChecker(), std::move(*ast), options,
-                    issues);
+  Unnester unnester(arena, base_compiler->GetTypeChecker(), std::move(*ast),
+                    options, issues);
   CEL_ASSIGN_OR_RETURN(Ast unnested_ast, unnester.Unnest());
 
   if (HasErrors(issues)) {

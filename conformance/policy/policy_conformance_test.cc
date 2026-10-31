@@ -141,6 +141,43 @@ cel::Value LocationCode(const cel::StringValue& ip,
   return cel::StringValue::WrapUnsafe("ir");
 }
 
+bool MapContainsKey(const cel::MapValue& map_val, absl::string_view key,
+                    const google::protobuf::DescriptorPool* pool,
+                    google::protobuf::MessageFactory* factory, google::protobuf::Arena* arena) {
+  cel::Value has_val;
+  if (!map_val
+           .Has(cel::StringValue::WrapUnsafe(key), pool, factory, arena,
+                &has_val)
+           .ok()) {
+    return false;
+  }
+  return has_val.IsTrue();
+}
+
+cel::Value HasCreditCard(const cel::Value& arg,
+                         const google::protobuf::DescriptorPool* pool,
+                         google::protobuf::MessageFactory* factory,
+                         google::protobuf::Arena* arena) {
+  if (!arg.IsMap()) {
+    return cel::BoolValue(false);
+  }
+  return cel::BoolValue(
+      MapContainsKey(arg.GetMap(), "cc", pool, factory, arena));
+}
+
+cel::Value HasEmailOrPhone(const cel::Value& arg,
+                           const google::protobuf::DescriptorPool* pool,
+                           google::protobuf::MessageFactory* factory,
+                           google::protobuf::Arena* arena) {
+  if (!arg.IsMap()) {
+    return cel::BoolValue(false);
+  }
+  const cel::MapValue& map_val = arg.GetMap();
+  return cel::BoolValue(
+      MapContainsKey(map_val, "email", pool, factory, arena) ||
+      MapContainsKey(map_val, "phone", pool, factory, arena));
+}
+
 // TODO(uncreated-issue/92): This should be migrated to use the testrunner utility
 // after adding support for reading the yaml specification for envs/tests.
 class InputEvaluator {
@@ -568,10 +605,18 @@ absl::Status RegisterTestSuite(
     }
   }
 
-  // Register locationCode in runtime
+  // Register custom functions in runtime
   CEL_RETURN_IF_ERROR(
       (cel::UnaryFunctionAdapter<cel::Value, const cel::StringValue&>::
            RegisterGlobalOverload("locationCode", LocationCode,
+                                  runtime_builder.function_registry())));
+  CEL_RETURN_IF_ERROR(
+      (cel::UnaryFunctionAdapter<cel::Value, const cel::Value&>::
+           RegisterGlobalOverload("hasCreditCard", HasCreditCard,
+                                  runtime_builder.function_registry())));
+  CEL_RETURN_IF_ERROR(
+      (cel::UnaryFunctionAdapter<cel::Value, const cel::Value&>::
+           RegisterGlobalOverload("hasEmailOrPhone", HasEmailOrPhone,
                                   runtime_builder.function_registry())));
 
   CEL_ASSIGN_OR_RETURN(auto runtime, std::move(runtime_builder).Build());

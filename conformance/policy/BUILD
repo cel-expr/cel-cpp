@@ -65,6 +65,16 @@ cc_library(
 )
 
 _ALL_TESTS = [
+    "@cel_policy//conformance:agent_tool_execution_governance",
+    "@cel_policy//conformance:aggregate",
+    "@cel_policy//conformance:aggregate_explicit_list_output",
+    "@cel_policy//conformance:aggregate_explicit_optional_none",
+    "@cel_policy//conformance:aggregate_nested_all_rules_fall_through_to_empty",
+    "@cel_policy//conformance:aggregate_nested_explicit_list_double_wrapping",
+    "@cel_policy//conformance:aggregate_nested_multi_branch_match",
+    "@cel_policy//conformance:aggregate_nested_single_conditional_match",
+    "@cel_policy//conformance:aggregate_shadowed_variables",
+    "@cel_policy//conformance:first_match_nested_aggregate",
     "@cel_policy//conformance:k8s",
     "@cel_policy//conformance:limits",
     "@cel_policy//conformance:nested_rule",
@@ -81,9 +91,15 @@ _ALL_TESTS = [
     "@cel_policy//conformance:unconditional_rules",
     "@cel_policy//conformance:unnest",
     "@cel_policy//conformance:variable_type_propagation",
+    "@cel_policy//conformance:compile_error_aggregate_false_condition",
+    "@cel_policy//conformance:compile_error_aggregate_heterogeneous_outputs",
+    "@cel_policy//conformance:compile_error_aggregate_nested_mixed_semantics",
+    "@cel_policy//conformance:compile_error_aggregate_subrule_heterogeneous_outputs",
+    "@cel_policy//conformance:compile_error_aggregate_unreachable_in_nested_first_match",
     "@cel_policy//conformance:compile_error_compose_conflicting_output",
     "@cel_policy//conformance:compile_error_compose_conflicting_subrule",
     "@cel_policy//conformance:compile_error_unreachable",
+    "@cel_policy//conformance:compile_error_unreachable_under_unconditional_aggregate_subrule",
     "@cel_policy//conformance:compile_error_duplicate_variable",
     "@cel_policy//conformance:compile_error_import",
     "@cel_policy//conformance:compile_error_incompatible_outputs",
@@ -97,6 +113,12 @@ cel_policy_conformance_test(
         # TODO(b/506179116): Fix these.
         # Need to add k8s custom yaml parser and mock runtime.
         "k8s",
+        # Expects Java reverse-order type mismatch error message.
+        "compile_error_aggregate_heterogeneous_outputs",
+        # Expects "rule creates unreachable outputs" on the exhaustive subrule,
+        # whereas C++ reports "match creates unreachable outputs" on the
+        # subsequent unreachable match.
+        "compile_error_unreachable_under_unconditional_aggregate_subrule",
     ],
     test_files = _ALL_TESTS,
 )

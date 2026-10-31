@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -28,6 +29,7 @@
 #include "common/ast.h"
 #include "common/ast_proto.h"
 #include "common/decl.h"
+#include "common/expr.h"
 #include "common/navigable_ast.h"
 #include "common/source.h"
 #include "common/type.h"
@@ -43,6 +45,7 @@
 #include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
+#include "internal/testing_message_factory.h"
 #include "policy/cel_policy.h"
 #include "policy/cel_policy_parse_result.h"
 #include "policy/cel_policy_validation_result.h"
@@ -75,6 +78,7 @@ absl::StatusOr<std::unique_ptr<Compiler>> BuildTestCompiler() {
   CompilerOptions opts;
   opts.adapt_parser_errors = true;
   opts.parser_options.enable_optional_syntax = true;
+  opts.parser_options.add_macro_calls = true;
   CEL_ASSIGN_OR_RETURN(
       auto builder,
       NewCompilerBuilder(internal::GetSharedTestingDescriptorPool(), opts));
@@ -133,6 +137,14 @@ MATCHER(MetadataMapValid, negation ? "has stale metadata map entries"
   for (const NavigableAstNode& node : nav_ast.Root().DescendantsPostorder()) {
     valid_ids.insert(node.expr()->id());
   }
+  absl::flat_hash_set<int64_t> valid_position_ids = valid_ids;
+  for (const auto& [_, macro_expr] : ast->source_info().macro_calls()) {
+    NavigableAst macro_nav = cel::NavigableAst::Build(macro_expr);
+    for (const NavigableAstNode& node :
+         macro_nav.Root().DescendantsPostorder()) {
+      valid_position_ids.insert(node.expr()->id());
+    }
+  }
 
   bool is_valid = true;
   for (const auto& [id, _] : ast->type_map()) {
@@ -148,7 +160,7 @@ MATCHER(MetadataMapValid, negation ? "has stale metadata map entries"
     }
   }
   for (const auto& [id, _] : ast->source_info().positions()) {
-    if (!valid_ids.contains(id)) {
+    if (!valid_position_ids.contains(id)) {
       *result_listener << "stale source_info position for id " << id << "; ";
       is_valid = false;
     }
@@ -399,6 +411,86 @@ rule:
       "optional.none())");
 }
 
+TEST(CompilerTest, RewrittenVariablesUpdatedInMacroCallsAndReferenceMap) {
+  absl::string_view yaml = R"yaml(name: macro_policy
+rule:
+  variables:
+    - name: var_inner
+      expression: "[1, 2].all(i, i > 0)"
+    - name: var_outer
+      expression: "[3, 4].exists(j, j > 0 && variables.var_inner)"
+  match:
+    - condition: "[5, 6].all(k, k > 0 && variables.var_inner)"
+      output: "[1].map(m, m > 0 && variables.var_outer)"
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, result.ReleaseAst());
+
+  EXPECT_THAT(ast->source_info().macro_calls(), testing::SizeIs(4));
+  EXPECT_THAT(ast, MetadataMapValid());
+
+  absl::flat_hash_set<std::string> macro_index_vars;
+  for (const auto& [macro_id, macro_expr] : ast->source_info().macro_calls()) {
+    NavigableAst macro_nav = cel::NavigableAst::Build(macro_expr);
+    for (const NavigableAstNode& node :
+         macro_nav.Root().DescendantsPostorder()) {
+      const Expr* expr = node.expr();
+      if (expr->has_select_expr()) {
+        EXPECT_NE(expr->select_expr().field(), "var_inner");
+        EXPECT_NE(expr->select_expr().field(), "var_outer");
+      }
+      if (expr->has_ident_expr()) {
+        absl::string_view name = expr->ident_expr().name();
+        EXPECT_FALSE(absl::StartsWith(name, "variables"));
+        if (absl::StartsWith(name, "@index")) {
+          macro_index_vars.insert(std::string(name));
+          auto ref_it = ast->reference_map().find(expr->id());
+          ASSERT_NE(ref_it, ast->reference_map().end());
+          EXPECT_EQ(ref_it->second.name(), name);
+        }
+      }
+    }
+  }
+  EXPECT_THAT(macro_index_vars,
+              testing::UnorderedElementsAre("@index0", "@index1"));
+
+  absl::flat_hash_set<std::string> root_index_vars;
+  NavigableAst root_nav = cel::NavigableAst::Build(ast->root_expr());
+  for (const NavigableAstNode& node : root_nav.Root().DescendantsPostorder()) {
+    const Expr* expr = node.expr();
+    if (expr->has_ident_expr() &&
+        absl::StartsWith(expr->ident_expr().name(), "@index")) {
+      absl::string_view name = expr->ident_expr().name();
+      root_index_vars.insert(std::string(name));
+      auto ref_it = ast->reference_map().find(expr->id());
+      ASSERT_NE(ref_it, ast->reference_map().end());
+      EXPECT_EQ(ref_it->second.name(), name);
+      EXPECT_TRUE(ast->type_map().contains(expr->id()));
+    }
+  }
+  EXPECT_THAT(root_index_vars,
+              testing::UnorderedElementsAre("@index0", "@index1"));
+
+  for (const auto& [id, ref] : ast->reference_map()) {
+    EXPECT_FALSE(absl::StartsWith(ref.name(), "variables"));
+  }
+
+  cel::expr::ParsedExpr parsed_expr;
+  ASSERT_THAT(cel::AstToParsedExpr(*ast, &parsed_expr), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::string unparsed,
+                       google::api::expr::Unparse(parsed_expr));
+  EXPECT_EQ(
+      unparsed,
+      "cel.@block([[1, 2].all(i, i > 0), [3, 4].exists(j, j > 0 && @index0)], "
+      "[5, 6].all(k, k > 0 && @index0) ? "
+      "optional.of([1].map(m, m > 0 && @index1)) : optional.none())");
+}
+
 TEST(CompilerTest, UnreachableMatchAfterTriviallyTrueCondition) {
   absl::string_view yaml = R"yaml(
 name: cel_policy
@@ -466,7 +558,7 @@ rule:
         aggregate:
           - condition: x > 0
             output: 1
-    - output: 2
+    - output: "[2]"
 )yaml";
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
                        ParsePolicyFromYaml(yaml));
@@ -1405,39 +1497,90 @@ rule:
               testing::HasSubstr("no matching overload for '_?_:_'"));
 }
 
-TEST(CompilerTest, AggregateRuleReturnsUnimplementedError) {
+TEST(CompilerTest, AggregateRuleComposedAstStructure) {
   absl::string_view yaml = R"yaml(
 name: aggregate_policy
 rule:
+  variables:
+  - name: v1
+    expression: "'v'"
   aggregate:
-  - output: '"first"'
-  - condition: true
-    output: '"second"'
-  - condition: y > 5
-    output: '"third"'
+  - condition: x > 10
+    output: '"first"'
+  - output: variables.v1
+  - rule:
+      match:
+      - condition: y > 5
+        output: '"nested_opt"'
 )yaml";
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
                        ParsePolicyFromYaml(yaml));
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
-  EXPECT_THAT(CompilePolicy(*compiler, *policy),
-              StatusIs(absl::StatusCode::kUnimplemented));
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  const cel::Ast* ast = result.GetAst();
+  ASSERT_NE(ast, nullptr);
+
+  cel::expr::ParsedExpr parsed_expr;
+  ASSERT_THAT(cel::AstToParsedExpr(*ast, &parsed_expr), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::string unparsed,
+                       google::api::expr::Unparse(parsed_expr));
+
+  EXPECT_EQ(unparsed,
+            "cel.@block([\"v\"], [?(x > 10) ? optional.of(\"first\") : "
+            "optional.none(), @index0, ?(y > 5) ? optional.of(\"nested_opt\") "
+            ": optional.none()])");
 }
 
-TEST(CompilerTest, NestedAggregateRuleReturnsUnimplementedError) {
-  absl::string_view yaml = R"yaml(
-name: nested_aggregate_policy
+TEST(CompilerTest, AggregateRuleConditionVariablesAndMetadata) {
+  absl::string_view yaml = R"yaml(name: aggregate_condition_metadata_policy
 rule:
-  match:
-  - condition: x > 10
-    rule:
-      aggregate:
-      - output: '"first"'
+  variables:
+    - name: v1
+      expression: 10
+  aggregate:
+    - condition: "[1, 2].all(i, i > variables.v1)"
+      output: "[3, 4].map(j, j + variables.v1)"
 )yaml";
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
                        ParsePolicyFromYaml(yaml));
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
-  EXPECT_THAT(CompilePolicy(*compiler, *policy),
-              StatusIs(absl::StatusCode::kUnimplemented));
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  const cel::Source* source = result.GetSource()->content();
+  ASSERT_NE(source, nullptr);
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast, result.ReleaseAst());
+
+  EXPECT_THAT(ast, MetadataMapValid());
+  EXPECT_THAT(ast->source_info().macro_calls(), testing::SizeIs(2));
+
+  cel::expr::ParsedExpr parsed_expr;
+  ASSERT_THAT(cel::AstToParsedExpr(*ast, &parsed_expr), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::string unparsed,
+                       google::api::expr::Unparse(parsed_expr));
+  EXPECT_EQ(unparsed,
+            "cel.@block([10], [?[1, 2].all(i, i > @index0) ? "
+            "optional.of([3, 4].map(j, j + @index0)) : optional.none()])");
+
+  NavigableAst nav_ast = cel::NavigableAst::Build(ast->root_expr());
+  const NavigableAstNode* cond_gt_node = nullptr;
+  for (const NavigableAstNode& node : nav_ast.Root().DescendantsPostorder()) {
+    if (node.expr()->has_call_expr() &&
+        node.expr()->call_expr().function() == "_>_") {
+      cond_gt_node = &node;
+      break;
+    }
+  }
+  ASSERT_NE(cond_gt_node, nullptr);
+  std::optional<SourceLocation> cond_loc =
+      ast->ComputeSourceLocation(cond_gt_node->expr()->id());
+  ASSERT_TRUE(cond_loc.has_value());
+  EXPECT_THAT(source->DisplayErrorLocation(*cond_loc),
+              testing::HasSubstr(
+                  "    - condition: \"[1, 2].all(i, i > variables.v1)\"\n | "
+                  "..................................^"));
 }
 
 TEST(CompilerTest, NestedAggregateUnderAggregateReportsError) {
@@ -1481,6 +1624,98 @@ rule:
   EXPECT_FALSE(result.IsValid());
   EXPECT_THAT(result.FormatIssues(),
               testing::HasSubstr("nested aggregate rules are not allowed"));
+}
+
+TEST(CompilerTest, AggregateRuleAllowsMultipleUnconditionalMatches) {
+  absl::string_view yaml = R"yaml(
+name: aggregate_unconditional_policy
+rule:
+  aggregate:
+  - output: '"first"'
+  - condition: true
+    output: '"second"'
+  - condition: x > 0
+    output: '"third"'
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+}
+
+TEST(CompilerTest, AggregateRuleIncompatibleOutputsReportsError) {
+  absl::string_view yaml = R"yaml(
+name: aggregate_incompatible_policy
+rule:
+  aggregate:
+  - condition: x > 10
+    output: '"first"'
+  - condition: y > 5
+    output: 42
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult result,
+                       CompilePolicy(*compiler, *policy));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(
+      result.FormatIssues(),
+      testing::HasSubstr("incompatible output types: block has output type "
+                         "int, but previous outputs have type string"));
+}
+
+TEST(CompilerTest, AggregatePolicyEvaluates) {
+  absl::string_view yaml = R"yaml(
+name: aggregate_eval_policy
+rule:
+  variables:
+  - name: base
+    expression: 100
+  aggregate:
+  - condition: x > 0
+    output: variables.base + x
+  - output: variables.base
+  - rule:
+      match:
+      - condition: y > 0
+        output: variables.base + y
+)yaml";
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelPolicy> policy,
+                       ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(CelPolicyValidationResult validation_result,
+                       CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(validation_result.IsValid()) << validation_result.FormatIssues();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> ast,
+                       validation_result.ReleaseAst());
+
+  cel::RuntimeOptions opts;
+  opts.enable_qualified_type_identifiers = true;
+  ASSERT_OK_AND_ASSIGN(
+      cel::RuntimeBuilder rt_builder,
+      cel::CreateStandardRuntimeBuilder(
+          cel::internal::GetSharedTestingDescriptorPool(), opts));
+  ASSERT_THAT(cel::extensions::EnableOptionalTypes(rt_builder), IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Runtime> runtime,
+                       std::move(rt_builder).Build());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Program> program,
+                       runtime->CreateProgram(std::move(ast)));
+
+  google::protobuf::Arena arena;
+  cel::Activation activation;
+  activation.InsertOrAssignValue("x", cel::IntValue(5));
+  activation.InsertOrAssignValue("y", cel::IntValue(20));
+
+  ASSERT_OK_AND_ASSIGN(cel::Value result,
+                       program->Evaluate(&arena, activation));
+  EXPECT_THAT(result, cel::test::ListValueIs(cel::test::ListValueElements(
+                          testing::ElementsAre(IntValueIs(105), IntValueIs(100),
+                                               IntValueIs(120)),
+                          cel::internal::GetTestingDescriptorPool(),
+                          cel::internal::GetTestingMessageFactory(), &arena)));
 }
 
 }  // namespace

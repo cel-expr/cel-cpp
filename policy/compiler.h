@@ -36,6 +36,8 @@ struct CompilePolicyOptions {
   // can cause problems in serialization/deserialization. This does not apply
   // if the AST is used directly by the runtime.
   int unnesting_height_limit = 0;
+
+  google::protobuf::Arena* arena = nullptr;
 };
 
 // Compiles a CEL policy using the provided CEL compiler as a base environment.

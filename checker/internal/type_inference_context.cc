@@ -15,6 +15,7 @@
 #include "checker/internal/type_inference_context.h"
 
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
