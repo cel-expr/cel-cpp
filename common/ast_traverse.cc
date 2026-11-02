@@ -17,7 +17,6 @@
 #include <memory>
 #include <stack>
 
-#include "absl/log/absl_log.h"
 #include "absl/types/variant.h"
 #include "common/ast_visitor.h"
 #include "common/constant.h"
@@ -158,9 +157,7 @@ struct PostVisitor {
       void operator()(const ComprehensionExpr& comprehension) {
         visitor->PostVisitComprehension(*expr, expr->comprehension_expr());
       }
-      void operator()(const UnspecifiedExpr&) {
-        ABSL_LOG(ERROR) << "Unsupported Expr kind";
-      }
+      void operator()(const UnspecifiedExpr&) {}
     } handler{visitor, record.expr};
     absl::visit(handler, record.expr->kind());
 
