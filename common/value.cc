@@ -935,6 +935,9 @@ void BoolRepeatedFieldAccessor(
   *result = BoolValue(reflection->GetRepeatedBool(*message, field, index));
 }
 
+// If `Unsafe` is `std::true_type`, elements are borrowed rather than copied to
+// `arena`, as with `Value::WrapRepeatedFieldUnsafe`.
+template <typename Unsafe>
 void StringRepeatedFieldAccessor(
     int index, const google::protobuf::Message* absl_nonnull message,
     const google::protobuf::FieldDescriptor* absl_nonnull field,
@@ -964,10 +967,15 @@ void StringRepeatedFieldAccessor(
                 string.size() == scratch.size()) {
               *result = StringValue::From(std::move(scratch), arena);
             } else {
-              if (message->GetArena() == nullptr) {
-                *result = StringValue::From(string, arena);
+              if constexpr (Unsafe::value) {
+                *result = StringValue::WrapUnsafe(string);
               } else {
-                *result = StringValue::Wrap(string, message->GetArena());
+                if (google::protobuf::Arena* message_arena = message->GetArena();
+                    message_arena != nullptr) {
+                  *result = StringValue::Wrap(string, message_arena);
+                } else {
+                  *result = StringValue::From(string, arena);
+                }
               }
             }
           },
@@ -975,9 +983,10 @@ void StringRepeatedFieldAccessor(
             *result = StringValue::From(std::move(cord), arena);
           }),
       well_known_types::AsVariant(well_known_types::GetRepeatedStringField(
-          *message, field, index, scratch)));
+          reflection, *message, field, index, scratch)));
 }
 
+template <typename Unsafe>
 void MessageRepeatedFieldAccessor(
     int index, const google::protobuf::Message* absl_nonnull message,
     const google::protobuf::FieldDescriptor* absl_nonnull field,
@@ -999,11 +1008,18 @@ void MessageRepeatedFieldAccessor(
   ABSL_DCHECK_GE(index, 0);
   ABSL_DCHECK_LT(index, reflection->FieldSize(*message, field));
 
-  *result = Value::WrapMessage(
-      &reflection->GetRepeatedMessage(*message, field, index), descriptor_pool,
-      message_factory, arena);
+  if constexpr (Unsafe::value) {
+    *result = Value::WrapMessageUnsafe(
+        &reflection->GetRepeatedMessage(*message, field, index),
+        descriptor_pool, message_factory, arena);
+  } else {
+    *result = Value::WrapMessage(
+        &reflection->GetRepeatedMessage(*message, field, index),
+        descriptor_pool, message_factory, arena);
+  }
 }
 
+template <typename Unsafe>
 void BytesRepeatedFieldAccessor(
     int index, const google::protobuf::Message* absl_nonnull message,
     const google::protobuf::FieldDescriptor* absl_nonnull field,
@@ -1033,10 +1049,15 @@ void BytesRepeatedFieldAccessor(
                 string.size() == scratch.size()) {
               *result = BytesValue::From(std::move(scratch), arena);
             } else {
-              if (message->GetArena() == nullptr) {
-                *result = BytesValue::From(string, arena);
+              if constexpr (Unsafe::value) {
+                *result = BytesValue::WrapUnsafe(string);
               } else {
-                *result = BytesValue::Wrap(string, message->GetArena());
+                if (google::protobuf::Arena* message_arena = message->GetArena();
+                    message_arena != nullptr) {
+                  *result = BytesValue::Wrap(string, message_arena);
+                } else {
+                  *result = BytesValue::From(string, arena);
+                }
               }
             }
           },
@@ -1044,7 +1065,7 @@ void BytesRepeatedFieldAccessor(
             *result = BytesValue::From(std::move(cord), arena);
           }),
       well_known_types::AsVariant(well_known_types::GetRepeatedBytesField(
-          *message, field, index, scratch)));
+          reflection, *message, field, index, scratch)));
 }
 
 void EnumRepeatedFieldAccessor(
@@ -1101,7 +1122,7 @@ void NullRepeatedFieldAccessor(
 }  // namespace
 
 absl::StatusOr<RepeatedFieldAccessor> RepeatedFieldAccessorFor(
-    const google::protobuf::FieldDescriptor* absl_nonnull field) {
+    const google::protobuf::FieldDescriptor* absl_nonnull field, bool unsafe) {
   switch (field->type()) {
     case google::protobuf::FieldDescriptor::TYPE_DOUBLE:
       return &DoubleRepeatedFieldAccessor;
@@ -1126,13 +1147,22 @@ absl::StatusOr<RepeatedFieldAccessor> RepeatedFieldAccessorFor(
     case google::protobuf::FieldDescriptor::TYPE_BOOL:
       return &BoolRepeatedFieldAccessor;
     case google::protobuf::FieldDescriptor::TYPE_STRING:
-      return &StringRepeatedFieldAccessor;
+      if (unsafe) {
+        return &StringRepeatedFieldAccessor<std::true_type>;
+      }
+      return &StringRepeatedFieldAccessor<std::false_type>;
     case google::protobuf::FieldDescriptor::TYPE_GROUP:
       ABSL_FALLTHROUGH_INTENDED;
     case google::protobuf::FieldDescriptor::TYPE_MESSAGE:
-      return &MessageRepeatedFieldAccessor;
+      if (unsafe) {
+        return &MessageRepeatedFieldAccessor<std::true_type>;
+      }
+      return &MessageRepeatedFieldAccessor<std::false_type>;
     case google::protobuf::FieldDescriptor::TYPE_BYTES:
-      return &BytesRepeatedFieldAccessor;
+      if (unsafe) {
+        return &BytesRepeatedFieldAccessor<std::true_type>;
+      }
+      return &BytesRepeatedFieldAccessor<std::false_type>;
     case google::protobuf::FieldDescriptor::TYPE_FIXED32:
       ABSL_FALLTHROUGH_INTENDED;
     case google::protobuf::FieldDescriptor::TYPE_UINT32:
