@@ -1,9 +1,11 @@
 #include "eval/public/activation_bind_helper.h"
 
 #include "absl/status/status.h"
+#include "common/legacy_value.h"
+#include "common/value.h"
 #include "eval/public/containers/field_access.h"
-#include "eval/public/containers/field_backed_list_impl.h"
 #include "eval/public/containers/field_backed_map_impl.h"
+#include "internal/status_macros.h"
 
 namespace google {
 namespace api {
@@ -25,8 +27,9 @@ absl::Status CreateValueFromField(const google::protobuf::Message* msg,
         arena, msg, field_desc, arena));
     return absl::OkStatus();
   } else if (field_desc->is_repeated()) {
-    *result = CelValue::CreateList(google::protobuf::Arena::Create<FieldBackedListImpl>(
-        arena, msg, field_desc, arena));
+    CEL_ASSIGN_OR_RETURN(
+        *result, cel::LegacyValue(arena, cel::UnsafeParsedRepeatedFieldValue(
+                                             msg, field_desc)));
     return absl::OkStatus();
   } else {
     return CreateValueFromSingleField(msg, field_desc, arena, result);

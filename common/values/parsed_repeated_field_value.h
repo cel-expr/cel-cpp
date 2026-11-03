@@ -176,7 +176,7 @@ class ParsedRepeatedFieldValue final
 
   ParsedRepeatedFieldValue(const google::protobuf::Message* absl_nonnull message,
                            const google::protobuf::FieldDescriptor* absl_nonnull field)
-      : message_(message), field_(field), arena_(message->GetArena()) {
+      : message_(message), field_(field), arena_(nullptr) {
     ABSL_DCHECK(message != nullptr);
     ABSL_DCHECK(field != nullptr);
     ABSL_DCHECK(field_->is_repeated() && !field_->is_map())
@@ -193,10 +193,15 @@ class ParsedRepeatedFieldValue final
     return absl::OkStatus();
   }
 
+  bool is_unsafe() const { return arena_ == nullptr; }
+
   const google::protobuf::Reflection* absl_nonnull GetReflection() const;
 
   const google::protobuf::Message* absl_nullable message_ = nullptr;
   const google::protobuf::FieldDescriptor* absl_nullable field_ = nullptr;
+  // The arena attributed as owning this value. Null if the value is created by
+  // UnsafeParsedRepeatedFieldValue(), indicating an externally managed message
+  // whose elements should be borrowed rather than copied.
   google::protobuf::Arena* absl_nullable arena_ = nullptr;
 };
 

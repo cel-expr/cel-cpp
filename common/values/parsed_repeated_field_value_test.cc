@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <optional>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -23,6 +24,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/optional.h"
 #include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "common/memory.h"
 #include "common/type.h"
@@ -414,6 +416,110 @@ TEST_F(ParsedRepeatedFieldValueTest, NewIterator2) {
               IsOkAndHolds(Optional(Pair(IntValueIs(1), BoolValueIs(true)))));
   EXPECT_THAT(iterator->Next2(descriptor_pool(), message_factory(), arena()),
               IsOkAndHolds(Eq(std::nullopt)));
+}
+
+TEST_F(ParsedRepeatedFieldValueTest, GetUnsafeDifferentArenaBorrowsMessages) {
+  google::protobuf::Arena source_arena;
+  auto* message = google::protobuf::Arena::Create<TestAllTypesProto3>(&source_arena);
+  message->add_repeated_nested_message()->set_bb(1);
+  ParsedRepeatedFieldValue value = UnsafeParsedRepeatedFieldValue(
+      message, TestAllTypesProto3::descriptor()->FindFieldByName(
+                   "repeated_nested_message"));
+  ASSERT_OK_AND_ASSIGN(Value element, value.Get(0, descriptor_pool(),
+                                                message_factory(), arena()));
+  ASSERT_TRUE(element.IsParsedMessage());
+  EXPECT_EQ(cel::to_address(element.GetParsedMessage()),
+            &message->repeated_nested_message(0));
+  EXPECT_EQ(arena()->SpaceUsed(), 0);
+}
+
+TEST_F(ParsedRepeatedFieldValueTest, NewIteratorUnsafeBorrowsMessages) {
+  TestAllTypesProto3 heap_message;
+  heap_message.add_repeated_nested_message()->set_bb(1);
+  heap_message.add_repeated_nested_message()->set_bb(2);
+
+  google::protobuf::Arena source_arena;
+  auto* arena_message =
+      google::protobuf::Arena::Create<TestAllTypesProto3>(&source_arena);
+  arena_message->CopyFrom(heap_message);
+
+  for (const TestAllTypesProto3* message : {&heap_message, arena_message}) {
+    ParsedRepeatedFieldValue value = UnsafeParsedRepeatedFieldValue(
+        message, TestAllTypesProto3::descriptor()->FindFieldByName(
+                     "repeated_nested_message"));
+    ASSERT_OK_AND_ASSIGN(auto iterator, value.NewIterator());
+    for (int i = 0; i < 2; ++i) {
+      SCOPED_TRACE(i);
+      ASSERT_OK_AND_ASSIGN(
+          auto element,
+          iterator->Next1(descriptor_pool(), message_factory(), arena()));
+      ASSERT_TRUE(element.has_value());
+      ASSERT_TRUE(element->IsParsedMessage());
+      EXPECT_EQ(cel::to_address(element->GetParsedMessage()),
+                &message->repeated_nested_message(i));
+    }
+  }
+  EXPECT_EQ(arena()->SpaceUsed(), 0);
+}
+
+TEST_F(ParsedRepeatedFieldValueTest, ForEachUnsafeBorrowsStringsAndBytes) {
+  TestAllTypesProto3 heap_message;
+  heap_message.add_repeated_string(std::string(64, 'a'));
+  heap_message.add_repeated_bytes(std::string(64, 'b'));
+
+  google::protobuf::Arena source_arena;
+  auto* arena_message =
+      google::protobuf::Arena::Create<TestAllTypesProto3>(&source_arena);
+  arena_message->CopyFrom(heap_message);
+
+  for (const TestAllTypesProto3* message : {&heap_message, arena_message}) {
+    std::vector<absl::optional<absl::string_view>> flat;
+    for (absl::string_view field_name : {"repeated_string", "repeated_bytes"}) {
+      ParsedRepeatedFieldValue value = UnsafeParsedRepeatedFieldValue(
+          message,
+          TestAllTypesProto3::descriptor()->FindFieldByName(field_name));
+      EXPECT_THAT(value.ForEach(
+                      [&](const Value& element) -> absl::StatusOr<bool> {
+                        if (element.IsString()) {
+                          flat.push_back(element.GetString().TryFlat());
+                        } else {
+                          flat.push_back(element.GetBytes().TryFlat());
+                        }
+                        return true;
+                      },
+                      descriptor_pool(), message_factory(), arena()),
+                  IsOk());
+    }
+    ASSERT_THAT(flat, ElementsAre(Optional(_), Optional(_)));
+    EXPECT_EQ(flat[0]->data(), message->repeated_string(0).data());
+    EXPECT_EQ(flat[1]->data(), message->repeated_bytes(0).data());
+  }
+  EXPECT_EQ(arena()->SpaceUsed(), 0);
+}
+
+TEST_F(ParsedRepeatedFieldValueTest, ContainsUnsafeBorrowsElements) {
+  google::protobuf::Arena source_arena;
+  auto* message = google::protobuf::Arena::Create<TestAllTypesProto3>(&source_arena);
+  message->add_repeated_string(std::string(64, 'a'));
+  message->add_repeated_nested_message()->set_bb(42);
+
+  ParsedRepeatedFieldValue strings = UnsafeParsedRepeatedFieldValue(
+      message,
+      TestAllTypesProto3::descriptor()->FindFieldByName("repeated_string"));
+  const std::string target_str(64, 'a');
+  EXPECT_THAT(strings.Contains(StringValue::WrapUnsafe(target_str),
+                               descriptor_pool(), message_factory(), arena()),
+              IsOkAndHolds(BoolValueIs(true)));
+
+  TestAllTypesProto3::NestedMessage target_msg;
+  target_msg.set_bb(42);
+  ParsedRepeatedFieldValue messages = UnsafeParsedRepeatedFieldValue(
+      message, TestAllTypesProto3::descriptor()->FindFieldByName(
+                   "repeated_nested_message"));
+  EXPECT_THAT(messages.Contains(UnsafeParsedMessageValue(&target_msg),
+                                descriptor_pool(), message_factory(), arena()),
+              IsOkAndHolds(BoolValueIs(true)));
+  EXPECT_EQ(arena()->SpaceUsed(), 0);
 }
 
 TEST_F(ParsedRepeatedFieldValueTest, Contains) {
