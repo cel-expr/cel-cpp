@@ -22,18 +22,15 @@
 
 #include "cel/expr/checked.pb.h"
 #include "cel/expr/syntax.pb.h"
-#include "google/protobuf/duration.pb.h"
-#include "google/protobuf/struct.pb.h"
-#include "google/protobuf/timestamp.pb.h"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
-#include "absl/types/variant.h"
 #include "common/ast.h"
 #include "common/ast/constant_proto.h"
 #include "common/ast/expr_proto.h"
 #include "common/ast/source_info_proto.h"
+#include "common/ast/type_proto.h"
 #include "common/constant.h"
 #include "common/expr.h"
 #include "internal/status_macros.h"
@@ -45,6 +42,8 @@ using ::cel::ast_internal::ConstantFromProto;
 using ::cel::ast_internal::ConstantToProto;
 using ::cel::ast_internal::ExprFromProto;
 using ::cel::ast_internal::ExprToProto;
+using ::cel::ast_internal::TypeFromProto;
+using ::cel::ast_internal::TypeToProto;
 
 using ExprPb = cel::expr::Expr;
 using ParsedExprPb = cel::expr::ParsedExpr;
@@ -53,7 +52,6 @@ using SourceInfoPb = cel::expr::SourceInfo;
 using ExtensionPb = cel::expr::SourceInfo::Extension;
 using ReferencePb = cel::expr::Reference;
 using TypePb = cel::expr::Type;
-using ExtensionPb = cel::expr::SourceInfo::Extension;
 
 absl::StatusOr<Expr> ExprValueFromProto(const ExprPb& expr) {
   Expr result;
@@ -107,190 +105,6 @@ absl::StatusOr<SourceInfo> ConvertProtoSourceInfoToNative(
       std::move(macro_calls), std::move(extensions));
 }
 
-absl::StatusOr<TypeSpec> ConvertProtoTypeToNative(
-    const cel::expr::Type& type);
-
-absl::StatusOr<PrimitiveType> ToNative(
-    cel::expr::Type::PrimitiveType primitive_type) {
-  switch (primitive_type) {
-    case cel::expr::Type::PRIMITIVE_TYPE_UNSPECIFIED:
-      return PrimitiveType::kPrimitiveTypeUnspecified;
-    case cel::expr::Type::BOOL:
-      return PrimitiveType::kBool;
-    case cel::expr::Type::INT64:
-      return PrimitiveType::kInt64;
-    case cel::expr::Type::UINT64:
-      return PrimitiveType::kUint64;
-    case cel::expr::Type::DOUBLE:
-      return PrimitiveType::kDouble;
-    case cel::expr::Type::STRING:
-      return PrimitiveType::kString;
-    case cel::expr::Type::BYTES:
-      return PrimitiveType::kBytes;
-    default:
-      return absl::InvalidArgumentError(
-          "Illegal type specified for "
-          "cel::expr::Type::PrimitiveType.");
-  }
-}
-
-absl::StatusOr<WellKnownTypeSpec> ToNative(
-    cel::expr::Type::WellKnownType well_known_type) {
-  switch (well_known_type) {
-    case cel::expr::Type::WELL_KNOWN_TYPE_UNSPECIFIED:
-      return WellKnownTypeSpec::kWellKnownTypeUnspecified;
-    case cel::expr::Type::ANY:
-      return WellKnownTypeSpec::kAny;
-    case cel::expr::Type::TIMESTAMP:
-      return WellKnownTypeSpec::kTimestamp;
-    case cel::expr::Type::DURATION:
-      return WellKnownTypeSpec::kDuration;
-    default:
-      return absl::InvalidArgumentError(
-          "Illegal type specified for "
-          "cel::expr::Type::WellKnownType.");
-  }
-}
-
-absl::StatusOr<ListTypeSpec> ToNative(
-    const cel::expr::Type::ListType& list_type) {
-  auto native_elem_type = ConvertProtoTypeToNative(list_type.elem_type());
-  if (!native_elem_type.ok()) {
-    return native_elem_type.status();
-  }
-  return ListTypeSpec(
-      std::make_unique<TypeSpec>(*(std::move(native_elem_type))));
-}
-
-absl::StatusOr<MapTypeSpec> ToNative(
-    const cel::expr::Type::MapType& map_type) {
-  auto native_key_type = ConvertProtoTypeToNative(map_type.key_type());
-  if (!native_key_type.ok()) {
-    return native_key_type.status();
-  }
-  auto native_value_type = ConvertProtoTypeToNative(map_type.value_type());
-  if (!native_value_type.ok()) {
-    return native_value_type.status();
-  }
-  return MapTypeSpec(
-      std::make_unique<TypeSpec>(*(std::move(native_key_type))),
-      std::make_unique<TypeSpec>(*(std::move(native_value_type))));
-}
-
-absl::StatusOr<FunctionTypeSpec> ToNative(
-    const cel::expr::Type::FunctionType& function_type) {
-  std::vector<TypeSpec> arg_types;
-  arg_types.reserve(function_type.arg_types_size());
-  for (const auto& arg_type : function_type.arg_types()) {
-    auto native_arg = ConvertProtoTypeToNative(arg_type);
-    if (!native_arg.ok()) {
-      return native_arg.status();
-    }
-    arg_types.emplace_back(*(std::move(native_arg)));
-  }
-  auto native_result = ConvertProtoTypeToNative(function_type.result_type());
-  if (!native_result.ok()) {
-    return native_result.status();
-  }
-  return FunctionTypeSpec(
-      std::make_unique<TypeSpec>(*(std::move(native_result))),
-      std::move(arg_types));
-}
-
-absl::StatusOr<AbstractType> ToNative(
-    const cel::expr::Type::AbstractType& abstract_type) {
-  std::vector<TypeSpec> parameter_types;
-  for (const auto& parameter_type : abstract_type.parameter_types()) {
-    auto native_parameter_type = ConvertProtoTypeToNative(parameter_type);
-    if (!native_parameter_type.ok()) {
-      return native_parameter_type.status();
-    }
-    parameter_types.emplace_back(*(std::move(native_parameter_type)));
-  }
-  return AbstractType(abstract_type.name(), std::move(parameter_types));
-}
-
-absl::StatusOr<TypeSpec> ConvertProtoTypeToNative(
-    const cel::expr::Type& type) {
-  switch (type.type_kind_case()) {
-    case cel::expr::Type::kDyn:
-      return TypeSpec(DynTypeSpec());
-    case cel::expr::Type::kNull:
-      return TypeSpec(NullTypeSpec());
-    case cel::expr::Type::kPrimitive: {
-      auto native_primitive = ToNative(type.primitive());
-      if (!native_primitive.ok()) {
-        return native_primitive.status();
-      }
-      return TypeSpec(*(std::move(native_primitive)));
-    }
-    case cel::expr::Type::kWrapper: {
-      auto native_wrapper = ToNative(type.wrapper());
-      if (!native_wrapper.ok()) {
-        return native_wrapper.status();
-      }
-      return TypeSpec(PrimitiveTypeWrapper(*(std::move(native_wrapper))));
-    }
-    case cel::expr::Type::kWellKnown: {
-      auto native_well_known = ToNative(type.well_known());
-      if (!native_well_known.ok()) {
-        return native_well_known.status();
-      }
-      return TypeSpec(*std::move(native_well_known));
-    }
-    case cel::expr::Type::kListType: {
-      auto native_list_type = ToNative(type.list_type());
-      if (!native_list_type.ok()) {
-        return native_list_type.status();
-      }
-      return TypeSpec(*(std::move(native_list_type)));
-    }
-    case cel::expr::Type::kMapType: {
-      auto native_map_type = ToNative(type.map_type());
-      if (!native_map_type.ok()) {
-        return native_map_type.status();
-      }
-      return TypeSpec(*(std::move(native_map_type)));
-    }
-    case cel::expr::Type::kFunction: {
-      auto native_function = ToNative(type.function());
-      if (!native_function.ok()) {
-        return native_function.status();
-      }
-      return TypeSpec(*(std::move(native_function)));
-    }
-    case cel::expr::Type::kMessageType:
-      return TypeSpec(MessageTypeSpec(type.message_type()));
-    case cel::expr::Type::kTypeParam:
-      return TypeSpec(ParamTypeSpec(type.type_param()));
-    case cel::expr::Type::kType: {
-      if (type.type().type_kind_case() ==
-          cel::expr::Type::TypeKindCase::TYPE_KIND_NOT_SET) {
-        return TypeSpec(std::unique_ptr<TypeSpec>());
-      }
-      auto native_type = ConvertProtoTypeToNative(type.type());
-      if (!native_type.ok()) {
-        return native_type.status();
-      }
-      return TypeSpec(std::make_unique<TypeSpec>(*std::move(native_type)));
-    }
-    case cel::expr::Type::kError:
-      return TypeSpec(ErrorTypeSpec::kValue);
-    case cel::expr::Type::kAbstractType: {
-      auto native_abstract = ToNative(type.abstract_type());
-      if (!native_abstract.ok()) {
-        return native_abstract.status();
-      }
-      return TypeSpec(*(std::move(native_abstract)));
-    }
-    case cel::expr::Type::TYPE_KIND_NOT_SET:
-      return TypeSpec(UnsetTypeSpec());
-    default:
-      return absl::InvalidArgumentError(
-          "Illegal type specified for cel::expr::Type.");
-  }
-}
-
 absl::StatusOr<Reference> ConvertProtoReferenceToNative(
     const cel::expr::Reference& reference) {
   Reference ret_val;
@@ -321,142 +135,6 @@ absl::StatusOr<ReferencePb> ReferenceToProto(const Reference& reference) {
   }
 
   return result;
-}
-
-absl::Status TypeToProto(const TypeSpec& type, TypePb* result);
-
-struct TypeKindToProtoVisitor {
-  absl::Status operator()(PrimitiveType primitive) {
-    switch (primitive) {
-      case PrimitiveType::kPrimitiveTypeUnspecified:
-        result->set_primitive(TypePb::PRIMITIVE_TYPE_UNSPECIFIED);
-        return absl::OkStatus();
-      case PrimitiveType::kBool:
-        result->set_primitive(TypePb::BOOL);
-        return absl::OkStatus();
-      case PrimitiveType::kInt64:
-        result->set_primitive(TypePb::INT64);
-        return absl::OkStatus();
-      case PrimitiveType::kUint64:
-        result->set_primitive(TypePb::UINT64);
-        return absl::OkStatus();
-      case PrimitiveType::kDouble:
-        result->set_primitive(TypePb::DOUBLE);
-        return absl::OkStatus();
-      case PrimitiveType::kString:
-        result->set_primitive(TypePb::STRING);
-        return absl::OkStatus();
-      case PrimitiveType::kBytes:
-        result->set_primitive(TypePb::BYTES);
-        return absl::OkStatus();
-      default:
-        break;
-    }
-    return absl::InvalidArgumentError("Unsupported primitive type");
-  }
-
-  absl::Status operator()(PrimitiveTypeWrapper wrapper) {
-    CEL_RETURN_IF_ERROR(this->operator()(wrapper.type()));
-    auto wrapped = result->primitive();
-    result->set_wrapper(wrapped);
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(UnsetTypeSpec) {
-    result->clear_type_kind();
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(DynTypeSpec) {
-    result->mutable_dyn();
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(ErrorTypeSpec) {
-    result->mutable_error();
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(NullTypeSpec) {
-    result->set_null(google::protobuf::NULL_VALUE);
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(const ListTypeSpec& list_type) {
-    return TypeToProto(list_type.elem_type(),
-                       result->mutable_list_type()->mutable_elem_type());
-  }
-
-  absl::Status operator()(const MapTypeSpec& map_type) {
-    CEL_RETURN_IF_ERROR(TypeToProto(
-        map_type.key_type(), result->mutable_map_type()->mutable_key_type()));
-    return TypeToProto(map_type.value_type(),
-                       result->mutable_map_type()->mutable_value_type());
-  }
-
-  absl::Status operator()(const MessageTypeSpec& message_type) {
-    result->set_message_type(message_type.type());
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(const WellKnownTypeSpec& well_known_type) {
-    switch (well_known_type) {
-      case WellKnownTypeSpec::kWellKnownTypeUnspecified:
-        result->set_well_known(TypePb::WELL_KNOWN_TYPE_UNSPECIFIED);
-        return absl::OkStatus();
-      case WellKnownTypeSpec::kAny:
-        result->set_well_known(TypePb::ANY);
-        return absl::OkStatus();
-
-      case WellKnownTypeSpec::kDuration:
-        result->set_well_known(TypePb::DURATION);
-        return absl::OkStatus();
-      case WellKnownTypeSpec::kTimestamp:
-        result->set_well_known(TypePb::TIMESTAMP);
-        return absl::OkStatus();
-      default:
-        break;
-    }
-    return absl::InvalidArgumentError("Unsupported well-known type");
-  }
-
-  absl::Status operator()(const FunctionTypeSpec& function_type) {
-    CEL_RETURN_IF_ERROR(
-        TypeToProto(function_type.result_type(),
-                    result->mutable_function()->mutable_result_type()));
-
-    for (const TypeSpec& arg_type : function_type.arg_types()) {
-      CEL_RETURN_IF_ERROR(
-          TypeToProto(arg_type, result->mutable_function()->add_arg_types()));
-    }
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(const AbstractType& type) {
-    auto* abstract_type_pb = result->mutable_abstract_type();
-    abstract_type_pb->set_name(type.name());
-    for (const TypeSpec& type_param : type.parameter_types()) {
-      CEL_RETURN_IF_ERROR(
-          TypeToProto(type_param, abstract_type_pb->add_parameter_types()));
-    }
-    return absl::OkStatus();
-  }
-
-  absl::Status operator()(const std::unique_ptr<TypeSpec>& type_type) {
-    return TypeToProto((type_type != nullptr) ? *type_type : TypeSpec(),
-                       result->mutable_type());
-  }
-
-  absl::Status operator()(const ParamTypeSpec& param_type) {
-    result->set_type_param(param_type.type());
-    return absl::OkStatus();
-  }
-
-  TypePb* result;
-};
-
-absl::Status TypeToProto(const TypeSpec& type, TypePb* result) {
-  return absl::visit(TypeKindToProtoVisitor{result}, type.type_kind());
 }
 
 }  // namespace
@@ -506,7 +184,7 @@ absl::StatusOr<std::unique_ptr<Ast>> CreateAstFromCheckedExpr(
   }
   Ast::TypeMap type_map;
   for (const auto& pair : checked_expr.type_map()) {
-    auto native_type = ConvertProtoTypeToNative(pair.second);
+    auto native_type = TypeFromProto(pair.second);
     if (!native_type.ok()) {
       return native_type.status();
     }

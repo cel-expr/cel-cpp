@@ -1,0 +1,538 @@
+SOURCE: typedef_to_proto.yaml
+--------------------------------------------------------------------
+FILE DESCRIPTOR SET PROTO:
+file {
+  name: "com/example/proto/types.proto"
+  package: "com.example.proto"
+  enum_type {
+    name: "ProtoOrderStatus"
+    value {
+      name: "UNSPECIFIED"
+      number: 0
+    }
+    value {
+      name: "STATUS_ACTIVE"
+      number: 1
+    }
+  }
+  source_code_info {
+    location {
+      path: 5
+      path: 0
+      span: 0
+      span: 0
+      span: 0
+      leading_comments: " Order status.\n"
+    }
+  }
+  syntax: "proto2"
+}
+file {
+  name: "com/example/legacy_order.proto"
+  package: "com.example"
+  dependency: "com/example/proto/types.proto"
+  message_type {
+    name: "ProtoLegacyOrder"
+    field {
+      name: "order_status"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".com.example.proto.ProtoOrderStatus"
+      default_value: "STATUS_ACTIVE"
+    }
+    field {
+      name: "legacy_id"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "proto_metadata"
+      number: 3
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".com.example.ProtoLegacyOrder.ProtoMetadataEntry"
+    }
+    field {
+      name: "email"
+      number: 4
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      oneof_index: 0
+    }
+    field {
+      name: "phone"
+      number: 5
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      oneof_index: 0
+    }
+    field {
+      name: "card"
+      number: 6
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      oneof_index: 1
+    }
+    field {
+      name: "cash"
+      number: 7
+      label: LABEL_OPTIONAL
+      type: TYPE_BOOL
+      oneof_index: 1
+    }
+    nested_type {
+      name: "ProtoMetadataEntry"
+      field {
+        name: "key"
+        number: 1
+        label: LABEL_OPTIONAL
+        type: TYPE_STRING
+      }
+      field {
+        name: "value"
+        number: 2
+        label: LABEL_OPTIONAL
+        type: TYPE_INT64
+      }
+      options {
+        map_entry: true
+      }
+    }
+    oneof_decl {
+      name: "oneof_1"
+    }
+    oneof_decl {
+      name: "oneof_0"
+    }
+  }
+  source_code_info {
+    location {
+      path: 4
+      path: 0
+      span: 0
+      span: 0
+      span: 0
+      leading_comments: " Legacy order.\n"
+    }
+  }
+  syntax: "proto2"
+}
+file {
+  name: "com/example/types.proto"
+  package: "com.example"
+  dependency: "com/example/legacy_order.proto"
+  dependency: "com/example/proto/types.proto"
+  dependency: "google/protobuf/any.proto"
+  dependency: "google/protobuf/duration.proto"
+  dependency: "google/protobuf/struct.proto"
+  dependency: "google/protobuf/timestamp.proto"
+  dependency: "google/protobuf/wrappers.proto"
+  message_type {
+    name: "Order"
+    field {
+      name: "order_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      json_name: "orderIdCustom"
+    }
+    field {
+      name: "created_at"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Timestamp"
+    }
+    field {
+      name: "status"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".com.example.proto.ProtoOrderStatus"
+    }
+    field {
+      name: "choice"
+      number: 4
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      oneof_index: 0
+    }
+    field {
+      name: "opt_description"
+      number: 5
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "items"
+      number: 6
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".com.example.Order.ItemsEntry"
+    }
+    field {
+      name: "reserved_gap_field"
+      number: 18999
+      label: LABEL_OPTIONAL
+      type: TYPE_INT64
+    }
+    field {
+      name: "auto_after_reserved"
+      number: 7
+      label: LABEL_OPTIONAL
+      type: TYPE_INT64
+    }
+    field {
+      name: "scores"
+      number: 8
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".com.example.Order.ScoresEntry"
+    }
+    field {
+      name: "previous_order"
+      number: 9
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".com.example.ProtoLegacyOrder"
+    }
+    field {
+      name: "tags"
+      number: 10
+      label: LABEL_REPEATED
+      type: TYPE_STRING
+    }
+    field {
+      name: "quantities"
+      number: 11
+      label: LABEL_REPEATED
+      type: TYPE_INT32
+    }
+    field {
+      name: "nested_lists"
+      number: 12
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.ListValue"
+    }
+    field {
+      name: "nested_structs"
+      number: 13
+      label: LABEL_REPEATED
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Struct"
+    }
+    field {
+      name: "extra_struct"
+      number: 14
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Struct"
+    }
+    field {
+      name: "extra_list"
+      number: 15
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.ListValue"
+    }
+    field {
+      name: "dyn_val"
+      number: 16
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Value"
+    }
+    field {
+      name: "null_val"
+      number: 17
+      label: LABEL_OPTIONAL
+      type: TYPE_ENUM
+      type_name: ".google.protobuf.NullValue"
+    }
+    field {
+      name: "any_val"
+      number: 18
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Any"
+    }
+    field {
+      name: "ttl"
+      number: 19
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Duration"
+    }
+    field {
+      name: "opt_bool"
+      number: 20
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.BoolValue"
+    }
+    field {
+      name: "opt_int"
+      number: 21
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Int64Value"
+    }
+    field {
+      name: "opt_uint"
+      number: 22
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.UInt64Value"
+    }
+    field {
+      name: "opt_double"
+      number: 23
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.DoubleValue"
+    }
+    field {
+      name: "opt_string"
+      number: 24
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.StringValue"
+    }
+    field {
+      name: "opt_bytes"
+      number: 25
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.BytesValue"
+    }
+    nested_type {
+      name: "ItemDetail"
+      field {
+        name: "detail_id"
+        number: 1
+        label: LABEL_OPTIONAL
+        type: TYPE_STRING
+      }
+      field {
+        name: "quantity"
+        number: 2
+        label: LABEL_OPTIONAL
+        type: TYPE_INT64
+      }
+    }
+    nested_type {
+      name: "ItemsEntry"
+      field {
+        name: "key"
+        number: 1
+        label: LABEL_OPTIONAL
+        type: TYPE_STRING
+      }
+      field {
+        name: "value"
+        number: 2
+        label: LABEL_OPTIONAL
+        type: TYPE_INT64
+      }
+      options {
+        map_entry: true
+      }
+    }
+    nested_type {
+      name: "ScoresEntry"
+      field {
+        name: "key"
+        number: 1
+        label: LABEL_OPTIONAL
+        type: TYPE_INT32
+      }
+      field {
+        name: "value"
+        number: 2
+        label: LABEL_OPTIONAL
+        type: TYPE_FLOAT
+      }
+      options {
+        map_entry: true
+      }
+    }
+    enum_type {
+      name: "Priority"
+      value {
+        name: "UNSPECIFIED"
+        number: 0
+      }
+      value {
+        name: "PRIMARY"
+        number: 1
+      }
+      value {
+        name: "DEFAULT"
+        number: 1
+      }
+      options {
+        allow_alias: true
+      }
+    }
+    oneof_decl {
+      name: "selection"
+    }
+  }
+  message_type {
+    name: "ArchivedLegacyOrder"
+    field {
+      name: "archive_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+  }
+  source_code_info {
+    location {
+      path: 4
+      path: 0
+      span: 0
+      span: 0
+      span: 0
+      leading_comments: " Order message.\n"
+    }
+    location {
+      path: 4
+      path: 0
+      path: 3
+      path: 0
+      span: 0
+      span: 0
+      span: 0
+      leading_comments: " Nested item detail.\n"
+    }
+  }
+  syntax: "proto2"
+}
+file {
+  name: "types.proto"
+  message_type {
+    name: "GlobalConfig"
+    field {
+      name: "config_id"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+    }
+    field {
+      name: "timeout_seconds"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_INT32
+      default_value: "30"
+    }
+    field {
+      name: "max_connections"
+      number: 3
+      label: LABEL_OPTIONAL
+      type: TYPE_UINT64
+      default_value: "100"
+    }
+    field {
+      name: "d_pi"
+      number: 4
+      label: LABEL_OPTIONAL
+      type: TYPE_DOUBLE
+      default_value: "3.1415926535897931"
+    }
+    field {
+      name: "f_val"
+      number: 5
+      label: LABEL_OPTIONAL
+      type: TYPE_FLOAT
+      default_value: "1.2345679"
+    }
+    field {
+      name: "d_inf"
+      number: 6
+      label: LABEL_OPTIONAL
+      type: TYPE_DOUBLE
+      default_value: "inf"
+    }
+    field {
+      name: "d_neg_inf"
+      number: 7
+      label: LABEL_OPTIONAL
+      type: TYPE_DOUBLE
+      default_value: "-inf"
+    }
+    field {
+      name: "d_nan"
+      number: 8
+      label: LABEL_OPTIONAL
+      type: TYPE_DOUBLE
+      default_value: "nan"
+    }
+    field {
+      name: "f_neg_inf"
+      number: 9
+      label: LABEL_OPTIONAL
+      type: TYPE_FLOAT
+      default_value: "-inf"
+    }
+    field {
+      name: "f_nan"
+      number: 10
+      label: LABEL_OPTIONAL
+      type: TYPE_FLOAT
+      default_value: "nan"
+    }
+    field {
+      name: "enabled"
+      number: 11
+      label: LABEL_OPTIONAL
+      type: TYPE_BOOL
+      default_value: "true"
+    }
+    field {
+      name: "max_retries"
+      number: 12
+      label: LABEL_OPTIONAL
+      type: TYPE_UINT32
+      default_value: "5"
+    }
+    field {
+      name: "default_label"
+      number: 13
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      default_value: "prod"
+    }
+    field {
+      name: "magic_header"
+      number: 14
+      label: LABEL_OPTIONAL
+      type: TYPE_BYTES
+      default_value: "\\000\\377AB"
+    }
+  }
+  source_code_info {
+    location {
+      path: 4
+      path: 0
+      span: 0
+      span: 0
+      span: 0
+      leading_comments: " Global config in root package.\n"
+    }
+    location {
+      path: 4
+      path: 0
+      path: 2
+      path: 0
+      span: 0
+      span: 0
+      span: 0
+      leading_comments: " Config ID.\n"
+    }
+  }
+  syntax: "proto2"
+}
