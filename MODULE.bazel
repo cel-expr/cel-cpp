@@ -33,6 +33,10 @@ bazel_dep(
 )
 bazel_dep(name = "rules_license", version = "1.0.0")
 bazel_dep(
+    name = "rules_fuzzing",
+    version = "0.6.0",
+)
+bazel_dep(
     name = "protobuf",
     version = "35.1",
     repo_name = "com_google_protobuf",
