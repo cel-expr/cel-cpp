@@ -132,6 +132,7 @@ absl::StatusOr<AstType> FlattenTypeType(const TypeType& type) {
 absl::StatusOr<AstType> FlattenType(const Type& type) {
   switch (type.kind()) {
     case TypeKind::kDyn:
+    case TypeKind::kUnspecialized:
       return AstType(DynTypeSpec());
     case TypeKind::kError:
       return AstType(ErrorTypeSpec());
@@ -554,6 +555,7 @@ bool IsSupportedKeyType(const Type& type) {
     case TypeKind::kUint:
     case TypeKind::kString:
     case TypeKind::kDyn:
+    case TypeKind::kUnspecialized:
       return true;
     default:
       return false;
@@ -573,6 +575,12 @@ void ResolveVisitor::PostVisitMap(const Expr& expr, const MapExpr& map) {
   // In the future, we should probably default enforce homogeneously
   // typed maps unless tagged as JSON (and the values are assignable to
   // the JSON value union type).
+
+  if (map.entries().empty()) {
+    // An empty map literal has unconstrained key and value types.
+    types_[&expr] = MapType(arena_, UnspecializedType(), UnspecializedType());
+    return;
+  }
 
   Type overall_key_type =
       inference_context_->InstantiateTypeParams(TypeParamType("K"));
@@ -640,6 +648,12 @@ void ResolveVisitor::PostVisitList(const Expr& expr, const ListExpr& list) {
     // resolved type of the list elements. cel.@block is always list<dyn> and
     // the elements are treated independently at runtime.
     types_[&expr] = ListType();
+    return;
+  }
+
+  if (list.elements().empty()) {
+    // An empty list literal has an unconstrained element type.
+    types_[&expr] = ListType(arena_, UnspecializedType());
     return;
   }
 
@@ -841,6 +855,50 @@ void ResolveVisitor::PostVisitComprehensionSubexpression(
           MakeVariableDecl(comprehension.accu_var(),
                            GetDeducedType(&comprehension.accu_init())));
       break;
+    case ComprehensionArg::LOOP_CONDITION: {
+      Type condition_type = GetDeducedType(&comprehension.loop_condition());
+      if (!inference_context_->IsAssignable(condition_type, BoolType())) {
+        ReportTypeMismatch(comprehension.loop_condition().id(), BoolType(),
+                           condition_type);
+      }
+      break;
+    }
+    case ComprehensionArg::LOOP_STEP: {
+      // The CEL specification does not define how to reconcile the
+      // accumulator type with the loop step type when they differ: the
+      // accumulator is declared with the type of accu_init, but each iteration
+      // replaces it with the value of loop_step. Implementations (and the
+      // standard macros) assume the two converge, which holds when accu_init
+      // has a free type parameter (e.g. `[]`) that the loop step binds.
+      //
+      // When accu_init has unspecialized type parameters (e.g. `list(U)`), we
+      // require the loop step to be assignable to the accumulator type and
+      // then specialize only the unspecialized positions with the loop step
+      // type. All other positions retain the accu_init type, so this never
+      // widens the accumulator and is equivalent to the existing behavior when
+      // the accumulator has no unspecialized type parameters.
+      const VariableDecl* accu_decl =
+          scope.accu_scope->LookupLocalVariable(comprehension.accu_var());
+      if (accu_decl == nullptr) {
+        status_.Update(absl::InternalError(
+            "comprehension accumulator variable not declared"));
+        break;
+      }
+      Type accu_type = accu_decl->type();
+      Type step_type = GetDeducedType(&comprehension.loop_step());
+      if (!inference_context_->IsAssignable(step_type, accu_type)) {
+        ReportTypeMismatch(comprehension.loop_step().id(), accu_type,
+                           step_type);
+        break;
+      }
+      Type specialized =
+          inference_context_->SpecializeUnspecialized(accu_type, step_type);
+      if (specialized != inference_context_->FullySubstitute(accu_type)) {
+        scope.accu_scope->UpdateLocalVariableType(comprehension.accu_var(),
+                                                  std::move(specialized));
+      }
+      break;
+    }
     case ComprehensionArg::ITER_RANGE: {
       Type range_type = inference_context_->FullySubstitute(
           GetDeducedType(&comprehension.iter_range()), /*free_to_dyn=*/false);
@@ -863,6 +921,7 @@ void ResolveVisitor::PostVisitComprehensionSubexpression(
           inference_context_->IsAssignable(DynType(), range_type);
           break;
         case TypeKind::kDyn:
+        case TypeKind::kUnspecialized:
         case TypeKind::kError:
           break;
         default:
@@ -1118,6 +1177,7 @@ std::optional<Type> ResolveVisitor::CheckFieldType(int64_t id,
                                                    const Type& operand_type,
                                                    absl::string_view field) {
   if (operand_type.kind() == TypeKind::kDyn ||
+      operand_type.kind() == TypeKind::kUnspecialized ||
       operand_type.kind() == TypeKind::kAny) {
     return DynType();
   }

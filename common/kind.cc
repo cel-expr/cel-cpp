@@ -72,6 +72,8 @@ absl::string_view KindToString(Kind kind) {
       return "google.protobuf.BytesValue";
     case Kind::kEnum:
       return "enum";
+    case Kind::kUnspecialized:
+      return "*unspecialized*";
     default:
       return "*error*";
   }

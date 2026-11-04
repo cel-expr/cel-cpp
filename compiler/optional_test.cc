@@ -146,7 +146,7 @@ __comprehension__(
         // Result
         x~string^x)~string
     )~optional_type(string)^optional_of,
-    optional.none()~optional_type(string)^optional_none
+    optional.none()~optional_type(dyn)^optional_none
   )~optional_type(string)^conditional)~optional_type(string)
 )",
         },
@@ -188,7 +188,7 @@ __comprehension__(
       optional.of(
         x~string^x
       )~optional_type(string)^optional_of)~optional_type(string),
-    optional.none()~optional_type(string)^optional_none
+    optional.none()~optional_type(dyn)^optional_none
   )~optional_type(string)^conditional)~optional_type(string)
 )",
         },

@@ -54,6 +54,7 @@ class TypeType;
 class UintType;
 class UintWrapperType;
 class UnknownType;
+class UnspecializedType;
 
 namespace common_internal {
 
@@ -75,7 +76,8 @@ struct IsTypeAlternative
           std::is_same<MessageType, U>, std::is_same<BasicStructType, U>,
           std::is_same<TimestampType, U>, std::is_same<TypeParamType, U>,
           std::is_same<TypeType, U>, std::is_same<UintType, U>,
-          std::is_same<UintWrapperType, U>, std::is_same<UnknownType, U>>> {};
+          std::is_same<UintWrapperType, U>, std::is_same<UnknownType, U>,
+          std::is_same<UnspecializedType, U>>> {};
 
 template <typename T>
 inline constexpr bool IsTypeAlternativeV = IsTypeAlternative<T>::value;
@@ -87,7 +89,7 @@ using TypeVariant =
                   ListType, MapType, NullType, OpaqueType, StringType,
                   StringWrapperType, MessageType, BasicStructType,
                   TimestampType, TypeParamType, TypeType, UintType,
-                  UintWrapperType, UnknownType>;
+                  UintWrapperType, UnknownType, UnspecializedType>;
 
 using StructTypeVariant =
     absl::variant<absl::monostate, BasicStructType, MessageType>;

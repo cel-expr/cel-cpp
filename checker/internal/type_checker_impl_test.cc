@@ -30,6 +30,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/substitute.h"
 #include "checker/checker_options.h"
 #include "checker/internal/test_ast_helpers.h"
 #include "checker/internal/type_check_env.h"
@@ -41,6 +42,7 @@
 #include "common/container.h"
 #include "common/decl.h"
 #include "common/expr.h"
+#include "common/format_type_name.h"
 #include "common/source.h"
 #include "common/type.h"
 #include "common/type_introspector.h"
@@ -778,6 +780,401 @@ TEST(TypeCheckerImplTest, FreeMapTypeToDyn) {
   EXPECT_TRUE(checked_ast->type_map().at(1).map_type().value_type().has_dyn());
 }
 
+struct TypeDecayTestCase {
+  std::string expr;
+  std::string expected_type;
+};
+
+class TypeDecayTest : public testing::TestWithParam<TypeDecayTestCase> {};
+
+TEST_P(TypeDecayTest, Check) {
+  const TypeDecayTestCase& test_case = GetParam();
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+
+  TypeCheckerImpl impl(std::move(env));
+  ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst(test_case.expr));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  auto it = result.GetResolvedTypeMap().find(result.GetAst()->root_expr().id());
+  ASSERT_TRUE(it != result.GetResolvedTypeMap().end());
+  EXPECT_EQ(FormatTypeName(it->second), test_case.expected_type);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TypeDecayTest, TypeDecayTest,
+    testing::Values(
+        TypeDecayTestCase{"[type(1), type(2)]", "list(type(int))"},
+        TypeDecayTestCase{"[type(1), type(true)]", "list(type(dyn))"},
+        TypeDecayTestCase{"[type(1), type(true), type(1u)]", "list(type(dyn))"},
+        TypeDecayTestCase{"true ? type(1) : type(1u)", "type(dyn)"},
+        TypeDecayTestCase{"[[type(1)], [type(1u)]]", "list(list(type(dyn)))"},
+        TypeDecayTestCase{"[type([]), type(1)]", "list(type(dyn))"},
+        TypeDecayTestCase{"[type(1), type([])]", "list(type(dyn))"},
+        TypeDecayTestCase{"type(1) == type('a')", "bool"}));
+
+// Returns the resolved type of the root expression. `result` must have been
+// checked with an explicit arena.
+absl::StatusOr<Type> GetRootResolvedType(const ValidationResult& result) {
+  if (result.GetAst() == nullptr) {
+    return absl::InvalidArgumentError("no AST");
+  }
+  auto it = result.GetResolvedTypeMap().find(result.GetAst()->root_expr().id());
+  if (it == result.GetResolvedTypeMap().end()) {
+    return absl::NotFoundError("no resolved type for root");
+  }
+  return it->second;
+}
+
+struct UnspecializedVariableTestCase {
+  std::string expr;
+  // Returns the expected root resolved type.
+  Type (*expected_type)(google::protobuf::Arena* absl_nonnull arena);
+};
+
+class UnspecializedVariableTest
+    : public testing::TestWithParam<UnspecializedVariableTestCase> {};
+
+TEST_P(UnspecializedVariableTest, Check) {
+  const UnspecializedVariableTestCase& test_case = GetParam();
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  env.InsertVariableIfAbsent(
+      MakeVariableDecl("x", ListType(&arena, UnspecializedType())));
+  env.InsertVariableIfAbsent(MakeVariableDecl(
+      "m", MapType(&arena, UnspecializedType(), UnspecializedType())));
+  env.InsertVariableIfAbsent(
+      MakeVariableDecl("dyn_list", ListType(&arena, DynType())));
+
+  TypeCheckerImpl impl(std::move(env));
+  ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst(test_case.expr));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  EXPECT_THAT(result.GetIssues(), IsEmpty());
+  ASSERT_OK_AND_ASSIGN(Type type, GetRootResolvedType(result));
+  EXPECT_EQ(type, test_case.expected_type(&arena))
+      << "got: " << type.DebugString();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    UnspecializedVariableTest, UnspecializedVariableTest,
+    testing::Values(
+        UnspecializedVariableTestCase{
+            "x",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, UnspecializedType());
+            }},
+        UnspecializedVariableTestCase{
+            "x + [1]",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "[1] + x",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "x + x",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, UnspecializedType());
+            }},
+        UnspecializedVariableTestCase{
+            "[x, [1]]",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, ListType(arena, IntType()));
+            }},
+        UnspecializedVariableTestCase{
+            "true ? x : [1]",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "x + dyn_list",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, DynType());
+            }},
+        UnspecializedVariableTestCase{
+            "dyn_list + x",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, DynType());
+            }},
+        // Without finalize-time normalization, a projected unspecialized type
+        // is reported as is.
+        UnspecializedVariableTestCase{"x[0]",
+                                      [](google::protobuf::Arena* absl_nonnull) -> Type {
+                                        return UnspecializedType();
+                                      }},
+        UnspecializedVariableTestCase{"m.foo",
+                                      [](google::protobuf::Arena* absl_nonnull) -> Type {
+                                        return UnspecializedType();
+                                      }},
+        UnspecializedVariableTestCase{
+            "x[0].foo",
+            [](google::protobuf::Arena* absl_nonnull) -> Type { return DynType(); }},
+        UnspecializedVariableTestCase{
+            "x[0].exists(e, true)",
+            [](google::protobuf::Arena* absl_nonnull) -> Type { return BoolType(); }},
+        UnspecializedVariableTestCase{
+            "{x[0]: 1}",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return MapType(arena, UnspecializedType(), IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "x.exists(e, e > 1)",
+            [](google::protobuf::Arena* absl_nonnull) -> Type { return BoolType(); }},
+        UnspecializedVariableTestCase{
+            "[1, 2].map(i, i * 2)",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }}));
+
+using EmptyLiteralTest = UnspecializedVariableTest;
+
+TEST_P(EmptyLiteralTest, Check) {
+  const UnspecializedVariableTestCase& test_case = GetParam();
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+
+  TypeCheckerImpl impl(std::move(env));
+  ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst(test_case.expr));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  EXPECT_THAT(result.GetIssues(), IsEmpty());
+  ASSERT_OK_AND_ASSIGN(Type type, GetRootResolvedType(result));
+  EXPECT_EQ(type, test_case.expected_type(&arena))
+      << "got: " << type.DebugString();
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EmptyLiteralTest, EmptyLiteralTest,
+    testing::Values(
+        UnspecializedVariableTestCase{
+            "[]",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, UnspecializedType());
+            }},
+        UnspecializedVariableTestCase{
+            "{}",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return MapType(arena, UnspecializedType(), UnspecializedType());
+            }},
+        UnspecializedVariableTestCase{
+            "[] + [1]",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "[1] + []",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "[] + []",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, UnspecializedType());
+            }},
+        UnspecializedVariableTestCase{
+            "[[], [1]]",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, ListType(arena, IntType()));
+            }},
+        UnspecializedVariableTestCase{
+            "true ? [] : [1]",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "[1, 2].map(i, i * 2)",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "[1, 2].filter(i, i > 1)",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, IntType());
+            }},
+        UnspecializedVariableTestCase{
+            "[1, 2].map(i, [i])",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, ListType(arena, IntType()));
+            }},
+        UnspecializedVariableTestCase{
+            "[].map(i, i)",
+            [](google::protobuf::Arena* absl_nonnull arena) -> Type {
+              return ListType(arena, UnspecializedType());
+            }},
+        UnspecializedVariableTestCase{"{}.field",
+                                      [](google::protobuf::Arena* absl_nonnull) -> Type {
+                                        return UnspecializedType();
+                                      }}));
+
+TEST(TypeCheckerImplTest, EmptyListNodeTypeIsUnspecialized) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+
+  TypeCheckerImpl impl(std::move(env));
+  ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst("[] + [1]"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  const Ast* checked_ast = result.GetAst();
+  // The root is narrowed.
+  EXPECT_EQ(checked_ast->GetReturnType().list_type().elem_type().primitive(),
+            PrimitiveType::kInt64);
+  // The empty list node itself is not.
+  const Expr& empty_list = checked_ast->root_expr().call_expr().args()[0];
+  EXPECT_EQ(result.GetResolvedTypeMap().at(empty_list.id()),
+            ListType(&arena, UnspecializedType()));
+  EXPECT_TRUE(checked_ast->type_map()
+                  .at(empty_list.id())
+                  .list_type()
+                  .elem_type()
+                  .has_dyn());
+}
+
+TEST(TypeCheckerImplTest, BlockEmptyListConcat) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+
+  MacroRegistry registry;
+  ASSERT_THAT(cel::test::RegisterTestMacros(registry), IsOk());
+
+  TypeCheckerImpl impl(std::move(env));
+  ASSERT_OK_AND_ASSIGN(auto ast,
+                       MakeTestParsedAstWithMacros(
+                           "cel.block([[]], cel.index(0) + [1])", registry));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  EXPECT_THAT(result.GetIssues(), IsEmpty());
+  ASSERT_OK_AND_ASSIGN(Type type, GetRootResolvedType(result));
+  EXPECT_EQ(type, ListType(&arena, IntType()));
+}
+
+// Builds a comprehension AST over the range `[1, 2]` with the given accu_init,
+// loop_condition and loop_step (as text proto Expr fields) and result
+// `__result__`.
+absl::StatusOr<std::unique_ptr<Ast>> MakeComprehensionAst(
+    absl::string_view accu_init, absl::string_view loop_condition,
+    absl::string_view loop_step) {
+  cel::expr::ParsedExpr parsed_expr;
+  // Note: not using a `pb` raw string delimiter since the template is not
+  // valid text proto until substituted.
+  std::string text = absl::Substitute(R"(
+    expr {
+      id: 1
+      comprehension_expr {
+        iter_var: "i"
+        iter_range {
+          id: 2
+          list_expr {
+            elements { id: 3 const_expr { int64_value: 1 } }
+            elements { id: 4 const_expr { int64_value: 2 } }
+          }
+        }
+        accu_var: "__result__"
+        accu_init { id: 5 $0 }
+        loop_condition { id: 6 $1 }
+        loop_step { id: 7 $2 }
+        result { id: 8 ident_expr { name: "__result__" } }
+      }
+    }
+  )",
+                                      accu_init, loop_condition, loop_step);
+  if (!google::protobuf::TextFormat::ParseFromString(text, &parsed_expr)) {
+    return absl::InvalidArgumentError("failed to parse comprehension");
+  }
+  return cel::CreateAstFromParsedExpr(parsed_expr);
+}
+
+TEST(TypeCheckerImplTest, ComprehensionSpecializesUnspecializedAccumulator) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  env.InsertVariableIfAbsent(
+      MakeVariableDecl("x", ListType(&arena, UnspecializedType())));
+  TypeCheckerImpl impl(std::move(env));
+
+  // __result__ + [i]
+  ASSERT_OK_AND_ASSIGN(
+      auto ast, MakeComprehensionAst(R"pb(ident_expr { name: "x" })pb",
+                                     R"pb(const_expr { bool_value: true })pb",
+                                     R"pb(call_expr {
+                                            function: "_+_"
+                                            args {
+                                              id: 9
+                                              ident_expr { name: "__result__" }
+                                            }
+                                            args {
+                                              id: 10
+                                              list_expr {
+                                                elements {
+                                                  id: 11
+                                                  ident_expr { name: "i" }
+                                                }
+                                              }
+                                            }
+                                          })pb"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  ASSERT_OK_AND_ASSIGN(Type type, GetRootResolvedType(result));
+  EXPECT_EQ(type, ListType(&arena, IntType()));
+}
+
+TEST(TypeCheckerImplTest, ComprehensionLoopStepTypeMismatch) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto ast,
+      MakeComprehensionAst(R"pb(const_expr { int64_value: 0 })pb",
+                           R"pb(const_expr { bool_value: true })pb",
+                           R"pb(const_expr { string_value: "a" })pb"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(
+                  Severity::kError, "expected type 'int' but found 'string'")));
+}
+
+TEST(TypeCheckerImplTest, ComprehensionLoopConditionNotBool) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto ast, MakeComprehensionAst(R"pb(const_expr { int64_value: 0 })pb",
+                                     R"pb(const_expr { int64_value: 1 })pb",
+                                     R"pb(const_expr { int64_value: 1 })pb"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(
+                  Severity::kError, "expected type 'bool' but found 'int'")));
+}
+
 TEST(TypeCheckerImplTest, MapTypeWithMixedKeys) {
   TypeCheckEnv env(GetSharedTestingDescriptorPool());
 
@@ -1479,11 +1876,12 @@ TEST(TypeCheckerImplTest, AliasedTypeVarSameType) {
                        MakeTestParsedAst("[].exists(x, x == 10 || x == '10')"));
   ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
 
-  EXPECT_FALSE(result.IsValid());
-  EXPECT_THAT(
-      result.GetIssues(),
-      ElementsAre(IsIssueWithSubstring(
-          Severity::kError, "no matching overload for '_==_' applied to")));
+  // The iteration variable over an empty list (list(*unspecialized*)) is
+  // unconstrained, so it is not aliased to a single inferred type.
+  // TODO: restore the error when projecting from UnspecializedType produces a
+  // fresh type var.
+  EXPECT_TRUE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(), IsEmpty());
 }
 
 TEST(TypeCheckerImplTest, TypeVarRange) {
@@ -1534,12 +1932,13 @@ TEST(TypeCheckerImplTest, TypeInferredFromStructCreation) {
   int64_t map_expr_id =
       checked_ast->root_expr().struct_expr().fields().at(0).value().id();
   ASSERT_NE(map_expr_id, 0);
+  // An empty map literal is not narrowed by the field type it is assigned to.
   EXPECT_THAT(
       checked_ast->type_map(),
-      Contains(Pair(map_expr_id,
-                    Eq(AstType(MapTypeSpec(
-                        std::make_unique<AstType>(PrimitiveType::kString),
-                        std::make_unique<AstType>(DynTypeSpec())))))));
+      Contains(Pair(
+          map_expr_id,
+          Eq(AstType(MapTypeSpec(std::make_unique<AstType>(DynTypeSpec()),
+                                 std::make_unique<AstType>(DynTypeSpec())))))));
 }
 
 struct VariadicLogicalCheckerTestCase {
@@ -1638,15 +2037,17 @@ TEST(TypeCheckerImplTest, ExpectedTypeMatches) {
   TypeCheckerImpl impl(std::move(env));
   ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst("{}"));
   ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_THAT(result.GetIssues(), IsEmpty());
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Ast> checked_ast, result.ReleaseAst());
 
+  // The expected type is checked, but does not narrow an empty literal.
   EXPECT_THAT(
       checked_ast->type_map(),
-      Contains(Pair(checked_ast->root_expr().id(),
-                    Eq(AstType(MapTypeSpec(
-                        std::make_unique<AstType>(PrimitiveType::kString),
-                        std::make_unique<AstType>(PrimitiveType::kString)))))));
+      Contains(Pair(
+          checked_ast->root_expr().id(),
+          Eq(AstType(MapTypeSpec(std::make_unique<AstType>(DynTypeSpec()),
+                                 std::make_unique<AstType>(DynTypeSpec())))))));
 }
 
 TEST(TypeCheckerImplTest, ExpectedTypeDoesntMatch) {

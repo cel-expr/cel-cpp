@@ -36,6 +36,7 @@ void FormatImpl(const Type& cur, int offset,
                 std::vector<FormatImplRecord>& stack, std::string* out) {
   switch (cur.kind()) {
     case TypeKind::kDyn:
+    case TypeKind::kUnspecialized:
       absl::StrAppend(out, "dyn");
       return;
     case TypeKind::kAny:

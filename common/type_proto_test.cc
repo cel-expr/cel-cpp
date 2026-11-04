@@ -263,5 +263,14 @@ INSTANTIATE_TEST_SUITE_P(
               })pb",
             absl::InvalidArgumentError("")}));
 
+TEST(TypeToProtoTest, UnspecializedConvertsToDyn) {
+  google::protobuf::Arena arena;
+  cel::expr::Type type_pb;
+  ASSERT_THAT(TypeToProto(ListType(&arena, UnspecializedType()), &type_pb),
+              IsOk());
+  EXPECT_THAT(type_pb,
+              EqualsProto(R"pb(list_type { elem_type { dyn {} } })pb"));
+}
+
 }  // namespace
 }  // namespace cel

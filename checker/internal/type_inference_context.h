@@ -16,6 +16,7 @@
 #define THIRD_PARTY_CEL_CPP_CHECKER_INTERNAL_TYPE_INFERENCE_CONTEXT_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -120,6 +121,17 @@ class TypeInferenceContext {
   // Recursively apply any substitutions to the given type.
   Type FullySubstitute(const Type& type, bool free_to_dyn = false) const;
 
+  // Returns `type` with any `UnspecializedType` positions replaced by the
+  // corresponding type in `specialization`, if the types are structurally
+  // compatible. All other positions retain the type from `type`, so this never
+  // widens `type`. Positions where `specialization` is a free type parameter
+  // are left unspecialized. Both types are fully substituted first.
+  //
+  // This is used to reconcile a comprehension accumulator type with the loop
+  // step type, which the CEL specification leaves undefined when they differ.
+  Type SpecializeUnspecialized(const Type& type,
+                               const Type& specialization) const;
+
   // Replace any generic type parameters in the given type with specific type
   // variables. Internally, type variables are just a unique string parameter
   // name.
@@ -198,6 +210,17 @@ class TypeInferenceContext {
       const SubstitutionMap& prospective_substitutions) const;
 
   Type Substitute(const Type& type, const SubstitutionMap& substitutions) const;
+
+  // Types have special unification: type(A) and type(B) unify to type(dyn) if
+  // A and B are not co-assignable. This applies at any depth of matching
+  // parameterized types (e.g. list(type(int)) and list(type(uint)) unify to
+  // list(type(dyn))).
+  //
+  // Returns the joined type, or nullopt if no type(...) position needs
+  // widening.
+  std::optional<Type> JoinTypeTypes(
+      const Type& from, const Type& to,
+      const SubstitutionMap& prospective_substitutions);
 
   bool OccursWithin(absl::string_view var_name, const Type& type,
                     const SubstitutionMap& substitutions) const;

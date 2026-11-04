@@ -29,8 +29,11 @@
 #include "checker/type_checker_builder.h"
 #include "checker/type_checker_builder_factory.h"
 #include "common/ast.h"
+#include "common/decl.h"
+#include "common/type.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
+#include "google/protobuf/arena.h"
 
 namespace cel {
 namespace {
@@ -115,6 +118,17 @@ TEST_P(OptionalTest, Runner) {
   const TestCase& test_case = GetParam();
   ASSERT_THAT(builder->AddLibrary(StandardCheckerLibrary()), IsOk());
   ASSERT_THAT(builder->AddLibrary(OptionalCheckerLibrary()), IsOk());
+  // Mints an optional with a free type parameter, matching the signature
+  // optional.none() had before it returned optional_type(*unspecialized*).
+  // Used to verify the checker does not infer a recursive type.
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(
+      FunctionDecl free_optional,
+      MakeFunctionDecl(
+          "test_free_optional",
+          MakeOverloadDecl("test_free_optional",
+                           OptionalType(&arena, TypeParamType("V")))));
+  ASSERT_THAT(builder->AddFunction(std::move(free_optional)), IsOk());
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<TypeChecker> checker,
                        std::move(*builder).Build());
 
@@ -158,15 +172,37 @@ INSTANTIATE_TEST_SUITE_P(
             "optional.none()",
             IsOptionalType(TypeSpec(DynTypeSpec())),
         },
+        TestCase{
+            "optional.none().orValue(1)",
+            Eq(TypeSpec(PrimitiveType::kInt64)),
+        },
+        TestCase{
+            "[optional.none(), optional.of(1)]",
+            Eq(TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(AbstractType(
+                "optional_type", {TypeSpec(PrimitiveType::kInt64)}))))),
+        },
+        TestCase{
+            "[optional.of(1), optional.none()]",
+            Eq(TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(AbstractType(
+                "optional_type", {TypeSpec(PrimitiveType::kInt64)}))))),
+        },
         // Odd case -- the correct result might be a bespoke recursively-defined
         // type but CEL doesn't support that. Null is used because it is
         // implicitly assignable to optional types. This allows for a recursive
         // type to be non-trivial and verify the checker is actually avoiding
         // introducing a cyclic type.
         TestCase{
-            "[optional.none()].map(x, [?x, null, x])",
+            "[test_free_optional()].map(x, [?x, null, x])",
             Eq(TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
                 ListTypeSpec(std::make_unique<TypeSpec>(NullTypeSpec())))))),
+        },
+        // optional.none() has no free type parameter, so the elements unify
+        // to the optional type rather than null.
+        TestCase{
+            "[optional.none()].map(x, [?x, null, x])",
+            Eq(TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
+                ListTypeSpec(std::make_unique<TypeSpec>(AbstractType(
+                    "optional_type", {TypeSpec(DynTypeSpec())}))))))),
         },
         TestCase{
             "optional.of('abc').hasValue()",
@@ -338,7 +374,7 @@ INSTANTIATE_TEST_SUITE_P(
 class OptionalListTypePermutationsTest
     : public testing::TestWithParam<std::string> {};
 
-TEST_P(OptionalListTypePermutationsTest, ResolvesToListDyn) {
+TEST_P(OptionalListTypePermutationsTest, ResolvesToListTypeDyn) {
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<TypeCheckerBuilder> builder,
       CreateTypeCheckerBuilder(GetSharedTestingDescriptorPool()));
@@ -352,8 +388,10 @@ TEST_P(OptionalListTypePermutationsTest, ResolvesToListDyn) {
   ASSERT_OK_AND_ASSIGN(auto result, checker->Check(std::move(ast)));
   EXPECT_THAT(result.GetIssues(), IsEmpty());
   ASSERT_OK_AND_ASSIGN(auto checked_ast, result.ReleaseAst());
+  // type(...) values with non co-assignable parameters unify to type(dyn).
   EXPECT_EQ(checked_ast->GetTypeOrDyn(checked_ast->root_expr().id()),
-            TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(DynTypeSpec()))));
+            TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
+                TypeSpec(std::make_unique<TypeSpec>(DynTypeSpec()))))));
   ASSERT_EQ(checked_ast->root_expr().list_expr().elements().size(), 3);
   for (const auto& elem : checked_ast->root_expr().list_expr().elements()) {
     EXPECT_TRUE(checked_ast->GetTypeOrDyn(elem.expr().id()).has_type());
