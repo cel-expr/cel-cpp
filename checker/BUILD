@@ -217,10 +217,13 @@ cc_test(
         ":type_checker_builder_factory",
         "//checker/internal:test_ast_helpers",
         "//common:ast",
+        "//common:decl",
+        "//common:type",
         "//internal:testing",
         "//internal:testing_descriptor_pool",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 

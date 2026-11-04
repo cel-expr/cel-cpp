@@ -226,6 +226,7 @@ TEST(Type, Kind) {
   EXPECT_EQ(Type(UintWrapperType()).kind(), UintWrapperType::kKind);
 
   EXPECT_EQ(Type(UnknownType()).kind(), UnknownType::kKind);
+  EXPECT_EQ(Type(UnspecializedType()).kind(), UnspecializedType::kKind);
 }
 
 TEST(Type, GetParameters) {
@@ -293,6 +294,7 @@ TEST(Type, GetParameters) {
   EXPECT_THAT(Type(UintWrapperType()).GetParameters(), IsEmpty());
 
   EXPECT_THAT(Type(UnknownType()).GetParameters(), IsEmpty());
+  EXPECT_THAT(Type(UnspecializedType()).GetParameters(), IsEmpty());
 }
 
 TEST(Type, Is) {
@@ -369,6 +371,7 @@ TEST(Type, Is) {
   EXPECT_TRUE(Type(UintWrapperType()).IsWrapper());
 
   EXPECT_TRUE(Type(UnknownType()).Is<UnknownType>());
+  EXPECT_TRUE(Type(UnspecializedType()).Is<UnspecializedType>());
 }
 
 TEST(Type, As) {
@@ -454,6 +457,8 @@ TEST(Type, As) {
 
   EXPECT_THAT(Type(UnknownType()).As<UnknownType>(),
               Optional(An<UnknownType>()));
+  EXPECT_THAT(Type(UnspecializedType()).As<UnspecializedType>(),
+              Optional(An<UnspecializedType>()));
 }
 
 template <typename T>
@@ -549,6 +554,8 @@ TEST(Type, Get) {
               An<UintWrapperType>());
 
   EXPECT_THAT(DoGet<UnknownType>(Type(UnknownType())), An<UnknownType>());
+  EXPECT_THAT(DoGet<UnspecializedType>(Type(UnspecializedType())),
+              An<UnspecializedType>());
 }
 
 TEST(Type, VerifyTypeImplementsAbslHashCorrectly) {
@@ -580,7 +587,8 @@ TEST(Type, VerifyTypeImplementsAbslHashCorrectly) {
        Type(TypeType()),
        Type(UintType()),
        Type(UintWrapperType()),
-       Type(UnknownType())}));
+       Type(UnknownType()),
+       Type(UnspecializedType())}));
 
   EXPECT_EQ(
       absl::HashOf(Type::Field(

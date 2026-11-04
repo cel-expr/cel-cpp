@@ -43,6 +43,12 @@ TEST(FormatTypeNameTest, SpecialTypes) {
   EXPECT_EQ(FormatTypeName(FunctionType()), "*error*");
 }
 
+TEST(FormatTypeNameTest, UnspecializedFormatsAsDyn) {
+  google::protobuf::Arena arena;
+  EXPECT_EQ(FormatTypeName(UnspecializedType()), "dyn");
+  EXPECT_EQ(FormatTypeName(ListType(&arena, UnspecializedType())), "list(dyn)");
+}
+
 TEST(FormatTypeNameTest, WellKnownTypes) {
   EXPECT_EQ(FormatTypeName(AnyType()), "any");
   EXPECT_EQ(FormatTypeName(DurationType()), "google.protobuf.Duration");

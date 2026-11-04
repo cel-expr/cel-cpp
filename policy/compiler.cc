@@ -237,10 +237,12 @@ bool OutputTypeIsAssignable(cel::Type from, cel::Type to) {
   from = FilterSpecialTypes(from);
   to = FilterSpecialTypes(to);
 
-  // Any and dyn are assignable to/from everything.
+  // Any, dyn, and unspecialized are assignable to/from everything.
   if (from.kind() == cel::TypeKind::kAny ||
-      from.kind() == cel::TypeKind::kDyn || to.kind() == cel::TypeKind::kAny ||
-      to.kind() == cel::TypeKind::kDyn) {
+      from.kind() == cel::TypeKind::kDyn ||
+      from.kind() == cel::TypeKind::kUnspecialized ||
+      to.kind() == cel::TypeKind::kAny || to.kind() == cel::TypeKind::kDyn ||
+      to.kind() == cel::TypeKind::kUnspecialized) {
     return true;
   }
 

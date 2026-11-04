@@ -130,6 +130,7 @@ absl::Status TypeToProtoInternal(const cel::Type& type,
                                  TypePb* absl_nonnull type_pb) {
   switch (type.kind()) {
     case TypeKind::kDyn:
+    case TypeKind::kUnspecialized:
       type_pb->mutable_dyn();
       return absl::OkStatus();
     case TypeKind::kError:

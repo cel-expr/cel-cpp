@@ -39,7 +39,7 @@ bool TypeIsAssignable(const Type& to, const Type& from) {
     return true;
   }
   const auto to_kind = to.kind();
-  if (to_kind == TypeKind::kDyn) {
+  if (to_kind == TypeKind::kDyn || to_kind == TypeKind::kUnspecialized) {
     return true;
   }
   switch (to_kind) {

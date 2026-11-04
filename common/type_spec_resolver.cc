@@ -228,6 +228,7 @@ absl::StatusOr<TypeSpec> ConvertTypeToTypeSpec(const Type& type) {
     case TypeKind::kNull:
       return TypeSpec(NullTypeSpec{});
     case TypeKind::kDyn:
+    case TypeKind::kUnspecialized:
       return TypeSpec(DynTypeSpec{});
     case TypeKind::kBool:
       return TypeSpec(PrimitiveType::kBool);

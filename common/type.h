@@ -66,6 +66,7 @@
 #include "common/types/uint_type.h"  // IWYU pragma: export
 #include "common/types/uint_wrapper_type.h"  // IWYU pragma: export
 #include "common/types/unknown_type.h"  // IWYU pragma: export
+#include "common/types/unspecialized_type.h"  // IWYU pragma: export
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 
@@ -268,6 +269,13 @@ class Type final {
     return absl::holds_alternative<UnknownType>(variant_);
   }
 
+  // Returns true if this is the special `UnspecializedType` placeholder used by
+  // the type checker. This type has special meaning and should generally not
+  // be used by clients. See `UnspecializedType`.
+  bool IsUnspecialized() const {
+    return absl::holds_alternative<UnspecializedType>(variant_);
+  }
+
   bool IsWrapper() const {
     return IsBoolWrapper() || IsIntWrapper() || IsUintWrapper() ||
            IsDoubleWrapper() || IsBytesWrapper() || IsStringWrapper();
@@ -418,6 +426,11 @@ class Type final {
     return IsUnknown();
   }
 
+  template <typename T>
+  std::enable_if_t<std::is_same_v<UnspecializedType, T>, bool> Is() const {
+    return IsUnspecialized();
+  }
+
   absl::optional<AnyType> AsAny() const;
 
   absl::optional<BoolType> AsBool() const;
@@ -483,6 +496,9 @@ class Type final {
   absl::optional<UintWrapperType> AsUintWrapper() const;
 
   absl::optional<UnknownType> AsUnknown() const;
+
+  // See `IsUnspecialized()`. Generally not intended for use by clients.
+  absl::optional<UnspecializedType> AsUnspecialized() const;
 
   template <typename T>
   std::enable_if_t<std::is_same_v<AnyType, T>, absl::optional<AnyType>> As()
@@ -669,6 +685,13 @@ class Type final {
     return AsUnknown();
   }
 
+  template <typename T>
+  std::enable_if_t<std::is_same_v<UnspecializedType, T>,
+                   absl::optional<UnspecializedType>>
+  As() const {
+    return AsUnspecialized();
+  }
+
   AnyType GetAny() const;
 
   BoolType GetBool() const;
@@ -726,6 +749,9 @@ class Type final {
   UintWrapperType GetUintWrapper() const;
 
   UnknownType GetUnknown() const;
+
+  // See `IsUnspecialized()`. Generally not intended for use by clients.
+  UnspecializedType GetUnspecialized() const;
 
   template <typename T>
   std::enable_if_t<std::is_same_v<AnyType, T>, AnyType> Get() const {
@@ -878,6 +904,12 @@ class Type final {
   template <typename T>
   std::enable_if_t<std::is_same_v<UnknownType, T>, UnknownType> Get() const {
     return GetUnknown();
+  }
+
+  template <typename T>
+  std::enable_if_t<std::is_same_v<UnspecializedType, T>, UnspecializedType>
+  Get() const {
+    return GetUnspecialized();
   }
 
   // Returns an unwrapped `Type` for a wrapped type, otherwise just returns
@@ -1065,6 +1097,8 @@ inline TypeParameters UintType::GetParameters() { return {}; }
 inline TypeParameters UintWrapperType::GetParameters() { return {}; }
 
 inline TypeParameters UnknownType::GetParameters() { return {}; }
+
+inline TypeParameters UnspecializedType::GetParameters() { return {}; }
 
 namespace common_internal {
 
@@ -1262,6 +1296,19 @@ template <typename H>
 inline H AbslHashValue(H state, const MapType& type) {
   return H::combine(std::move(state), type.GetKey(), type.GetValue(),
                     size_t{2});
+}
+
+inline bool operator==(const TypeType& lhs, const TypeType& rhs) {
+  return absl::c_equal(lhs.GetParameters(), rhs.GetParameters());
+}
+
+template <typename H>
+inline H AbslHashValue(H state, const TypeType& type) {
+  auto parameters = type.GetParameters();
+  for (const auto& parameter : parameters) {
+    state = H::combine(std::move(state), parameter);
+  }
+  return H::combine(std::move(state), parameters.size());
 }
 
 inline bool operator==(const OpaqueType& lhs, const OpaqueType& rhs) {

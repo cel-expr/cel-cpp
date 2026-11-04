@@ -18,6 +18,7 @@
 
 #include "absl/hash/hash.h"
 #include "internal/testing.h"
+#include "google/protobuf/arena.h"
 
 namespace cel {
 namespace {
@@ -54,6 +55,26 @@ TEST(TypeType, Equal) {
   EXPECT_EQ(Type(TypeType()), TypeType());
   EXPECT_EQ(TypeType(), Type(TypeType()));
   EXPECT_EQ(Type(TypeType()), Type(TypeType()));
+}
+
+TEST(TypeType, EqualComparesParameter) {
+  google::protobuf::Arena arena;
+  EXPECT_EQ(TypeType(&arena, IntType()), TypeType(&arena, IntType()));
+  EXPECT_NE(TypeType(&arena, IntType()), TypeType(&arena, StringType()));
+  EXPECT_NE(TypeType(&arena, IntType()), TypeType());
+  EXPECT_NE(TypeType(&arena, DynType()), TypeType());
+  EXPECT_EQ(Type(TypeType(&arena, ListType(&arena, IntType()))),
+            Type(TypeType(&arena, ListType(&arena, IntType()))));
+  EXPECT_NE(Type(ListType(&arena, TypeType(&arena, IntType()))),
+            Type(ListType(&arena, TypeType(&arena, UintType()))));
+}
+
+TEST(TypeType, HashIncludesParameter) {
+  google::protobuf::Arena arena;
+  EXPECT_EQ(absl::HashOf(TypeType(&arena, IntType())),
+            absl::HashOf(TypeType(&arena, IntType())));
+  EXPECT_NE(absl::HashOf(TypeType(&arena, IntType())),
+            absl::HashOf(TypeType(&arena, StringType())));
 }
 
 }  // namespace

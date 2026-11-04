@@ -42,6 +42,13 @@ Type TypeOfOptionalOfV() {
   return *kInstance;
 }
 
+Type OptionalOfUnspecialized() {
+  static const absl::NoDestructor<OptionalType> kInstance(
+      checker_internal::BuiltinsArena(), UnspecializedType());
+
+  return *kInstance;
+}
+
 Type ListOfV() {
   static const absl::NoDestructor<ListType> kInstance(
       checker_internal::BuiltinsArena(), TypeParamType("V"));
@@ -132,9 +139,10 @@ absl::Status RegisterOptionalDecls(TypeCheckerBuilder& builder, int version) {
 
   CEL_ASSIGN_OR_RETURN(
       auto none,
-      MakeFunctionDecl(
-          OptionalNames::kOptionalNone,
-          MakeOverloadDecl(OptionalOverloads::kOptionalNone, OptionalOfV())));
+      MakeFunctionDecl(OptionalNames::kOptionalNone,
+                       // optional.none() -> optional_type(*unspecialized*)
+                       MakeOverloadDecl(OptionalOverloads::kOptionalNone,
+                                        OptionalOfUnspecialized())));
 
   CEL_ASSIGN_OR_RETURN(
       auto value, MakeFunctionDecl(OptionalNames::kOptionalValue,

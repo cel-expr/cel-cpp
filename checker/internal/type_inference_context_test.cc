@@ -18,8 +18,10 @@
 #include <vector>
 
 #include "absl/log/absl_check.h"
+#include "absl/status/statusor.h"
 #include "absl/types/optional.h"
 #include "common/decl.h"
+#include "common/format_type_name.h"
 #include "common/type.h"
 #include "common/type_kind.h"
 #include "internal/testing.h"
@@ -1132,6 +1134,240 @@ TEST(TypeInferenceContextTest,
   ASSERT_TRUE(resolution.has_value());
   EXPECT_THAT(context.FinalizeType(resolution->result_type),
               IsTypeKind(TypeKind::kInt));
+}
+
+absl::StatusOr<FunctionDecl> MakeSameTypeDecl() {
+  return MakeFunctionDecl(
+      "same", MakeOverloadDecl("same", TypeParamType("A"), TypeParamType("A"),
+                               TypeParamType("A")));
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinToTypeDyn) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl, {TypeType(&arena, IntType()), TypeType(&arena, UintType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "type(dyn)");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinNested) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(decl,
+                              {ListType(&arena, TypeType(&arena, IntType())),
+                               ListType(&arena, TypeType(&arena, UintType()))},
+                              false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "list(type(dyn))");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinSameType) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl, {TypeType(&arena, IntType()), TypeType(&arena, IntType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "type(int)");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinCoAssignableBindsTypeParam) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  Type type_of_list_t = context.InstantiateTypeParams(
+      TypeType(&arena, ListType(&arena, TypeParamType("T"))));
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl, {type_of_list_t, TypeType(&arena, ListType(&arena, IntType()))},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "type(list(int))");
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(type_of_list_t)),
+            "type(list(int))");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinParameterlessType) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  // A parameterless `type` is equivalent to type(dyn).
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(decl, {TypeType(), TypeType(&arena, IntType())},
+                              false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_TRUE(context.FinalizeType(resolution->result_type).IsType());
+}
+
+TEST(TypeInferenceContextTest, ConcreteTypeTypeParamsAreInterchangeable) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  // Declared (non type param) type(...) parameters accept any concrete type.
+  EXPECT_TRUE(context.IsAssignable(TypeType(&arena, IntType()),
+                                   TypeType(&arena, StringType())));
+}
+
+absl::StatusOr<FunctionDecl> MakeListConcatDecl(google::protobuf::Arena* arena) {
+  return MakeFunctionDecl(
+      "_+_", MakeOverloadDecl("add_list", ListType(arena, TypeParamType("A")),
+                              ListType(arena, TypeParamType("A")),
+                              ListType(arena, TypeParamType("A"))));
+}
+
+TEST(TypeInferenceContextTest, UnspecializedNarrowsToConcreteType) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeListConcatDecl(&arena));
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl,
+          {ListType(&arena, UnspecializedType()), ListType(&arena, IntType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_THAT(context.FinalizeType(resolution->result_type),
+              IsListType(IsTypeKind(TypeKind::kInt)));
+}
+
+TEST(TypeInferenceContextTest, UnspecializedNarrowsToConcreteTypeReversed) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeListConcatDecl(&arena));
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl,
+          {ListType(&arena, IntType()), ListType(&arena, UnspecializedType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_THAT(context.FinalizeType(resolution->result_type),
+              IsListType(IsTypeKind(TypeKind::kInt)));
+}
+
+TEST(TypeInferenceContextTest, DynWidensUnspecialized) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeListConcatDecl(&arena));
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl,
+          {ListType(&arena, UnspecializedType()), ListType(&arena, DynType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_THAT(context.FinalizeType(resolution->result_type),
+              IsListType(IsTypeKind(TypeKind::kDyn)));
+
+  resolution = context.ResolveOverload(
+      decl,
+      {ListType(&arena, DynType()), ListType(&arena, UnspecializedType())},
+      false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_THAT(context.FinalizeType(resolution->result_type),
+              IsListType(IsTypeKind(TypeKind::kDyn)));
+}
+
+TEST(TypeInferenceContextTest, DynWidensConcreteType) {
+  // Contrast with UnspecializedNarrowsToConcreteType.
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeListConcatDecl(&arena));
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl, {ListType(&arena, DynType()), ListType(&arena, IntType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_THAT(context.FinalizeType(resolution->result_type),
+              IsListType(IsTypeKind(TypeKind::kDyn)));
+}
+
+TEST(TypeInferenceContextTest, UnspecializedIsAssignable) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  EXPECT_TRUE(context.IsAssignable(UnspecializedType(), IntType()));
+  EXPECT_TRUE(context.IsAssignable(IntType(), UnspecializedType()));
+  EXPECT_TRUE(context.IsAssignable(ListType(&arena, UnspecializedType()),
+                                   ListType(&arena, StringType())));
+  EXPECT_FALSE(
+      context.IsAssignable(ListType(&arena, UnspecializedType()), IntType()));
+}
+
+TEST(TypeInferenceContextTest, InstantiateTypeParamsUnspecialized) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  EXPECT_THAT(context.InstantiateTypeParams(UnspecializedType()),
+              IsTypeKind(TypeKind::kUnspecialized));
+  EXPECT_THAT(
+      context.InstantiateTypeParams(ListType(&arena, UnspecializedType())),
+      IsListType(IsTypeKind(TypeKind::kUnspecialized)));
+}
+
+TEST(TypeInferenceContextTest, SpecializeUnspecialized) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  EXPECT_EQ(
+      context.SpecializeUnspecialized(ListType(&arena, UnspecializedType()),
+                                      ListType(&arena, IntType())),
+      ListType(&arena, IntType()));
+  EXPECT_EQ(context.SpecializeUnspecialized(
+                MapType(&arena, UnspecializedType(), IntType()),
+                MapType(&arena, StringType(), IntType())),
+            MapType(&arena, StringType(), IntType()));
+  EXPECT_EQ(context.SpecializeUnspecialized(
+                ListType(&arena, ListType(&arena, UnspecializedType())),
+                ListType(&arena, ListType(&arena, BoolType()))),
+            ListType(&arena, ListType(&arena, BoolType())));
+  EXPECT_EQ(
+      context.SpecializeUnspecialized(OptionalType(&arena, UnspecializedType()),
+                                      OptionalType(&arena, DoubleType())),
+      Type(OptionalType(&arena, DoubleType())));
+}
+
+TEST(TypeInferenceContextTest, SpecializeUnspecializedNeverWidens) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  // Only unspecialized positions are replaced.
+  EXPECT_EQ(context.SpecializeUnspecialized(
+                MapType(&arena, IntType(), UnspecializedType()),
+                MapType(&arena, DynType(), StringType())),
+            MapType(&arena, IntType(), StringType()));
+  EXPECT_EQ(context.SpecializeUnspecialized(ListType(&arena, IntType()),
+                                            ListType(&arena, DynType())),
+            ListType(&arena, IntType()));
+  EXPECT_EQ(context.SpecializeUnspecialized(IntType(), DynType()), IntType());
+  // Mismatched kinds are unchanged.
+  EXPECT_EQ(context.SpecializeUnspecialized(
+                ListType(&arena, UnspecializedType()), DynType()),
+            ListType(&arena, UnspecializedType()));
+  // Free type params do not specialize.
+  Type free_list =
+      context.InstantiateTypeParams(ListType(&arena, TypeParamType("T")));
+  EXPECT_EQ(context.SpecializeUnspecialized(
+                ListType(&arena, UnspecializedType()), free_list),
+            ListType(&arena, UnspecializedType()));
 }
 
 }  // namespace

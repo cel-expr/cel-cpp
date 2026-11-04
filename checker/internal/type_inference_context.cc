@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/absl_log.h"
@@ -29,6 +30,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
+#include "checker/internal/builtins_arena.h"
 #include "common/decl.h"
 #include "common/format_type_name.h"
 #include "common/standard_definitions.h"
@@ -38,11 +40,21 @@
 namespace cel::checker_internal {
 namespace {
 
+// Returns `type(dyn)`. A parameterless `type` is equivalent to `type(dyn)`.
+const Type& TypeOfDyn() {
+  static const absl::NoDestructor<Type> kInstance(
+      TypeType(BuiltinsArena(), DynType()));
+  return *kInstance;
+}
+
 bool IsWildCardType(Type type) {
   switch (type.kind()) {
     case TypeKind::kAny:
     case TypeKind::kDyn:
     case TypeKind::kError:
+    // Unlike dyn, kUnspecialized is not a union type (see IsUnionType) so it
+    // never widens a type binding.
+    case TypeKind::kUnspecialized:
       return true;
     default:
       return false;
@@ -199,6 +211,7 @@ Type TypeInferenceContext::InstantiateTypeParams(
     case TypeKind::kIntWrapper:
     case TypeKind::kUintWrapper:
     case TypeKind::kEnum:
+    case TypeKind::kUnspecialized:
       return type;
     case TypeKind::kTypeParam: {
       TypeParamType type_param = type.GetTypeParam();
@@ -268,26 +281,6 @@ bool TypeInferenceContext::IsAssignableInternal(
   Type to_subs = Substitute(to, prospective_substitutions);
   Type from_subs = Substitute(from, prospective_substitutions);
 
-  if (from_subs.kind() == TypeKind::kType &&
-      to_subs.kind() == TypeKind::kType) {
-    Type from_inner = from_subs.AsType()->GetType();
-    Type to_inner = to_subs.AsType()->GetType();
-    // If either type contains a type parameter (e.g., type(T) in foo(data,
-    // type(T)) -> T), delegate to inner type unification to bind or validate
-    // type parameter substitutions. Returns true if the inner types
-    // structurally match, unify with an unbound type param, or conform to an
-    // existing binding in 'prospective_substitutions'. Returns false on
-    // structural/kind mismatches (e.g., int vs list(T)), occurs-check cycles,
-    // or conflicting type param bindings.
-    if (HasTypeParam(from_inner) || HasTypeParam(to_inner)) {
-      return IsAssignableInternal(from_inner, to_inner,
-                                  prospective_substitutions);
-    }
-    // Concrete types are coassignable in CEL (e.g., type(1) == type("a"),
-    // type([1]) == list).
-    return true;
-  }
-
   // Types always assignable to themselves.
   // Remainder is checking for assignability across different types.
   if (to_subs == from_subs) {
@@ -308,6 +301,17 @@ bool TypeInferenceContext::IsAssignableInternal(
       // that has a prospective type assignment.
       to.kind() == TypeKind::kTypeParam &&
       prospective_substitutions.contains(to.GetTypeParam().name())) {
+    // Types have special unification: type(A) and type(B) unify to type(dyn)
+    // if A and B are not co-assignable (at any depth, e.g. list(type(int)) and
+    // list(type(uint)) unify to list(type(dyn))). This is the only widening
+    // other than for union types.
+    if (std::optional<Type> joined =
+            JoinTypeTypes(from_subs, to_subs, prospective_substitutions);
+        joined.has_value() && !OccursWithin(to.GetTypeParam().name(), *joined,
+                                            prospective_substitutions)) {
+      prospective_substitutions[to.GetTypeParam().name()] = *std::move(joined);
+      return true;
+    }
     SubstitutionMap prospective_subs_cpy = prospective_substitutions;
     if (CompareGenerality(from_subs, to_subs, prospective_subs_cpy) ==
         RelativeGenerality::kMoreGeneral) {
@@ -320,6 +324,15 @@ bool TypeInferenceContext::IsAssignableInternal(
         // otherwise, continue with normal assignability check.
       }
     }
+  }
+
+  // Concrete type values are interchangeable for declared (non type param)
+  // `type(...)` parameters, e.g. type(1) is accepted where type(string) is
+  // declared.
+  if (from_subs.IsType() && to_subs.IsType() &&
+      to.kind() != TypeKind::kTypeParam && !HasTypeParam(from_subs) &&
+      !HasTypeParam(to_subs)) {
+    return true;
   }
 
   // Type is as concrete as it can be under current substitutions.
@@ -401,7 +414,63 @@ Type TypeInferenceContext::Substitute(
     }
     break;
   }
+  // A parameterless `type` is equivalent to `type(dyn)`. Normalize so
+  // structural comparisons treat them alike.
+  if (subs.IsType() && subs.GetParameters().empty()) {
+    return TypeOfDyn();
+  }
   return subs;
+}
+
+std::optional<Type> TypeInferenceContext::JoinTypeTypes(
+    const Type& from, const Type& to,
+    const SubstitutionMap& prospective_substitutions) {
+  Type from_subs = Substitute(from, prospective_substitutions);
+  Type to_subs = Substitute(to, prospective_substitutions);
+  if (from_subs.IsType() && to_subs.IsType()) {
+    SubstitutionMap scratch = prospective_substitutions;
+    if (IsAssignableInternal(from_subs.GetType().GetType(),
+                             to_subs.GetType().GetType(), scratch)) {
+      // Co-assignable: ordinary unification applies.
+      return std::nullopt;
+    }
+    return TypeOfDyn();
+  }
+  if (from_subs.kind() != to_subs.kind() ||
+      from_subs.name() != to_subs.name()) {
+    return std::nullopt;
+  }
+  TypeParameters from_params = from_subs.GetParameters();
+  TypeParameters to_params = to_subs.GetParameters();
+  if (to_params.empty() || from_params.size() != to_params.size()) {
+    return std::nullopt;
+  }
+  bool changed = false;
+  std::vector<Type> joined;
+  joined.reserve(to_params.size());
+  for (size_t i = 0; i < to_params.size(); ++i) {
+    std::optional<Type> param =
+        JoinTypeTypes(from_params[i], to_params[i], prospective_substitutions);
+    if (param.has_value()) {
+      changed = true;
+      joined.push_back(*std::move(param));
+    } else {
+      joined.push_back(to_params[i]);
+    }
+  }
+  if (!changed) {
+    return std::nullopt;
+  }
+  switch (to_subs.kind()) {
+    case TypeKind::kList:
+      return ListType(arena_, joined[0]);
+    case TypeKind::kMap:
+      return MapType(arena_, joined[0], joined[1]);
+    case TypeKind::kOpaque:
+      return OpaqueType(arena_, to_subs.GetOpaque().name(), joined);
+    default:
+      return std::nullopt;
+  }
 }
 
 TypeInferenceContext::RelativeGenerality
@@ -413,6 +482,12 @@ TypeInferenceContext::CompareGenerality(
 
   if (from_subs == to_subs) {
     return RelativeGenerality::kEquivalent;
+  }
+
+  // An unspecialized placeholder is the least specific binding: prefer any
+  // other candidate (including dyn) over it.
+  if (to_subs.IsUnspecialized() && !from_subs.IsUnspecialized()) {
+    return RelativeGenerality::kMoreGeneral;
   }
 
   if (IsUnionType(from_subs) && IsSubsetOf(to_subs, from_subs)) {
@@ -678,6 +753,45 @@ Type TypeInferenceContext::FullySubstitute(const Type& type,
     }
     default:
       return type;
+  }
+}
+
+Type TypeInferenceContext::SpecializeUnspecialized(
+    const Type& type, const Type& specialization) const {
+  Type t = FullySubstitute(type);
+  Type s = FullySubstitute(specialization);
+  if (t.IsUnspecialized()) {
+    // Don't specialize with a free type parameter.
+    return s.IsTypeParam() ? t : s;
+  }
+  if (t.kind() != s.kind() || t.name() != s.name()) {
+    return t;
+  }
+  TypeParameters t_params = t.GetParameters();
+  TypeParameters s_params = s.GetParameters();
+  if (t_params.empty() || t_params.size() != s_params.size()) {
+    return t;
+  }
+  switch (t.kind()) {
+    case TypeKind::kList:
+      return ListType(arena_,
+                      SpecializeUnspecialized(t_params[0], s_params[0]));
+    case TypeKind::kMap:
+      return MapType(arena_, SpecializeUnspecialized(t_params[0], s_params[0]),
+                     SpecializeUnspecialized(t_params[1], s_params[1]));
+    case TypeKind::kType:
+      return TypeType(arena_,
+                      SpecializeUnspecialized(t_params[0], s_params[0]));
+    case TypeKind::kOpaque: {
+      std::vector<Type> params;
+      params.reserve(t_params.size());
+      for (size_t i = 0; i < t_params.size(); ++i) {
+        params.push_back(SpecializeUnspecialized(t_params[i], s_params[i]));
+      }
+      return OpaqueType(arena_, t.GetOpaque().name(), params);
+    }
+    default:
+      return t;
   }
 }
 
