@@ -63,6 +63,15 @@ TEST(TypeSpecResolverTest, DynTypeSpec) {
   EXPECT_TRUE(t->IsDyn());
 }
 
+TEST(TypeSpecResolverTest, UnspecializedConvertsToDyn) {
+  EXPECT_THAT(ConvertTypeToTypeSpec(UnspecializedType()),
+              IsOkAndHolds(TypeSpec(DynTypeSpec{})));
+  EXPECT_THAT(
+      ConvertTypeToTypeSpec(ListType(GetTestArena(), UnspecializedType())),
+      IsOkAndHolds(
+          TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(DynTypeSpec{})))));
+}
+
 using ConversionTest = testing::TestWithParam<std::tuple<TypeSpec, TypeKind>>;
 
 TEST_P(ConversionTest, TestTypeSpecConversion) {

@@ -132,6 +132,7 @@ absl::StatusOr<AstType> FlattenTypeType(const TypeType& type) {
 absl::StatusOr<AstType> FlattenType(const Type& type) {
   switch (type.kind()) {
     case TypeKind::kDyn:
+    case TypeKind::kUnspecialized:
       return AstType(DynTypeSpec());
     case TypeKind::kError:
       return AstType(ErrorTypeSpec());
@@ -554,6 +555,7 @@ bool IsSupportedKeyType(const Type& type) {
     case TypeKind::kUint:
     case TypeKind::kString:
     case TypeKind::kDyn:
+    case TypeKind::kUnspecialized:
       return true;
     default:
       return false;
@@ -841,6 +843,51 @@ void ResolveVisitor::PostVisitComprehensionSubexpression(
           MakeVariableDecl(comprehension.accu_var(),
                            GetDeducedType(&comprehension.accu_init())));
       break;
+    case ComprehensionArg::LOOP_CONDITION: {
+      Type condition_type = GetDeducedType(&comprehension.loop_condition());
+      if (!inference_context_->IsAssignable(condition_type, BoolType())) {
+        ReportTypeMismatch(comprehension.loop_condition().id(), BoolType(),
+                           condition_type);
+      }
+      break;
+    }
+    case ComprehensionArg::LOOP_STEP: {
+      // The CEL specification does not define how to reconcile the
+      // accumulator type with the loop step type when they differ: the
+      // accumulator is declared with the type of accu_init, but each iteration
+      // replaces it with the value of loop_step. The specification sidesteps
+      // this by only describing loops that do converge by construction.
+      // For some of the comprehensions, this holds because accu_init has a free
+      // type parameter (e.g. `[]`) that the loop step binds.
+      //
+      // We require the loop step to be assignable to the accumulator type,
+      // which binds any free type parameters of accu_init. The accumulator is
+      // then finalized for references in the result, similar to a cel.@block
+      // index: type parameters the loop step did not constrain (e.g. in
+      // `cel.bind(x, [], ...)`) become unspecialized, so each reference in the
+      // result is inferred independently. Finally, any unspecialized positions
+      // are specialized with the loop step type. This never widens the
+      // accumulator.
+      const VariableDecl* accu_decl =
+          scope.accu_scope->LookupLocalVariable(comprehension.accu_var());
+      if (accu_decl == nullptr) {
+        status_.Update(absl::InternalError(
+            "comprehension accumulator variable not declared"));
+        break;
+      }
+      Type accu_type = accu_decl->type();
+      Type step_type = GetDeducedType(&comprehension.loop_step());
+      if (!inference_context_->IsAssignable(step_type, accu_type)) {
+        ReportTypeMismatch(comprehension.loop_step().id(), accu_type,
+                           step_type);
+        break;
+      }
+      Type finalized = inference_context_->SpecializeUnspecialized(
+          inference_context_->FinalizeType(accu_type), step_type);
+      scope.accu_scope->UpdateLocalVariableType(comprehension.accu_var(),
+                                                std::move(finalized));
+      break;
+    }
     case ComprehensionArg::ITER_RANGE: {
       Type range_type = inference_context_->FullySubstitute(
           GetDeducedType(&comprehension.iter_range()), /*free_to_dyn=*/false);
@@ -863,6 +910,7 @@ void ResolveVisitor::PostVisitComprehensionSubexpression(
           inference_context_->IsAssignable(DynType(), range_type);
           break;
         case TypeKind::kDyn:
+        case TypeKind::kUnspecialized:
         case TypeKind::kError:
           break;
         default:
@@ -1118,6 +1166,7 @@ std::optional<Type> ResolveVisitor::CheckFieldType(int64_t id,
                                                    const Type& operand_type,
                                                    absl::string_view field) {
   if (operand_type.kind() == TypeKind::kDyn ||
+      operand_type.kind() == TypeKind::kUnspecialized ||
       operand_type.kind() == TypeKind::kAny) {
     return DynType();
   }

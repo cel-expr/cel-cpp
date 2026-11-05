@@ -56,6 +56,10 @@ enum class Kind : uint8_t {
   kFunction,
   kEnum,
 
+  // Type-only kind used by the type checker as a placeholder for an
+  // unconstrained type parameter. See `UnspecializedType`.
+  kUnspecialized,
+
   // Legacy aliases, deprecated do not use.
   kNullType = kNull,
   kInt64 = kInt,
