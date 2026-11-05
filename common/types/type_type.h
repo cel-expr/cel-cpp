@@ -68,20 +68,16 @@ class TypeType final {
   const common_internal::TypeTypeData* absl_nullable data_ = nullptr;
 };
 
-inline constexpr bool operator==(const TypeType&, const TypeType&) {
-  return true;
-}
+// Two `TypeType` are equal if their type parameters are equal. Note that the
+// parameterless `type` is not equal to `type(dyn)`.
+bool operator==(const TypeType& lhs, const TypeType& rhs);
 
-inline constexpr bool operator!=(const TypeType& lhs, const TypeType& rhs) {
+inline bool operator!=(const TypeType& lhs, const TypeType& rhs) {
   return !operator==(lhs, rhs);
 }
 
 template <typename H>
-H AbslHashValue(H state, const TypeType&) {
-  // TypeType is really a singleton and all instances are equal. Nothing to
-  // hash.
-  return std::move(state);
-}
+H AbslHashValue(H state, const TypeType& type);
 
 inline std::ostream& operator<<(std::ostream& out, const TypeType& type) {
   return out << type.DebugString();

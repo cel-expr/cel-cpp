@@ -338,7 +338,7 @@ INSTANTIATE_TEST_SUITE_P(
 class OptionalListTypePermutationsTest
     : public testing::TestWithParam<std::string> {};
 
-TEST_P(OptionalListTypePermutationsTest, ResolvesToListDyn) {
+TEST_P(OptionalListTypePermutationsTest, ResolvesToListTypeDyn) {
   ASSERT_OK_AND_ASSIGN(
       std::unique_ptr<TypeCheckerBuilder> builder,
       CreateTypeCheckerBuilder(GetSharedTestingDescriptorPool()));
@@ -352,8 +352,10 @@ TEST_P(OptionalListTypePermutationsTest, ResolvesToListDyn) {
   ASSERT_OK_AND_ASSIGN(auto result, checker->Check(std::move(ast)));
   EXPECT_THAT(result.GetIssues(), IsEmpty());
   ASSERT_OK_AND_ASSIGN(auto checked_ast, result.ReleaseAst());
+  // type(...) values with non co-assignable parameters unify to type(dyn).
   EXPECT_EQ(checked_ast->GetTypeOrDyn(checked_ast->root_expr().id()),
-            TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(DynTypeSpec()))));
+            TypeSpec(ListTypeSpec(std::make_unique<TypeSpec>(
+                TypeSpec(std::make_unique<TypeSpec>(DynTypeSpec()))))));
   ASSERT_EQ(checked_ast->root_expr().list_expr().elements().size(), 3);
   for (const auto& elem : checked_ast->root_expr().list_expr().elements()) {
     EXPECT_TRUE(checked_ast->GetTypeOrDyn(elem.expr().id()).has_type());

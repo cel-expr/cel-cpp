@@ -18,8 +18,10 @@
 #include <vector>
 
 #include "absl/log/absl_check.h"
+#include "absl/status/statusor.h"
 #include "absl/types/optional.h"
 #include "common/decl.h"
+#include "common/format_type_name.h"
 #include "common/type.h"
 #include "common/type_kind.h"
 #include "internal/testing.h"
@@ -1132,6 +1134,141 @@ TEST(TypeInferenceContextTest,
   ASSERT_TRUE(resolution.has_value());
   EXPECT_THAT(context.FinalizeType(resolution->result_type),
               IsTypeKind(TypeKind::kInt));
+}
+
+absl::StatusOr<FunctionDecl> MakeSameTypeDecl() {
+  return MakeFunctionDecl(
+      "same", MakeOverloadDecl("same", TypeParamType("A"), TypeParamType("A"),
+                               TypeParamType("A")));
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinToTypeDyn) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl, {TypeType(&arena, IntType()), TypeType(&arena, UintType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "type(dyn)");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinNested) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(decl,
+                              {ListType(&arena, TypeType(&arena, IntType())),
+                               ListType(&arena, TypeType(&arena, UintType()))},
+                              false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "list(type(dyn))");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinSameType) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl, {TypeType(&arena, IntType()), TypeType(&arena, IntType())},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "type(int)");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinCoAssignableBindsTypeParam) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  Type type_of_list_t = context.InstantiateTypeParams(
+      TypeType(&arena, ListType(&arena, TypeParamType("T"))));
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(
+          decl, {type_of_list_t, TypeType(&arena, ListType(&arena, IntType()))},
+          false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "type(list(int))");
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(type_of_list_t)),
+            "type(list(int))");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinMismatchedSiblingFails) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  Type int_map = MapType(&arena, IntType(), TypeType(&arena, IntType()));
+  Type string_map = MapType(&arena, StringType(), TypeType(&arena, UintType()));
+  // The type(...) values would decay to type(dyn), but the keys don't unify.
+  EXPECT_FALSE(
+      context.ResolveOverload(decl, {int_map, string_map}, false).has_value());
+  EXPECT_FALSE(
+      context.ResolveOverload(decl, {string_map, int_map}, false).has_value());
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinNestedMismatchedSiblingFails) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  Type int_map =
+      ListType(&arena, MapType(&arena, IntType(), TypeType(&arena, IntType())));
+  Type string_map = ListType(
+      &arena, MapType(&arena, StringType(), TypeType(&arena, UintType())));
+  EXPECT_FALSE(
+      context.ResolveOverload(decl, {int_map, string_map}, false).has_value());
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinSiblingBindsTypeParam) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  Type map_of_k = context.InstantiateTypeParams(
+      MapType(&arena, TypeParamType("K"), TypeType(&arena, IntType())));
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(decl,
+                              {map_of_k, MapType(&arena, StringType(),
+                                                 TypeType(&arena, UintType()))},
+                              false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(resolution->result_type)),
+            "map(string, type(dyn))");
+  EXPECT_EQ(FormatTypeName(context.FinalizeType(map_of_k)),
+            "map(string, type(int))");
+}
+
+TEST(TypeInferenceContextTest, TypeTypeJoinParameterlessType) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  ASSERT_OK_AND_ASSIGN(FunctionDecl decl, MakeSameTypeDecl());
+
+  // A parameterless `type` is equivalent to type(dyn).
+  std::optional<TypeInferenceContext::OverloadResolution> resolution =
+      context.ResolveOverload(decl, {TypeType(), TypeType(&arena, IntType())},
+                              false);
+  ASSERT_TRUE(resolution.has_value());
+  EXPECT_TRUE(context.FinalizeType(resolution->result_type).IsType());
+}
+
+TEST(TypeInferenceContextTest, ConcreteTypeTypeParamsAreInterchangeable) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+
+  // Declared (non type param) type(...) parameters accept any concrete type.
+  EXPECT_TRUE(context.IsAssignable(TypeType(&arena, IntType()),
+                                   TypeType(&arena, StringType())));
 }
 
 }  // namespace

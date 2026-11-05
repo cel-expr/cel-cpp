@@ -41,6 +41,7 @@
 #include "common/container.h"
 #include "common/decl.h"
 #include "common/expr.h"
+#include "common/format_type_name.h"
 #include "common/source.h"
 #include "common/type.h"
 #include "common/type_introspector.h"
@@ -777,6 +778,65 @@ TEST(TypeCheckerImplTest, FreeMapTypeToDyn) {
   EXPECT_TRUE(checked_ast->type_map().at(1).map_type().key_type().has_dyn());
   EXPECT_TRUE(checked_ast->type_map().at(1).map_type().value_type().has_dyn());
 }
+
+struct TypeDecayTestCase {
+  std::string expr;
+  std::string expected_type;
+  // If set, the expression is expected to fail type checking with an error
+  // containing this substring.
+  std::string error_substring = "";
+};
+
+class TypeDecayTest : public testing::TestWithParam<TypeDecayTestCase> {};
+
+TEST_P(TypeDecayTest, Check) {
+  const TypeDecayTestCase& test_case = GetParam();
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+
+  TypeCheckerImpl impl(std::move(env));
+  ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst(test_case.expr));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+
+  if (!test_case.error_substring.empty()) {
+    EXPECT_FALSE(result.IsValid());
+    EXPECT_THAT(result.FormatError(), HasSubstr(test_case.error_substring));
+    return;
+  }
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  auto it = result.GetResolvedTypeMap().find(result.GetAst()->root_expr().id());
+  ASSERT_TRUE(it != result.GetResolvedTypeMap().end());
+  EXPECT_EQ(FormatTypeName(it->second), test_case.expected_type);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    TypeDecayTest, TypeDecayTest,
+    testing::Values(
+        TypeDecayTestCase{"[type(1), type(2)]", "list(type(int))"},
+        TypeDecayTestCase{"[type(1), type(true)]", "list(type(dyn))"},
+        TypeDecayTestCase{"[type(1), type(true), type(1u)]", "list(type(dyn))"},
+        TypeDecayTestCase{"true ? type(1) : type(1u)", "type(dyn)"},
+        TypeDecayTestCase{"[[type(1)], [type(1u)]]", "list(list(type(dyn)))"},
+        TypeDecayTestCase{"[type([]), type(1)]", "list(type(dyn))"},
+        TypeDecayTestCase{"[type(1), type([])]", "list(type(dyn))"},
+        TypeDecayTestCase{"type(1) == type('a')", "bool"},
+        TypeDecayTestCase{"[{1: type(1)}, {1: type(1u)}]",
+                          "list(map(int, type(dyn)))"},
+        TypeDecayTestCase{"true ? {1: type(1)} : {1: type(1u)}",
+                          "map(int, type(dyn))"},
+        // Mismatched non-type(...) parameters do not unify, even if sibling
+        // type(...) parameters decay.
+        TypeDecayTestCase{"[{1: type(1)}, {'a': type(1u)}]", "list(dyn)"},
+        TypeDecayTestCase{"true ? {1: type(1)} : {'a': type(1u)}", "",
+                          "no matching overload for '_?_:_'"},
+        TypeDecayTestCase{"{1: type(1)} == {'a': type(1u)}", "",
+                          "no matching overload for '_==_'"},
+        TypeDecayTestCase{"[{1: type(1)}] == [{'a': type(1u)}]", "",
+                          "no matching overload for '_==_'"},
+        TypeDecayTestCase{"true ? [{1: type(1)}] : [{'a': type(1u)}]", "",
+                          "no matching overload for '_?_:_'"}));
 
 TEST(TypeCheckerImplTest, MapTypeWithMixedKeys) {
   TypeCheckEnv env(GetSharedTestingDescriptorPool());

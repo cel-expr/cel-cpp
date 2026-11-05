@@ -16,6 +16,7 @@
 #define THIRD_PARTY_CEL_CPP_CHECKER_INTERNAL_TYPE_INFERENCE_CONTEXT_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -198,6 +199,18 @@ class TypeInferenceContext {
       const SubstitutionMap& prospective_substitutions) const;
 
   Type Substitute(const Type& type, const SubstitutionMap& substitutions) const;
+
+  // Types have special unification: type(A) and type(B) unify to type(dyn) if
+  // A and B are not co-assignable. This applies at any depth of matching
+  // parameterized types (e.g. list(type(int)) and list(type(uint)) unify to
+  // list(type(dyn))).
+  //
+  // Returns the joined type, or nullopt if no type(...) position needs
+  // widening or the types do not otherwise unify (every position that is not
+  // widened must be assignable). On success, any type parameter bindings
+  // needed for the join are added to `prospective_substitutions`.
+  std::optional<Type> JoinTypeTypes(const Type& from, const Type& to,
+                                    SubstitutionMap& prospective_substitutions);
 
   bool OccursWithin(absl::string_view var_name, const Type& type,
                     const SubstitutionMap& substitutions) const;

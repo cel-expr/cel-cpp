@@ -1264,6 +1264,19 @@ inline H AbslHashValue(H state, const MapType& type) {
                     size_t{2});
 }
 
+inline bool operator==(const TypeType& lhs, const TypeType& rhs) {
+  return absl::c_equal(lhs.GetParameters(), rhs.GetParameters());
+}
+
+template <typename H>
+inline H AbslHashValue(H state, const TypeType& type) {
+  auto parameters = type.GetParameters();
+  for (const auto& parameter : parameters) {
+    state = H::combine(std::move(state), parameter);
+  }
+  return H::combine(std::move(state), parameters.size());
+}
+
 inline bool operator==(const OpaqueType& lhs, const OpaqueType& rhs) {
   return lhs.name() == rhs.name() &&
          absl::c_equal(lhs.GetParameters(), rhs.GetParameters());

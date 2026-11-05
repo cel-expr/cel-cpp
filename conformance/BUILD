@@ -181,10 +181,6 @@ _TESTS_TO_SKIP = [
 
     # Skip until fixed.
     "fields/qualified_identifier_resolution/map_value_repeat_key_heterogeneous",
-    "type_deductions/type_decay/type_list_decay",
-    "type_deductions/type_decay/type_ternary_decay",
-    "type_deductions/type_decay/type_nested_list_decay",
-    "type_deductions/type_decay/type_free_param_list_concat",
 
     # Skip until duration/timestamp range and proto wrapper validation is updated for spec parity.
     "timestamps/timestamp_arithmetic/add_duration_to_duration_max",
