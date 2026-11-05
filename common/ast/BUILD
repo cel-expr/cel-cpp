@@ -92,6 +92,37 @@ cc_library(
 )
 
 cc_library(
+    name = "type_proto",
+    srcs = ["type_proto.cc"],
+    hdrs = ["type_proto.h"],
+    deps = [
+        ":metadata",
+        "//internal:status_macros",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/types:variant",
+        "@com_google_cel_spec//proto/cel/expr:checked_cc_proto",
+        "@com_google_protobuf//:struct_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "type_proto_test",
+    srcs = ["type_proto_test.cc"],
+    deps = [
+        ":metadata",
+        ":type_proto",
+        "//internal:proto_matchers",
+        "//internal:testing",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_cel_spec//proto/cel/expr:checked_cc_proto",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
     name = "metadata",
     srcs = ["metadata.cc"],
     hdrs = ["metadata.h"],
