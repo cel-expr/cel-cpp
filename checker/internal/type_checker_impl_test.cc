@@ -838,6 +838,110 @@ INSTANTIATE_TEST_SUITE_P(
         TypeDecayTestCase{"true ? [{1: type(1)}] : [{'a': type(1u)}]", "",
                           "no matching overload for '_?_:_'"}));
 
+// Builds expressions with unique ids for hand-constructed test ASTs.
+class TestExprBuilder {
+ public:
+  Expr IntConst(int64_t value) {
+    Expr expr = NewExpr();
+    expr.mutable_const_expr().set_int_value(value);
+    return expr;
+  }
+
+  Expr BoolConst(bool value) {
+    Expr expr = NewExpr();
+    expr.mutable_const_expr().set_bool_value(value);
+    return expr;
+  }
+
+  Expr StringConst(absl::string_view value) {
+    Expr expr = NewExpr();
+    expr.mutable_const_expr().set_string_value(value);
+    return expr;
+  }
+
+  Expr Ident(absl::string_view name) {
+    Expr expr = NewExpr();
+    expr.mutable_ident_expr().set_name(name);
+    return expr;
+  }
+
+  template <typename... Args>
+  Expr Call(absl::string_view function, Args&&... args) {
+    Expr expr = NewExpr();
+    CallExpr& call = expr.mutable_call_expr();
+    call.set_function(function);
+    ((call.add_args() = std::forward<Args>(args)), ...);
+    return expr;
+  }
+
+  template <typename... Args>
+  Expr List(Args&&... elements) {
+    Expr expr = NewExpr();
+    ListExpr& list = expr.mutable_list_expr();
+    (list.add_elements().set_expr(std::forward<Args>(elements)), ...);
+    return expr;
+  }
+
+  // Builds a comprehension over the range `[1, 2]` (iteration variable `i`)
+  // with the given accu_init, loop_condition and loop_step, and result
+  // `__result__`.
+  std::unique_ptr<Ast> ComprehensionAst(Expr accu_init, Expr loop_condition,
+                                        Expr loop_step) {
+    Expr expr = NewExpr();
+    ComprehensionExpr& comprehension = expr.mutable_comprehension_expr();
+    comprehension.set_iter_var("i");
+    comprehension.set_iter_range(List(IntConst(1), IntConst(2)));
+    comprehension.set_accu_var("__result__");
+    comprehension.set_accu_init(std::move(accu_init));
+    comprehension.set_loop_condition(std::move(loop_condition));
+    comprehension.set_loop_step(std::move(loop_step));
+    comprehension.set_result(Ident("__result__"));
+    return std::make_unique<Ast>(std::move(expr), SourceInfo());
+  }
+
+ private:
+  Expr NewExpr() {
+    Expr expr;
+    expr.set_id(next_id_++);
+    return expr;
+  }
+
+  int64_t next_id_ = 1;
+};
+
+TEST(TypeCheckerImplTest, ComprehensionLoopConditionNotBool) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  TestExprBuilder b;
+  std::unique_ptr<Ast> ast =
+      b.ComprehensionAst(/*accu_init=*/b.IntConst(0),
+                         /*loop_condition=*/b.IntConst(1),
+                         /*loop_step=*/b.IntConst(1));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(
+                  Severity::kError, "expected type 'bool' but found 'int'")));
+}
+
+TEST(TypeCheckerImplTest, ComprehensionLoopConditionDynIsAccepted) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  TestExprBuilder b;
+  std::unique_ptr<Ast> ast = b.ComprehensionAst(
+      /*accu_init=*/b.IntConst(0),
+      /*loop_condition=*/b.Call("dyn", b.BoolConst(true)),
+      /*loop_step=*/b.IntConst(1));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_TRUE(result.IsValid()) << result.FormatError();
+}
+
 TEST(TypeCheckerImplTest, MapTypeWithMixedKeys) {
   TypeCheckEnv env(GetSharedTestingDescriptorPool());
 

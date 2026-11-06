@@ -841,6 +841,14 @@ void ResolveVisitor::PostVisitComprehensionSubexpression(
           MakeVariableDecl(comprehension.accu_var(),
                            GetDeducedType(&comprehension.accu_init())));
       break;
+    case ComprehensionArg::LOOP_CONDITION: {
+      Type condition_type = GetDeducedType(&comprehension.loop_condition());
+      if (!inference_context_->IsAssignable(condition_type, BoolType())) {
+        ReportTypeMismatch(comprehension.loop_condition().id(), BoolType(),
+                           condition_type);
+      }
+      break;
+    }
     case ComprehensionArg::ITER_RANGE: {
       Type range_type = inference_context_->FullySubstitute(
           GetDeducedType(&comprehension.iter_range()), /*free_to_dyn=*/false);
