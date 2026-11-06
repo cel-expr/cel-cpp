@@ -64,6 +64,18 @@ class VariableScope {
     return variables_.insert({decl.name(), std::move(decl)}).second;
   }
 
+  // Updates the type of a variable declared directly in this scope. Returns
+  // false if absent. The decl is updated in place, so existing pointers to it
+  // remain valid.
+  bool UpdateLocalVariableType(absl::string_view name, Type type) {
+    auto it = variables_.find(name);
+    if (it == variables_.end()) {
+      return false;
+    }
+    it->second.set_type(std::move(type));
+    return true;
+  }
+
   std::unique_ptr<VariableScope> MakeNestedScope() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return absl::WrapUnique(new VariableScope(this));

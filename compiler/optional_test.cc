@@ -24,16 +24,20 @@
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "absl/strings/string_view.h"
 #include "checker/optional.h"
 #include "checker/standard_library.h"
 #include "checker/type_check_issue.h"
 #include "checker/validation_result.h"
+#include "common/ast.h"
 #include "common/decl.h"
 #include "common/source.h"
 #include "common/type.h"
 #include "compiler/compiler.h"
 #include "compiler/compiler_factory.h"
 #include "compiler/standard_library.h"
+#include "extensions/bindings_ext.h"
+#include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
 #include "testutil/baseline_tests.h"
@@ -403,6 +407,42 @@ CreateOptionalExtensionVersionParams() {
 INSTANTIATE_TEST_SUITE_P(OptionalExtensionVersionTest,
                          OptionalExtensionVersionTest,
                          ValuesIn(CreateOptionalExtensionVersionParams()));
+
+absl::StatusOr<ValidationResult> CompileWithOptionalAndBindings(
+    absl::string_view expr) {
+  CEL_ASSIGN_OR_RETURN(
+      auto builder,
+      NewCompilerBuilder(cel::internal::GetSharedTestingDescriptorPool()));
+  CEL_RETURN_IF_ERROR(builder->AddLibrary(StandardCompilerLibrary()));
+  CEL_RETURN_IF_ERROR(builder->AddLibrary(OptionalCompilerLibrary()));
+  CEL_RETURN_IF_ERROR(
+      builder->AddLibrary(extensions::BindingsCompilerLibrary()));
+  CEL_ASSIGN_OR_RETURN(auto compiler, std::move(*builder).Build());
+  return compiler->Compile(expr);
+}
+
+// A value bound with cel.bind is finalized like a cel.@block index, so each
+// reference to an unconstrained optional is inferred independently.
+TEST(OptionalBindTest, UnconstrainedOptionalReferencesAreIndependent) {
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       CompileWithOptionalAndBindings(
+                           "cel.bind(o, optional.none(), "
+                           "o.orValue(1) == 1 && o.orValue('a') == 'a')"));
+  ASSERT_TRUE(result.IsValid()) << FormatIssues(result);
+  EXPECT_EQ(result.GetAst()->GetReturnType().primitive(), PrimitiveType::kBool);
+}
+
+TEST(OptionalBindTest, UnconstrainedOptionalIsDyn) {
+  ASSERT_OK_AND_ASSIGN(
+      ValidationResult result,
+      CompileWithOptionalAndBindings("cel.bind(o, optional.none(), o)"));
+  ASSERT_TRUE(result.IsValid()) << FormatIssues(result);
+  const TypeSpec& type = result.GetAst()->GetReturnType();
+  ASSERT_TRUE(type.has_abstract_type());
+  EXPECT_EQ(type.abstract_type().name(), "optional_type");
+  ASSERT_EQ(type.abstract_type().parameter_types().size(), 1);
+  EXPECT_TRUE(type.abstract_type().parameter_types()[0].has_dyn());
+}
 
 }  // namespace
 }  // namespace cel

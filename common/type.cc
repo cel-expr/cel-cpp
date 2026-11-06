@@ -86,7 +86,7 @@ Type Type::Enum(const google::protobuf::EnumDescriptor* absl_nonnull descriptor)
 
 namespace {
 
-static constexpr std::array<TypeKind, 28> kTypeToKindArray = {
+static constexpr std::array<TypeKind, 29> kTypeToKindArray = {
     TypeKind::kDyn,         TypeKind::kAny,           TypeKind::kBool,
     TypeKind::kBoolWrapper, TypeKind::kBytes,         TypeKind::kBytesWrapper,
     TypeKind::kDouble,      TypeKind::kDoubleWrapper, TypeKind::kDuration,
@@ -96,7 +96,7 @@ static constexpr std::array<TypeKind, 28> kTypeToKindArray = {
     TypeKind::kString,      TypeKind::kStringWrapper, TypeKind::kStruct,
     TypeKind::kStruct,      TypeKind::kTimestamp,     TypeKind::kTypeParam,
     TypeKind::kType,        TypeKind::kUint,          TypeKind::kUintWrapper,
-    TypeKind::kUnknown};
+    TypeKind::kUnknown,     TypeKind::kUnspecialized};
 
 static_assert(kTypeToKindArray.size() ==
                   std::variant_size<common_internal::TypeVariant>(),
@@ -292,6 +292,10 @@ absl::optional<UnknownType> Type::AsUnknown() const {
   return GetOrNullopt<UnknownType>(variant_);
 }
 
+absl::optional<UnspecializedType> Type::AsUnspecialized() const {
+  return GetOrNullopt<UnspecializedType>(variant_);
+}
+
 namespace {
 
 template <typename T>
@@ -452,6 +456,11 @@ UintWrapperType Type::GetUintWrapper() const {
 UnknownType Type::GetUnknown() const {
   ABSL_DCHECK(IsUnknown()) << DebugString();
   return GetOrDie<UnknownType>(variant_);
+}
+
+UnspecializedType Type::GetUnspecialized() const {
+  ABSL_DCHECK(IsUnspecialized()) << DebugString();
+  return GetOrDie<UnspecializedType>(variant_);
 }
 
 Type Type::Unwrap() const {

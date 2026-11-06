@@ -34,9 +34,6 @@
 namespace cel::checker_internal {
 
 // Class manages context for type inferences in the type checker.
-// TODO(uncreated-issue/72): for now, just checks assignability for concrete types.
-// Support for finding substitutions of type parameters will be added in a
-// follow-up CL.
 class TypeInferenceContext {
  public:
   // Convenience alias for an instance map for type parameters mapped to type
@@ -114,12 +111,29 @@ class TypeInferenceContext {
   }
   // Resolves any remaining type parameters in the given type to a concrete
   // type or dyn.
+  //
+  // Free type parameters of a parameterized type (e.g. the element type of
+  // `[]`) are resolved to `UnspecializedType` instead of dyn so they do not
+  // widen inferred types if the finalized type is reused (e.g. as a variable
+  // declaration). A top-level free type parameter or `UnspecializedType` is
+  // resolved to dyn.
   Type FinalizeType(const Type& type) const {
     return FullySubstitute(type, /*free_to_dyn=*/true);
   }
 
   // Recursively apply any substitutions to the given type.
   Type FullySubstitute(const Type& type, bool free_to_dyn = false) const;
+
+  // Returns `type` with any `UnspecializedType` positions replaced by the
+  // corresponding type in `specialization`, if the types are structurally
+  // compatible. All other positions retain the type from `type`, so this never
+  // widens `type`. Positions where `specialization` is a free type parameter
+  // are left unspecialized. Both types are fully substituted first.
+  //
+  // This is used to reconcile a comprehension accumulator type with the loop
+  // step type, which the CEL specification leaves undefined when they differ.
+  Type SpecializeUnspecialized(const Type& type,
+                               const Type& specialization) const;
 
   // Replace any generic type parameters in the given type with specific type
   // variables. Internally, type variables are just a unique string parameter
@@ -211,6 +225,11 @@ class TypeInferenceContext {
   // needed for the join are added to `prospective_substitutions`.
   std::optional<Type> JoinTypeTypes(const Type& from, const Type& to,
                                     SubstitutionMap& prospective_substitutions);
+
+  // Implementation of FullySubstitute. `nested` is true if `type` is a type
+  // parameter of a parameterized type.
+  Type FullySubstituteImpl(const Type& type, bool free_to_dyn,
+                           bool nested) const;
 
   bool OccursWithin(absl::string_view var_name, const Type& type,
                     const SubstitutionMap& substitutions) const;

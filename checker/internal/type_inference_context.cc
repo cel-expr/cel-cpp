@@ -52,6 +52,9 @@ bool IsWildCardType(Type type) {
     case TypeKind::kAny:
     case TypeKind::kDyn:
     case TypeKind::kError:
+    // Unlike dyn, kUnspecialized is not a union type (see IsUnionType) so it
+    // never widens a type binding.
+    case TypeKind::kUnspecialized:
       return true;
     default:
       return false;
@@ -208,6 +211,7 @@ Type TypeInferenceContext::InstantiateTypeParams(
     case TypeKind::kIntWrapper:
     case TypeKind::kUintWrapper:
     case TypeKind::kEnum:
+    case TypeKind::kUnspecialized:
       return type;
     case TypeKind::kTypeParam: {
       TypeParamType type_param = type.GetTypeParam();
@@ -492,6 +496,12 @@ TypeInferenceContext::CompareGenerality(
     return RelativeGenerality::kEquivalent;
   }
 
+  // An unspecialized placeholder is the least specific binding: prefer any
+  // other candidate (including dyn) over it.
+  if (to_subs.IsUnspecialized() && !from_subs.IsUnspecialized()) {
+    return RelativeGenerality::kMoreGeneral;
+  }
+
   if (IsUnionType(from_subs) && IsSubsetOf(to_subs, from_subs)) {
     return RelativeGenerality::kMoreGeneral;
   }
@@ -718,43 +728,103 @@ bool TypeInferenceContext::TypeEquivalent(const Type& a, const Type& b) {
 
 Type TypeInferenceContext::FullySubstitute(const Type& type,
                                            bool free_to_dyn) const {
+  Type result = FullySubstituteImpl(type, free_to_dyn, /*nested=*/false);
+  if (free_to_dyn && result.IsUnspecialized()) {
+    // Only use the unspecialized placeholder for type parameters of a
+    // parameterized type. At the top level, just use dyn.
+    return DynType();
+  }
+  return result;
+}
+
+Type TypeInferenceContext::FullySubstituteImpl(const Type& type,
+                                               bool free_to_dyn,
+                                               bool nested) const {
   switch (type.kind()) {
     case TypeKind::kTypeParam: {
       Type subs = Substitute(type, {});
       if (subs.kind() == TypeKind::kTypeParam) {
         if (free_to_dyn) {
-          return DynType();
+          // A free type parameter of a parameterized type is replaced with
+          // the unspecialized placeholder so that it does not widen inferred
+          // types if the finalized type is reused (e.g. as the type of a
+          // variable declaration).
+          return nested ? Type(UnspecializedType()) : Type(DynType());
         }
         return subs;
       }
-      return FullySubstitute(subs, free_to_dyn);
+      return FullySubstituteImpl(subs, free_to_dyn, nested);
     }
     case TypeKind::kType: {
       if (type.AsType()->GetParameters().empty()) {
         return type;
       }
-      Type param = FullySubstitute(type.AsType()->GetType(), free_to_dyn);
+      Type param = FullySubstituteImpl(type.AsType()->GetType(), free_to_dyn,
+                                       /*nested=*/true);
       return TypeType(arena_, param);
     }
     case TypeKind::kList: {
-      Type elem = FullySubstitute(type.AsList()->GetElement(), free_to_dyn);
+      Type elem = FullySubstituteImpl(type.AsList()->GetElement(), free_to_dyn,
+                                      /*nested=*/true);
       return ListType(arena_, elem);
     }
     case TypeKind::kMap: {
-      Type key = FullySubstitute(type.AsMap()->GetKey(), free_to_dyn);
-      Type value = FullySubstitute(type.AsMap()->GetValue(), free_to_dyn);
+      Type key = FullySubstituteImpl(type.AsMap()->GetKey(), free_to_dyn,
+                                     /*nested=*/true);
+      Type value = FullySubstituteImpl(type.AsMap()->GetValue(), free_to_dyn,
+                                       /*nested=*/true);
       return MapType(arena_, key, value);
     }
     case TypeKind::kOpaque: {
       OpaqueType opaque_type = type.GetOpaque();
       std::vector<Type> types;
       for (const auto& param : opaque_type.GetParameters()) {
-        types.push_back(FullySubstitute(param, free_to_dyn));
+        types.push_back(
+            FullySubstituteImpl(param, free_to_dyn, /*nested=*/true));
       }
       return OpaqueType(arena_, opaque_type.name(), types);
     }
     default:
       return type;
+  }
+}
+
+Type TypeInferenceContext::SpecializeUnspecialized(
+    const Type& type, const Type& specialization) const {
+  Type t = FullySubstitute(type);
+  Type s = FullySubstitute(specialization);
+  if (t.IsUnspecialized()) {
+    // Don't specialize with a free type parameter.
+    return s.IsTypeParam() ? t : s;
+  }
+  if (t.kind() != s.kind() || t.name() != s.name()) {
+    return t;
+  }
+  TypeParameters t_params = t.GetParameters();
+  TypeParameters s_params = s.GetParameters();
+  if (t_params.empty() || t_params.size() != s_params.size()) {
+    return t;
+  }
+  switch (t.kind()) {
+    case TypeKind::kList:
+      return ListType(arena_,
+                      SpecializeUnspecialized(t_params[0], s_params[0]));
+    case TypeKind::kMap:
+      return MapType(arena_, SpecializeUnspecialized(t_params[0], s_params[0]),
+                     SpecializeUnspecialized(t_params[1], s_params[1]));
+    case TypeKind::kType:
+      return TypeType(arena_,
+                      SpecializeUnspecialized(t_params[0], s_params[0]));
+    case TypeKind::kOpaque: {
+      std::vector<Type> params;
+      params.reserve(t_params.size());
+      for (size_t i = 0; i < t_params.size(); ++i) {
+        params.push_back(SpecializeUnspecialized(t_params[i], s_params[i]));
+      }
+      return OpaqueType(arena_, t.GetOpaque().name(), params);
+    }
+    default:
+      return t;
   }
 }
 

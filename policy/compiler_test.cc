@@ -251,6 +251,47 @@ rule:
               testing::HasSubstr("undeclared reference"));
 }
 
+TEST(CompilerTest, EmptyListVariableDoesNotWidenOutputType) {
+  absl::string_view yaml = R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: empty
+    expression: "[]"
+  match:
+  - output: variables.empty + [1]
+)yaml";
+  ASSERT_OK_AND_ASSIGN(auto policy, ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(auto compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(auto result, CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  const cel::Ast* ast = result.GetAst();
+  ASSERT_NE(ast, nullptr);
+  EXPECT_EQ(ast->GetReturnType().list_type().elem_type().primitive(),
+            PrimitiveType::kInt64);
+}
+
+TEST(CompilerTest, EmptyListOutputCompatibleWithTypedList) {
+  absl::string_view yaml = R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  match:
+  - condition: spec.single_int64 > 0
+    output: "[]"
+  - output: "[1]"
+)yaml";
+  ASSERT_OK_AND_ASSIGN(auto policy, ParsePolicyFromYaml(yaml));
+  ASSERT_OK_AND_ASSIGN(auto compiler, BuildTestCompiler());
+  ASSERT_OK_AND_ASSIGN(auto result, CompilePolicy(*compiler, *policy));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  const cel::Ast* ast = result.GetAst();
+  ASSERT_NE(ast, nullptr);
+  EXPECT_EQ(ast->GetReturnType().list_type().elem_type().primitive(),
+            PrimitiveType::kInt64);
+}
+
 TEST(CompilerTest, DisplayErrorFormattingForInvalidExpression) {
   absl::string_view yaml = R"yaml(name: cel_policy
 rule:

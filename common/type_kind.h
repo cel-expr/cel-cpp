@@ -59,6 +59,9 @@ enum class TypeKind : std::underlying_type_t<Kind> {
   kFunction = static_cast<uint8_t>(Kind::kFunction),
   kEnum = static_cast<uint8_t>(Kind::kEnum),
 
+  // Special placeholder used by the type checker. See `UnspecializedType`.
+  kUnspecialized = static_cast<uint8_t>(Kind::kUnspecialized),
+
   // Legacy aliases, deprecated do not use.
   kNullType = kNull,
   kInt64 = kInt,
