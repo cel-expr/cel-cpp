@@ -880,3 +880,16 @@ cc_library(
         "@com_google_absl//absl/base:nullability",
     ],
 )
+
+cc_library(
+    name = "tagged_arena_ptr",
+    hdrs = ["tagged_arena_ptr.h"],
+    deps = [
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/numeric:bits",
+        "@com_google_protobuf//:protobuf",
+    ],
+)

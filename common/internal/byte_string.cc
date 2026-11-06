@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -28,6 +29,8 @@
 #include "absl/strings/resize_and_overwrite.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "common/internal/value_arena_ptr.h"
+#include "common/internal/value_arena_ptr_tag.h"
 #include "google/protobuf/arena.h"
 
 namespace cel::common_internal {
@@ -423,15 +426,19 @@ ByteString ByteString::Clone(google::protobuf::Arena* absl_nonnull arena) const 
       return result;
     }
     case ByteStringKind::kMedium: {
-      google::protobuf::Arena* absl_nullable other_arena = GetMediumArena();
-      if (other_arena != arena) {
+      ValueArenaPtr other_arena = GetTaggedMediumArena();
+      if (!common_internal::ValueArenaPtrTagIsStaticLifetime(
+              other_arena.tag()) &&
+          other_arena != arena) {
         return From(GetMedium(), arena);
       }
       return *this;
     }
     case ByteStringKind::kLarge: {
-      google::protobuf::Arena* absl_nullable other_arena = GetLargeArena();
-      if (other_arena != arena) {
+      ValueArenaPtr other_arena = GetTaggedLargeArena();
+      if (!common_internal::ValueArenaPtrTagIsStaticLifetime(
+              other_arena.tag()) &&
+          other_arena != arena) {
         return From(GetLarge(), arena);
       }
       return *this;

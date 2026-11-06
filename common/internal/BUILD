@@ -18,6 +18,27 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
+    name = "value_arena_ptr",
+    hdrs = ["value_arena_ptr.h"],
+    deps = [
+        ":value_arena_ptr_tag",
+        "//internal:tagged_arena_ptr",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "value_arena_ptr_tag",
+    hdrs = ["value_arena_ptr_tag.h"],
+    deps = [
+        "@com_google_absl//absl/base",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
     name = "attribute_trail",
     srcs = ["attribute_trail.cc"],
     hdrs = ["attribute_trail.h"],
@@ -72,6 +93,8 @@ cc_library(
     srcs = ["byte_string.cc"],
     hdrs = ["byte_string.h"],
     deps = [
+        ":value_arena_ptr",
+        ":value_arena_ptr_tag",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/functional:overload",
