@@ -1,0 +1,158 @@
+# proto-file: net/proto2/proto/descriptor.proto
+# proto-message: proto2.FileDescriptorSet
+
+file {
+  name: "custom.proto"
+  package: "com.example"
+  syntax: "proto2"
+  message_type {
+    name: "CustomMsg"
+    field {
+      name: "custom_field"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_STRING
+      default_value: "hello"
+      json_name: "customJson"
+    }
+    field {
+      name: "normal_field"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_INT32
+      json_name: "normalField"
+    }
+    field {
+      name: "packed_ints"
+      number: 3
+      label: LABEL_REPEATED
+      type: TYPE_INT64
+      options {
+        packed: true
+      }
+    }
+  }
+  enum_type {
+    name: "CustomEnum"
+    value {
+      name: "UNKNOWN"
+      number: 0
+    }
+    value {
+      name: "FIRST"
+      number: 1
+    }
+    value {
+      name: "ALIAS_FIRST"
+      number: 1
+    }
+    options {
+      allow_alias: true
+    }
+  }
+  source_code_info {
+    location {
+      path: [4, 0]
+      span: [0, 0, 0]
+      leading_comments: " Message doc comment.\n Second line.\n"
+    }
+    location {
+      path: [4, 0, 2, 0]
+      span: [0, 0, 0]
+      leading_comments: " Field doc comment.\n"
+    }
+    location {
+      path: [5, 0]
+      span: [0, 0, 0]
+      leading_comments: " Enum doc comment.\n"
+    }
+    location {
+      path: [5, 0, 2, 0]
+      span: [0, 0, 0]
+      leading_comments: " Enum constant doc comment.\n"
+    }
+  }
+}
+file {
+  name: "event.proto"
+  package: "com.example"
+  syntax: "proto3"
+  dependency: "google/protobuf/timestamp.proto"
+  message_type {
+    name: "Event"
+    field {
+      name: "created_at"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".google.protobuf.Timestamp"
+    }
+    field {
+      name: "unpacked_vals"
+      number: 2
+      label: LABEL_REPEATED
+      type: TYPE_INT64
+      options {
+        packed: false
+      }
+    }
+  }
+}
+file {
+  name: "editions_file.proto"
+  package: "com.example"
+  syntax: "editions"
+  edition: EDITION_2023
+  message_type {
+    name: "EditionsMsg"
+    field {
+      name: "y"
+      number: 1
+      label: LABEL_OPTIONAL
+      type: TYPE_INT64
+      default_value: "42"
+      options {
+        features {
+          field_presence: EXPLICIT
+        }
+      }
+    }
+    field {
+      name: "delimited_sub"
+      number: 2
+      label: LABEL_OPTIONAL
+      type: TYPE_MESSAGE
+      type_name: ".com.example.EditionsMsg.Sub"
+      options {
+        features {
+          message_encoding: DELIMITED
+        }
+      }
+    }
+    nested_type {
+      name: "Sub"
+      field {
+        name: "z"
+        number: 1
+        label: LABEL_OPTIONAL
+        type: TYPE_STRING
+      }
+    }
+  }
+}
+file {
+  name: "nonzero_enum.proto"
+  package: "com.example"
+  syntax: "proto2"
+  enum_type {
+    name: "NonZeroEnum"
+    value {
+      name: "NZ_FIRST"
+      number: 1
+    }
+    value {
+      name: "NZ_SECOND"
+      number: 2
+    }
+  }
+}
