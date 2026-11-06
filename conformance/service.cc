@@ -25,10 +25,6 @@
 #include "google/api/expr/v1alpha1/eval.pb.h"
 #include "google/api/expr/v1alpha1/syntax.pb.h"
 #include "google/api/expr/v1alpha1/value.pb.h"
-#include "google/protobuf/duration.pb.h"
-#include "google/protobuf/empty.pb.h"
-#include "google/protobuf/struct.pb.h"
-#include "google/protobuf/timestamp.pb.h"
 #include "google/rpc/code.pb.h"
 #include "google/rpc/status.pb.h"
 #include "absl/log/absl_check.h"
@@ -38,6 +34,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/strings/strip.h"
+#include "checker/checker_options.h"
 #include "checker/optional.h"
 #include "checker/standard_library.h"
 #include "checker/type_checker_builder.h"
@@ -179,9 +176,12 @@ absl::Status CheckImpl(google::protobuf::Arena* arena,
     CEL_ASSIGN_OR_RETURN(source, cel::NewSource(location));
   }
 
+  cel::CheckerOptions checker_options;
+  checker_options.enable_cross_numeric_comparisons = true;
   CEL_ASSIGN_OR_RETURN(
       std::unique_ptr<cel::TypeCheckerBuilder> builder,
-      cel::CreateTypeCheckerBuilder(google::protobuf::DescriptorPool::generated_pool()));
+      cel::CreateTypeCheckerBuilder(google::protobuf::DescriptorPool::generated_pool(),
+                                    checker_options));
 
   if (!request.no_std_env()) {
     CEL_RETURN_IF_ERROR(builder->AddLibrary(cel::StandardCheckerLibrary()));

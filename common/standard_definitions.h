@@ -210,7 +210,7 @@ struct StandardOverloadIds {
   static constexpr absl::string_view kGreaterEqualsUintInt =
       "greater_equals_uint64_int64";
   static constexpr absl::string_view kGreaterEqualsUintDouble =
-      "greater_equals_uint_double";
+      "greater_equals_uint64_double";
   static constexpr absl::string_view kLessEqualsBool = "less_equals_bool";
   static constexpr absl::string_view kLessEqualsString = "less_equals_string";
   static constexpr absl::string_view kLessEqualsBytes = "less_equals_bytes";

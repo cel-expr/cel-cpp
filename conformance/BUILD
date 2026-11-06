@@ -25,6 +25,7 @@ cc_library(
     srcs = ["service.cc"],
     hdrs = ["service.h"],
     deps = [
+        "//checker:checker_options",
         "//checker:optional",
         "//checker:standard_library",
         "//checker:type_checker_builder",
