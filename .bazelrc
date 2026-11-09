@@ -43,3 +43,16 @@ build:asan --linkopt=-fuse-ld=lld
 try-import %workspace%/clang.bazelrc
 try-import %workspace%/user.bazelrc
 try-import %workspace%/local_tsan.bazelrc
+
+# Configuration used by OSS-Fuzz (https://github.com/google/oss-fuzz) when
+# building the //fuzz targets.  The clang environment settings are scoped to
+# this configuration so that normal builds are unaffected.
+build:oss-fuzz --action_env=CC=clang
+build:oss-fuzz --action_env=CXX=clang++
+build:oss-fuzz --@rules_fuzzing//fuzzing:cc_engine=@rules_fuzzing//fuzzing/engines:oss_fuzz
+build:oss-fuzz --@rules_fuzzing//fuzzing:cc_engine_instrumentation=oss-fuzz
+build:oss-fuzz --@rules_fuzzing//fuzzing:cc_engine_sanitizer=none
+build:oss-fuzz --cxxopt=-stdlib=libc++
+build:oss-fuzz --linkopt=-lc++
+build:oss-fuzz --verbose_failures
+build:oss-fuzz --spawn_strategy=standalone
