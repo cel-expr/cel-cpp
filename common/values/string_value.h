@@ -129,11 +129,11 @@ class StringValue final : private common_internal::ValueMixin<StringValue> {
       CEL_COMMON_INTERNAL_REQUIRE_CONSTEXPR_STRING_VIEW(value) {
     static_assert(N > 0);
     ABSL_DCHECK_EQ(value[N - 1], '\0');
-    return WrapUnsafe(value);
+    return StringValue(common_internal::ByteString::Literal(value));
   }
   static StringValue Literal(absl::string_view value)
       CEL_COMMON_INTERNAL_REQUIRE_CONSTEXPR_STRING_VIEW(value) {
-    return WrapUnsafe(value);
+    return StringValue(common_internal::ByteString::Literal(value));
   }
   static StringValue Literal(const std::string&) = delete;
   static StringValue Literal(std::string&&) = delete;

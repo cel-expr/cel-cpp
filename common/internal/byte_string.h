@@ -31,6 +31,8 @@
 #include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
+#include "common/internal/value_arena_ptr.h"
+#include "common/internal/value_arena_ptr_tag.h"
 #include "google/protobuf/arena.h"
 
 namespace cel {
@@ -106,7 +108,9 @@ struct MediumByteStringRep final {
 #pragma pack(pop)
 #endif
   const char* absl_nullability_unknown data;
-  google::protobuf::Arena* absl_nullable arena;
+  // Tagged arena pointer. The only allowed tag in this context is
+  // ValueArenaPtr::kStaticLifetime.
+  ValueArenaPtr absl_nullable arena;
 };
 
 // Representation of large strings in ByteString. These are stored as
@@ -124,7 +128,9 @@ struct LargeByteStringRep final {
 #pragma pack(pop)
 #endif
   const absl::Cord* absl_nullability_unknown data;
-  google::protobuf::Arena* absl_nullable arena;
+  // Tagged arena pointer. The only allowed tag in this context is
+  // ValueArenaPtr::kStaticLifetime.
+  ValueArenaPtr absl_nullable arena;
 };
 
 // Representation of ByteString.
@@ -173,30 +179,29 @@ class [[nodiscard]] ByteString final {
                          google::protobuf::Arena* absl_nonnull arena
                              ABSL_ATTRIBUTE_LIFETIME_BOUND);
 
-  static ByteString Wrap(absl::string_view value,
-                         google::protobuf::Arena* absl_nullable arena
-                             ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+  static ByteString Wrap(absl::string_view value, ValueArenaPtr
+                         absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
     ByteString result(UninitializedTag{});
     result.SetMedium(arena, value);
     return result;
   }
   static ByteString Wrap(
       const absl::Cord* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+      ValueArenaPtr absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
     return Wrap(value, 0, value->size(), arena);
   }
-  static ByteString Wrap(
-      const absl::Cord* absl_nonnull value ABSL_ATTRIBUTE_LIFETIME_BOUND,
-      size_t offset, size_t size,
-      google::protobuf::Arena* absl_nullable arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+  static ByteString Wrap(const absl::Cord* absl_nonnull value
+                             ABSL_ATTRIBUTE_LIFETIME_BOUND,
+                         size_t offset, size_t size,
+                         ValueArenaPtr arena ABSL_ATTRIBUTE_LIFETIME_BOUND) {
     ByteString result(UninitializedTag{});
     result.SetLarge(arena, value, offset, size);
     return result;
   }
-  static ByteString Wrap(std::nullptr_t, google::protobuf::Arena*) = delete;
+  static ByteString Wrap(std::nullptr_t, ValueArenaPtr) = delete;
   static ByteString Wrap(std::nullptr_t, size_t, size_t,
-                         google::protobuf::Arena*) = delete;
-  static ByteString Wrap(std::string&& value, google::protobuf::Arena*) = delete;
+                         ValueArenaPtr) = delete;
+  static ByteString Wrap(std::string&& value, ValueArenaPtr) = delete;
 
   static ByteString WrapUnsafe(absl::string_view value) {
     return Wrap(value, static_cast<google::protobuf::Arena*>(nullptr));
@@ -210,6 +215,13 @@ class [[nodiscard]] ByteString final {
   }
   static ByteString WrapUnsafe(std::nullptr_t) = delete;
   static ByteString WrapUnsafe(std::nullptr_t, size_t, size_t) = delete;
+
+  static ByteString Literal(absl::string_view value) {
+    ByteString result(UninitializedTag{});
+    result.SetMedium(ValueArenaPtr(nullptr, ValueArenaPtrTag::kStaticLifetime),
+                     value);
+    return result;
+  }
 
   static ByteString Concat(const ByteString& lhs, const ByteString& rhs,
                            google::protobuf::Arena* absl_nonnull arena);
@@ -381,6 +393,18 @@ class [[nodiscard]] ByteString final {
 
   static google::protobuf::Arena* absl_nullable GetMediumArena(
       const MediumByteStringRep& rep) {
+    return rep.arena.get();
+  }
+
+  [[nodiscard]]
+  ValueArenaPtr absl_nullable GetTaggedMediumArena() const {
+    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kMedium);
+    return GetTaggedMediumArena(rep_.medium);
+  }
+
+  [[nodiscard]]
+  static ValueArenaPtr
+      absl_nullable GetTaggedMediumArena(const MediumByteStringRep& rep) {
     return rep.arena;
   }
 
@@ -401,6 +425,18 @@ class [[nodiscard]] ByteString final {
 
   static google::protobuf::Arena* absl_nullable GetLargeArena(
       const LargeByteStringRep& rep ABSL_ATTRIBUTE_LIFETIME_BOUND) {
+    return rep.arena.get();
+  }
+
+  [[nodiscard]]
+  ValueArenaPtr absl_nullable GetTaggedLargeArena() const {
+    ABSL_DCHECK_EQ(GetKind(), ByteStringKind::kLarge);
+    return GetTaggedLargeArena(rep_.large);
+  }
+
+  [[nodiscard]]
+  static ValueArenaPtr
+      absl_nullable GetTaggedLargeArena(const LargeByteStringRep& rep) {
     return rep.arena;
   }
 
@@ -425,19 +461,19 @@ class [[nodiscard]] ByteString final {
     CopyCordToArray(cord, rep_.small.data);
   }
 
-  void SetMedium(google::protobuf::Arena* absl_nullable arena, absl::string_view string) {
+  void SetMedium(ValueArenaPtr absl_nullable arena, absl::string_view string) {
     rep_.header.kind = ByteStringKind::kMedium;
     rep_.medium.size = string.size();
     rep_.medium.data = string.data();
     rep_.medium.arena = arena;
   }
 
-  void SetMedium(google::protobuf::Arena* absl_nullable arena,
+  void SetMedium(ValueArenaPtr absl_nullable arena,
                  const std::string* absl_nonnull string) {
     SetMedium(arena, absl::string_view(*string));
   }
 
-  void SetLarge(google::protobuf::Arena* absl_nullable arena,
+  void SetLarge(ValueArenaPtr absl_nullable arena,
                 const absl::Cord* absl_nonnull cord, size_t offset = 0,
                 size_t size = static_cast<size_t>(-1)) {
     ABSL_DCHECK_LE(offset, cord->size());
