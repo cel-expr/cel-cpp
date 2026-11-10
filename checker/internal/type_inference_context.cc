@@ -22,6 +22,7 @@
 
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/absl_log.h"
 #include "absl/strings/match.h"
@@ -176,6 +177,53 @@ bool HasTypeParam(const Type& type) {
   return false;
 }
 
+// Returns a copy of `type` with `transform` applied to every type in it, in
+// pre-order: first to `type` itself (updating it in place), then recursively
+// to each type parameter of the result (the element type of a list, the key
+// and value types of a map, the parameter of a `type`, or the parameters of an
+// opaque type), in order.
+//
+// Recursion follows the transformed type, so a replacement may introduce more
+// types to transform (e.g. substituting a type variable with `list(T%2)`).
+Type TransformTypeRecursively(google::protobuf::Arena* arena, const Type& type,
+                              absl::FunctionRef<void(Type&)> transform) {
+  Type result = type;
+  transform(result);
+  switch (result.kind()) {
+    case TypeKind::kType: {
+      if (result.GetParameters().empty()) {
+        return result;
+      }
+      Type param = TransformTypeRecursively(arena, result.GetType().GetType(),
+                                            transform);
+      return TypeType(arena, param);
+    }
+    case TypeKind::kList: {
+      Type elem = TransformTypeRecursively(arena, result.GetList().GetElement(),
+                                           transform);
+      return ListType(arena, elem);
+    }
+    case TypeKind::kMap: {
+      Type key =
+          TransformTypeRecursively(arena, result.GetMap().GetKey(), transform);
+      Type value = TransformTypeRecursively(arena, result.GetMap().GetValue(),
+                                            transform);
+      return MapType(arena, key, value);
+    }
+    case TypeKind::kOpaque: {
+      OpaqueType opaque_type = result.GetOpaque();
+      std::vector<Type> params;
+      params.reserve(opaque_type.GetParameters().size());
+      for (const Type& param : opaque_type.GetParameters()) {
+        params.push_back(TransformTypeRecursively(arena, param, transform));
+      }
+      return OpaqueType(arena, opaque_type.name(), params);
+    }
+    default:
+      return result;
+  }
+}
+
 }  // namespace
 
 Type TypeInferenceContext::InstantiateTypeParams(const Type& type) {
@@ -186,80 +234,60 @@ Type TypeInferenceContext::InstantiateTypeParams(const Type& type) {
 Type TypeInferenceContext::InstantiateTypeParams(
     const Type& type,
     absl::flat_hash_map<std::string, absl::string_view>& substitutions) {
-  switch (type.kind()) {
-    // Unparameterized types -- just forward.
-    case TypeKind::kAny:
-    case TypeKind::kBool:
-    case TypeKind::kBoolWrapper:
-    case TypeKind::kBytes:
-    case TypeKind::kBytesWrapper:
-    case TypeKind::kDouble:
-    case TypeKind::kDoubleWrapper:
-    case TypeKind::kDuration:
-    case TypeKind::kDyn:
-    case TypeKind::kError:
-    case TypeKind::kInt:
-    case TypeKind::kNull:
-    case TypeKind::kString:
-    case TypeKind::kStringWrapper:
-    case TypeKind::kStruct:
-    case TypeKind::kTimestamp:
-    case TypeKind::kUint:
-    case TypeKind::kIntWrapper:
-    case TypeKind::kUintWrapper:
-    case TypeKind::kEnum:
-      return type;
-    case TypeKind::kTypeParam: {
-      TypeParamType type_param = type.GetTypeParam();
-      absl::string_view name = type_param.name();
-      if (IsTypeVar(name)) {
-        // Already instantiated (e.g. list comprehension variable).
-        return type;
+  return TransformTypeRecursively(arena_, type, [&](Type& t) {
+    switch (t.kind()) {
+      // Unparameterized types -- just forward.
+      case TypeKind::kAny:
+      case TypeKind::kBool:
+      case TypeKind::kBoolWrapper:
+      case TypeKind::kBytes:
+      case TypeKind::kBytesWrapper:
+      case TypeKind::kDouble:
+      case TypeKind::kDoubleWrapper:
+      case TypeKind::kDuration:
+      case TypeKind::kDyn:
+      case TypeKind::kError:
+      case TypeKind::kInt:
+      case TypeKind::kNull:
+      case TypeKind::kString:
+      case TypeKind::kStringWrapper:
+      case TypeKind::kStruct:
+      case TypeKind::kTimestamp:
+      case TypeKind::kUint:
+      case TypeKind::kIntWrapper:
+      case TypeKind::kUintWrapper:
+      case TypeKind::kEnum:
+      // Parameterized types -- parameters are instantiated recursively.
+      case TypeKind::kList:
+      case TypeKind::kMap:
+      case TypeKind::kOpaque:
+        return;
+      case TypeKind::kType:
+        if (t.GetParameters().size() > 1) {
+          t = ErrorType();
+        }
+        return;
+      case TypeKind::kTypeParam: {
+        TypeParamType type_param = t.GetTypeParam();
+        absl::string_view name = type_param.name();
+        if (IsTypeVar(name)) {
+          // Already instantiated (e.g. list comprehension variable).
+          return;
+        }
+        if (auto it = substitutions.find(name); it != substitutions.end()) {
+          t = TypeParamType(it->second);
+          return;
+        }
+        absl::string_view substitution = NewTypeVar(name);
+        substitutions[name] = substitution;
+        t = TypeParamType(substitution);
+        return;
       }
-      if (auto it = substitutions.find(name); it != substitutions.end()) {
-        return TypeParamType(it->second);
-      }
-      absl::string_view substitution = NewTypeVar(name);
-      substitutions[type.AsTypeParam()->name()] = substitution;
-      return TypeParamType(substitution);
+      default:
+        t = ErrorType();
+        return;
     }
-    case TypeKind::kType: {
-      auto type_type = type.AsType();
-      auto parameters = type_type->GetParameters();
-      if (parameters.size() == 1) {
-        Type param = InstantiateTypeParams(parameters[0], substitutions);
-        return TypeType(arena_, param);
-      } else if (parameters.size() > 1) {
-        return ErrorType();
-      } else {  // generic type
-        return type;
-      }
-    }
-    case TypeKind::kList: {
-      Type elem =
-          InstantiateTypeParams(type.AsList()->element(), substitutions);
-      return ListType(arena_, elem);
-    }
-    case TypeKind::kMap: {
-      Type key = InstantiateTypeParams(type.AsMap()->key(), substitutions);
-      Type value = InstantiateTypeParams(type.AsMap()->value(), substitutions);
-      return MapType(arena_, key, value);
-    }
-    case TypeKind::kOpaque: {
-      auto opaque_type = type.AsOpaque();
-      auto parameters = opaque_type->GetParameters();
-      std::vector<Type> param_instances;
-      param_instances.reserve(parameters.size());
-
-      for (int i = 0; i < parameters.size(); ++i) {
-        param_instances.push_back(
-            InstantiateTypeParams(parameters[i], substitutions));
-      }
-      return OpaqueType(arena_, type.AsOpaque()->name(), param_instances);
-    }
-    default:
-      return ErrorType();
-  }
+  });
 }
 
 bool TypeInferenceContext::IsAssignable(const Type& from, const Type& to) {
@@ -718,44 +746,17 @@ bool TypeInferenceContext::TypeEquivalent(const Type& a, const Type& b) {
 
 Type TypeInferenceContext::FullySubstitute(const Type& type,
                                            bool free_to_dyn) const {
-  switch (type.kind()) {
-    case TypeKind::kTypeParam: {
-      Type subs = Substitute(type, {});
-      if (subs.kind() == TypeKind::kTypeParam) {
-        if (free_to_dyn) {
-          return DynType();
-        }
-        return subs;
-      }
-      return FullySubstitute(subs, free_to_dyn);
+  return TransformTypeRecursively(arena_, type, [&](Type& t) {
+    if (t.kind() != TypeKind::kTypeParam) {
+      return;
     }
-    case TypeKind::kType: {
-      if (type.AsType()->GetParameters().empty()) {
-        return type;
-      }
-      Type param = FullySubstitute(type.AsType()->GetType(), free_to_dyn);
-      return TypeType(arena_, param);
+    // The substitution may itself contain type params; they are substituted
+    // as the transform recurses into it.
+    t = Substitute(t, {});
+    if (free_to_dyn && t.kind() == TypeKind::kTypeParam) {
+      t = DynType();
     }
-    case TypeKind::kList: {
-      Type elem = FullySubstitute(type.AsList()->GetElement(), free_to_dyn);
-      return ListType(arena_, elem);
-    }
-    case TypeKind::kMap: {
-      Type key = FullySubstitute(type.AsMap()->GetKey(), free_to_dyn);
-      Type value = FullySubstitute(type.AsMap()->GetValue(), free_to_dyn);
-      return MapType(arena_, key, value);
-    }
-    case TypeKind::kOpaque: {
-      OpaqueType opaque_type = type.GetOpaque();
-      std::vector<Type> types;
-      for (const auto& param : opaque_type.GetParameters()) {
-        types.push_back(FullySubstitute(param, free_to_dyn));
-      }
-      return OpaqueType(arena_, opaque_type.name(), types);
-    }
-    default:
-      return type;
-  }
+  });
 }
 
 bool TypeInferenceContext::AssignabilityContext::IsAssignable(const Type& from,
