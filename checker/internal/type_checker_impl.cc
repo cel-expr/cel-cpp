@@ -298,6 +298,9 @@ class ResolveVisitor : public AstVisitorBase {
     const VariableScope* parent;
     VariableScope* accu_scope;
     VariableScope* iter_scope;
+    // True if the comprehension is missing required parts (already reported
+    // as an issue).
+    bool malformed;
   };
 
   struct FunctionOverloadMatch {
@@ -429,6 +432,19 @@ class ResolveVisitor : public AstVisitorBase {
     status_.Update(absl::InvalidArgumentError(
         absl::StrCat("Could not deduce type for expression id: ", expr->id())));
     return DynType();
+  }
+
+  // Get the assigned type of a part of the given comprehension.
+  //
+  // Parts of a malformed comprehension (already reported in
+  // PreVisitComprehension) may be missing; they are treated as errors.
+  Type GetComprehensionPartType(const ComprehensionScope& scope,
+                                const Expr& part) {
+    if (scope.malformed) {
+      auto iter = types_.find(&part);
+      return iter != types_.end() ? iter->second : ErrorType();
+    }
+    return GetDeducedType(&part);
   }
 
   NamespaceGenerator namespace_generator_;
@@ -766,6 +782,24 @@ void ResolveVisitor::PostVisitCall(const Expr& expr, const CallExpr& call) {
 
 void ResolveVisitor::PreVisitComprehension(
     const Expr& expr, const ComprehensionExpr& comprehension) {
+  // Hand-crafted ASTs may be missing required parts of the comprehension.
+  std::vector<absl::string_view> missing_fields;
+  if (comprehension.iter_var().empty()) missing_fields.push_back("iter_var");
+  if (!comprehension.has_iter_range()) missing_fields.push_back("iter_range");
+  if (comprehension.accu_var().empty()) missing_fields.push_back("accu_var");
+  if (!comprehension.has_accu_init()) missing_fields.push_back("accu_init");
+  if (!comprehension.has_loop_condition()) {
+    missing_fields.push_back("loop_condition");
+  }
+  if (!comprehension.has_loop_step()) missing_fields.push_back("loop_step");
+  if (!comprehension.has_result()) missing_fields.push_back("result");
+  if (!missing_fields.empty()) {
+    ReportIssue(TypeCheckIssue::CreateError(
+        ast_->ComputeSourceLocation(expr.id()),
+        absl::StrCat("malformed comprehension: missing ",
+                     absl::StrJoin(missing_fields, ", "))));
+  }
+
   std::unique_ptr<VariableScope> accu_scope = current_scope_->MakeNestedScope();
   auto* accu_scope_ptr = accu_scope.get();
 
@@ -776,15 +810,22 @@ void ResolveVisitor::PreVisitComprehension(
   comprehension_vars_.push_back(std::move(accu_scope));
   comprehension_vars_.push_back(std::move(iter_scope));
 
-  comprehension_scopes_.push_back(
-      {&expr, current_scope_, accu_scope_ptr, iter_scope_ptr});
+  comprehension_scopes_.push_back({&expr, current_scope_, accu_scope_ptr,
+                                   iter_scope_ptr,
+                                   /*malformed=*/!missing_fields.empty()});
 }
 
 void ResolveVisitor::PostVisitComprehension(
     const Expr& expr, const ComprehensionExpr& comprehension) {
+  if (comprehension_scopes_.empty()) {
+    status_.Update(absl::InternalError(
+        "Comprehension scope stack is empty in comprehension"));
+    return;
+  }
+  Type result_type = GetComprehensionPartType(comprehension_scopes_.back(),
+                                              comprehension.result());
   comprehension_scopes_.pop_back();
-  types_[&expr] = inference_context_->FullySubstitute(
-      GetDeducedType(&comprehension.result()));
+  types_[&expr] = inference_context_->FullySubstitute(result_type);
 }
 
 void ResolveVisitor::PreVisitComprehensionSubexpression(
@@ -837,21 +878,42 @@ void ResolveVisitor::PostVisitComprehensionSubexpression(
   // the corresponding variables can be referenced.
   switch (comprehension_arg) {
     case ComprehensionArg::ACCU_INIT:
-      scope.accu_scope->InsertVariableIfAbsent(
-          MakeVariableDecl(comprehension.accu_var(),
-                           GetDeducedType(&comprehension.accu_init())));
+      scope.accu_scope->InsertVariableIfAbsent(MakeVariableDecl(
+          comprehension.accu_var(),
+          GetComprehensionPartType(scope, comprehension.accu_init())));
       break;
     case ComprehensionArg::LOOP_CONDITION: {
-      Type condition_type = GetDeducedType(&comprehension.loop_condition());
+      Type condition_type =
+          GetComprehensionPartType(scope, comprehension.loop_condition());
       if (!inference_context_->IsAssignable(condition_type, BoolType())) {
         ReportTypeMismatch(comprehension.loop_condition().id(), BoolType(),
                            condition_type);
       }
       break;
     }
+    case ComprehensionArg::LOOP_STEP: {
+      const VariableDecl* accu_decl =
+          scope.accu_scope->LookupLocalVariable(comprehension.accu_var());
+      if (accu_decl == nullptr) {
+        // Only possible for a malformed comprehension, which is reported in
+        // PreVisitComprehension.
+        break;
+      }
+      // Require the loop step to be assignable to the accumulator. This binds
+      // any free type parameters of accu_init (e.g. `[]` in map/filter).
+      Type accu_type = accu_decl->type();
+      Type step_type =
+          GetComprehensionPartType(scope, comprehension.loop_step());
+      if (!inference_context_->IsAssignable(step_type, accu_type)) {
+        ReportTypeMismatch(comprehension.loop_step().id(), accu_type,
+                           step_type);
+      }
+      break;
+    }
     case ComprehensionArg::ITER_RANGE: {
       Type range_type = inference_context_->FullySubstitute(
-          GetDeducedType(&comprehension.iter_range()), /*free_to_dyn=*/false);
+          GetComprehensionPartType(scope, comprehension.iter_range()),
+          /*free_to_dyn=*/false);
       Type iter_type = DynType();   // iter_var for non comprehensions v2.
       Type iter_type1 = DynType();  // iter_var for comprehensions v2.
       Type iter_type2 = DynType();  // iter_var2 for comprehensions v2.

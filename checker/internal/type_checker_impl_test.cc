@@ -942,6 +942,119 @@ TEST(TypeCheckerImplTest, ComprehensionLoopConditionDynIsAccepted) {
   EXPECT_TRUE(result.IsValid()) << result.FormatError();
 }
 
+TEST(TypeCheckerImplTest, ComprehensionLoopStepTypeMismatch) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  TestExprBuilder b;
+  std::unique_ptr<Ast> ast =
+      b.ComprehensionAst(/*accu_init=*/b.IntConst(0),
+                         /*loop_condition=*/b.BoolConst(true),
+                         /*loop_step=*/b.StringConst("a"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(
+                  Severity::kError, "expected type 'int' but found 'string'")));
+}
+
+TEST(TypeCheckerImplTest, ComprehensionLoopStepErrorNoDuplicateIssue) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  // The loop step does not type check, so its type is an error (a wildcard);
+  // only the original issue should be reported.
+  TestExprBuilder b;
+  std::unique_ptr<Ast> ast =
+      b.ComprehensionAst(/*accu_init=*/b.IntConst(0),
+                         /*loop_condition=*/b.BoolConst(true),
+                         /*loop_step=*/b.Ident("undeclared"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              ElementsAre(IsIssueWithSubstring(Severity::kError,
+                                               "undeclared reference")));
+}
+
+TEST(TypeCheckerImplTest, MalformedComprehensionMissingFields) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  TestExprBuilder b;
+  std::unique_ptr<Ast> ast =
+      b.ComprehensionAst(/*accu_init=*/b.IntConst(0),
+                         /*loop_condition=*/b.BoolConst(true),
+                         /*loop_step=*/b.IntConst(1));
+  ComprehensionExpr& comprehension =
+      ast->mutable_root_expr().mutable_comprehension_expr();
+  (void)comprehension.release_accu_var();
+  (void)comprehension.release_accu_init();
+  (void)comprehension.release_loop_step();
+
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(
+                  Severity::kError,
+                  "malformed comprehension: missing accu_var, accu_init, "
+                  "loop_step")));
+}
+
+TEST(TypeCheckerImplTest, MalformedComprehensionMissingIterVarAndRange) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  TestExprBuilder b;
+  std::unique_ptr<Ast> ast =
+      b.ComprehensionAst(/*accu_init=*/b.IntConst(0),
+                         /*loop_condition=*/b.BoolConst(true),
+                         /*loop_step=*/b.IntConst(1));
+  ComprehensionExpr& comprehension =
+      ast->mutable_root_expr().mutable_comprehension_expr();
+  (void)comprehension.release_iter_var();
+  (void)comprehension.release_iter_range();
+  (void)comprehension.release_loop_condition();
+  (void)comprehension.release_result();
+
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(
+                  Severity::kError,
+                  "malformed comprehension: missing iter_var, iter_range, "
+                  "loop_condition, result")));
+}
+
+// Equivalent to `[1, 2].fold([], true, [@accu], @accu)`: the loop step wraps
+// the accumulator in a list, which would require a recursive type
+// (list(T) where T = list(T)), so the loop step is not assignable.
+TEST(TypeCheckerImplTest, ComprehensionRecursiveAccumulatorIsError) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  TestExprBuilder b;
+  std::unique_ptr<Ast> ast =
+      b.ComprehensionAst(/*accu_init=*/b.List(),
+                         /*loop_condition=*/b.BoolConst(true),
+                         /*loop_step=*/b.List(b.Ident("__result__")));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(Severity::kError,
+                                            "expected type 'list(dyn)' but "
+                                            "found 'list(list(dyn))'")));
+}
+
 TEST(TypeCheckerImplTest, MapTypeWithMixedKeys) {
   TypeCheckEnv env(GetSharedTestingDescriptorPool());
 
