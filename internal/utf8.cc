@@ -141,7 +141,7 @@ class CordReader final {
     }
     if (n <= buffer_.size() - index_) {
       // Enough data remaining in temporary buffer.
-      return absl::string_view(buffer_.data() + index_, n);
+      return absl::string_view(buffer_).substr(index_, n);
     }
     // We do not have enough data. See if we can fit it without allocating by
     // shifting data back to the beginning of the buffer.
@@ -159,7 +159,7 @@ class CordReader final {
     size_t to_copy = n - (buffer_.size() - index_);
     absl::CopyCordToString(input_.Subcord(0, to_copy), &buffer_);
     input_.RemovePrefix(to_copy);
-    return absl::string_view(buffer_.data() + index_, n);
+    return absl::string_view(buffer_).substr(index_, n);
   }
 
   char Read() {
