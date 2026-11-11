@@ -74,11 +74,13 @@ using ::cel::test::ValueMatcher;
 constexpr absl::string_view kTestPolicyFilePath =
 "_main/policy/testdata/cel_policy.yaml";
 
-absl::StatusOr<std::unique_ptr<Compiler>> BuildTestCompiler() {
+absl::StatusOr<std::unique_ptr<Compiler>> BuildTestCompiler(
+    bool use_polymorphic_bind = false) {
   CompilerOptions opts;
   opts.adapt_parser_errors = true;
   opts.parser_options.enable_optional_syntax = true;
   opts.parser_options.add_macro_calls = true;
+  opts.checker_options.use_polymorphic_bind = use_polymorphic_bind;
   CEL_ASSIGN_OR_RETURN(
       auto builder,
       NewCompilerBuilder(internal::GetSharedTestingDescriptorPool(), opts));
@@ -682,6 +684,144 @@ rule:
   ASSERT_TRUE(result.IsValid());
   EXPECT_TRUE(result.GetAst()->is_checked());
 }
+
+// Policy variables with unconstrained (free) type parameters, e.g. `[]`.
+//
+// The policy compiler enables CheckerOptions::use_polymorphic_bind, so
+// variables are declared with their generic result type (e.g. list(T1)) in
+// the compile phase and each reference is instantiated independently.
+//
+// Parameterized on the option in the input compiler, which should not matter.
+class GenericPolicyVariableTest : public testing::TestWithParam<bool> {
+ protected:
+  absl::StatusOr<CelPolicyValidationResult> Compile(absl::string_view yaml) {
+    CEL_ASSIGN_OR_RETURN(auto policy, ParsePolicyFromYaml(yaml));
+    CEL_ASSIGN_OR_RETURN(auto compiler, BuildTestCompiler(GetParam()));
+    return CompilePolicy(*compiler, *policy);
+  }
+};
+
+TEST_P(GenericPolicyVariableTest, NarrowsAtUse) {
+  ASSERT_OK_AND_ASSIGN(auto result, Compile(R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: empty
+    expression: '[]'
+  match:
+  - output: 'variables.empty + [1]'
+)yaml"));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  EXPECT_EQ(
+      result.GetAst()->GetReturnType().list_type().elem_type().primitive(),
+      PrimitiveType::kInt64);
+}
+
+TEST_P(GenericPolicyVariableTest, IndependentUses) {
+  ASSERT_OK_AND_ASSIGN(auto result, Compile(R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: empty
+    expression: '[]'
+  match:
+  - output: >
+      variables.empty + [1] == [1] && variables.empty + ['a'] == ['a']
+)yaml"));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  EXPECT_EQ(result.GetAst()->GetReturnType().primitive(), PrimitiveType::kBool);
+}
+
+TEST_P(GenericPolicyVariableTest, IndependentUsesInDependentVariable) {
+  ASSERT_OK_AND_ASSIGN(auto result, Compile(R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: empty
+    expression: '{}'
+  - name: ints
+    expression: 'variables.empty.with_int'
+  match:
+  - output: >
+      variables.empty['a'] == 'b' && variables.ints == 1
+)yaml"));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  EXPECT_EQ(result.GetAst()->GetReturnType().primitive(), PrimitiveType::kBool);
+}
+
+// `optional.none()` has type optional_type(T) with T unconstrained, so each
+// reference to the variable is inferred independently.
+TEST_P(GenericPolicyVariableTest, OptionalNoneNarrowsAtUse) {
+  ASSERT_OK_AND_ASSIGN(auto result, Compile(R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: none
+    expression: 'optional.none()'
+  match:
+  - output: 'variables.none.orValue(1)'
+)yaml"));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  EXPECT_EQ(result.GetAst()->GetReturnType().primitive(),
+            PrimitiveType::kInt64);
+}
+
+TEST_P(GenericPolicyVariableTest, OptionalNoneIndependentUses) {
+  ASSERT_OK_AND_ASSIGN(auto result, Compile(R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: none
+    expression: 'optional.none()'
+  match:
+  - output: >
+      variables.none.orValue(1) == 1 && variables.none.orValue('a') == 'a'
+)yaml"));
+  ASSERT_TRUE(result.IsValid()) << result.FormatIssues();
+  EXPECT_EQ(result.GetAst()->GetReturnType().primitive(), PrimitiveType::kBool);
+}
+
+TEST_P(GenericPolicyVariableTest, EmptyAndNonEmptyOutputsCompatible) {
+  ASSERT_OK_AND_ASSIGN(auto result, Compile(R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  match:
+  - condition: x > 1
+    output: '[]'
+  - output: '[1]'
+)yaml"));
+  EXPECT_TRUE(result.IsValid()) << result.FormatIssues();
+}
+
+// The compile-phase output type of `variables.empty + [1]` is list(int)
+// (instead of list(dyn)), so the mismatch with the other output is reported at
+// the match rather than when type checking the composed expression.
+TEST_P(GenericPolicyVariableTest, MismatchedOutputs) {
+  ASSERT_OK_AND_ASSIGN(auto result, Compile(R"yaml(
+name: cel_policy
+rule:
+  id: test_rule
+  variables:
+  - name: empty
+    expression: '[]'
+  match:
+  - condition: x > 1
+    output: 'variables.empty + [1]'
+  - output: "['a']"
+)yaml"));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.FormatIssues(),
+              testing::HasSubstr("incompatible output types"));
+}
+
+INSTANTIATE_TEST_SUITE_P(PreserveResultTypeParams, GenericPolicyVariableTest,
+                         testing::Bool());
 
 struct EvaluationTestCase {
   std::string name;

@@ -210,8 +210,7 @@ bool IsWrapperOf(cel::TypeKind wrapper_kind, cel::TypeKind primitive_kind) {
 
 cel::Type FilterSpecialTypes(cel::Type type) {
   if (type.IsTypeParam()) {
-    // Free type param should not appear in the output type, but if it does,
-    // force it to dyn.
+    // Type parameters are unconstrained, so we treat them like dyn.
     return DynType();
   }
   if (type.IsEnum()) {
@@ -237,7 +236,9 @@ bool OutputTypeIsAssignable(cel::Type from, cel::Type to) {
   from = FilterSpecialTypes(from);
   to = FilterSpecialTypes(to);
 
-  // Any and dyn are assignable to/from everything.
+  // Any and dyn are assignable to/from everything. Type parameters (from
+  // generic result types, see CheckerOptions::use_polymorphic_bind)
+  // are unconstrained, so they are treated like dyn.
   if (from.kind() == cel::TypeKind::kAny ||
       from.kind() == cel::TypeKind::kDyn || to.kind() == cel::TypeKind::kAny ||
       to.kind() == cel::TypeKind::kDyn) {
@@ -296,6 +297,15 @@ bool OutputTypeIsCompatible(cel::Type from, cel::Type to) {
   // We don't handle widening like in a self-contained CEL expression, but
   // permit some cases where one type is more specific than the other.
   return OutputTypeIsAssignable(from, to) || OutputTypeIsAssignable(to, from);
+}
+
+// Returns the type of the checked expression's root.
+//
+// We override use_polymorphic_bind, so this is just the GenericResultType.
+//
+// If absent, return dyn as a fallback.
+cel::Type GetResultType(const ValidationResult& validation) {
+  return validation.GetGenericResultType().value_or(DynType());
 }
 
 bool HasErrors(const policy_internal::IssueReporter& issues) {
@@ -392,13 +402,9 @@ class PolicyCompiler {
     cel::Type result_type = DynType();
     if (output_validation.IsValid()) {
       CEL_ASSIGN_OR_RETURN(auto ast, output_validation.ReleaseAst());
-      auto root_expr_id = ast->root_expr().id();
       output.output_ast =
           EmbeddedAst{output_block.output().id(), std::move(ast)};
-      if (auto it = output_validation.GetResolvedTypeMap().find(root_expr_id);
-          it != output_validation.GetResolvedTypeMap().end()) {
-        result_type = it->second;
-      }
+      result_type = GetResultType(output_validation);
     }
     if (output_block.explanation().has_value()) {
       CEL_ASSIGN_OR_RETURN(
@@ -483,12 +489,8 @@ class PolicyCompiler {
         continue;
       }
       CEL_ASSIGN_OR_RETURN(auto ast, validation.ReleaseAst());
-      cel::Type result_type = DynType();
+      cel::Type result_type = GetResultType(validation);
 
-      if (auto it = validation.GetResolvedTypeMap().find(ast->root_expr().id());
-          it != validation.GetResolvedTypeMap().end()) {
-        result_type = it->second;
-      }
       out->variables.push_back(CompiledVariable{
           ident,
           EmbeddedAst{variable.expression().id(), std::move(ast)},
@@ -1211,6 +1213,9 @@ absl::StatusOr<CelPolicyValidationResult> CompilePolicy(
         "unnesting_height_limit must be at least 2");
   }
   auto builder = compiler.ToBuilder();
+  // Preserve polymorphic bind behavior so variables act the same as though they
+  // were directly in the expression.
+  builder->GetCheckerBuilder().mutable_options().use_polymorphic_bind = true;
   ExpressionContainer cont;
   for (const auto& import : policy.imports()) {
     auto status = cont.AddAbbreviation(import.name().value());
