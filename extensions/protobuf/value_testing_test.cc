@@ -14,12 +14,12 @@
 
 #include "extensions/protobuf/value_testing.h"
 
+#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "common/value.h"
 #include "common/value_testing.h"
 #include "extensions/protobuf/value.h"
 #include "internal/proto_matchers.h"
 #include "internal/testing.h"
-#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 
 namespace cel::extensions::test {
 namespace {

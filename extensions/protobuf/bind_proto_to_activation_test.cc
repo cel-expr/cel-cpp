@@ -17,11 +17,11 @@
 #include "google/protobuf/wrappers.pb.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
+#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "common/value.h"
 #include "common/value_testing.h"
 #include "internal/testing.h"
 #include "runtime/activation.h"
-#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 
 namespace cel::extensions {

@@ -24,6 +24,7 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "base/attribute.h"
 #include "eval/public/activation.h"
 #include "eval/public/builtin_func_registrar.h"
@@ -38,7 +39,6 @@
 #include "internal/testing.h"
 #include "parser/macro.h"
 #include "parser/parser.h"
-#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/text_format.h"
 

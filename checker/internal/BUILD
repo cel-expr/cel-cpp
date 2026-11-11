@@ -201,6 +201,8 @@ cc_test(
         "//parser:macro_registry",
         "//testutil:baseline_tests",
         "//testutil:test_macros",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_cc_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/container:flat_hash_set",
@@ -209,8 +211,6 @@ cc_test(
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@com_google_cel_spec//proto/cel/expr/conformance/proto2:test_all_types_cc_proto",
-        "@com_google_cel_spec//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
         "@com_google_protobuf//:protobuf",
     ],
 )

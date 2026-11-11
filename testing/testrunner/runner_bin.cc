@@ -33,6 +33,7 @@
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "cel/expr/conformance/test/suite.pb.h"
 #include "eval/public/cel_expression.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
@@ -43,7 +44,6 @@
 #include "testing/testrunner/coverage_index.h"
 #include "testing/testrunner/coverage_reporting.h"
 #include "testing/testrunner/runner_lib.h"
-#include "cel/expr/conformance/test/suite.pb.h"
 #include "google/protobuf/text_format.h"
 
 ABSL_FLAG(std::string, test_suite_path, "",

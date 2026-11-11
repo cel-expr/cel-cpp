@@ -16,9 +16,9 @@
 
 #include "google/protobuf/struct.pb.h"
 #include "absl/strings/string_view.h"
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "common/value_testing.h"
 #include "internal/testing.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 
 namespace cel::common_internal {
 namespace {

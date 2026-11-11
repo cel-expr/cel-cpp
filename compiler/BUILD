@@ -125,11 +125,11 @@ cc_test(
         "//internal:testing",
         "//internal:testing_descriptor_pool",
         "//testutil:baseline_tests",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
         "@com_google_absl//absl/algorithm:container",
         "@com_google_absl//absl/status:status_matchers",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@com_google_cel_spec//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
     ],
 )
 

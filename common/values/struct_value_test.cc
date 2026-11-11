@@ -13,12 +13,12 @@
 // limitations under the License.
 
 #include "absl/base/attributes.h"
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "common/value.h"
 #include "internal/parse_text_proto.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
 #include "internal/testing_message_factory.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 
 namespace cel {

@@ -25,6 +25,7 @@
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "base/attribute.h"
 #include "checker/type_checker_builder.h"
 #include "checker/validation_result.h"
@@ -58,7 +59,6 @@
 #include "runtime/runtime_options.h"
 #include "runtime/standard_functions.h"
 #include "runtime/standard_runtime_builder_factory.h"
-#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 
 namespace cel::extensions {

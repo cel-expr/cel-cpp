@@ -235,11 +235,11 @@ cc_library(
     features = ["-use_header_modules"],
     deps = [
         "//internal:status_macros",
+        "@cel_conformance//proto/cel/expr/conformance/test:suite_cc_proto",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_cel_spec//proto/cel/expr:value_cc_proto",
-        "@com_google_cel_spec//proto/cel/expr/conformance/test:suite_cc_proto",
         "@com_google_protobuf//:struct_cc_proto",
         "@yaml-cpp",
     ],

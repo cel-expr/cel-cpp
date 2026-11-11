@@ -13,6 +13,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/type_provider.h"
@@ -37,7 +38,6 @@
 #include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/runtime_options.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "google/protobuf/descriptor.h"
 
 namespace google::api::expr::runtime {

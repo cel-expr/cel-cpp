@@ -23,6 +23,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "common/memory.h"
 #include "common/type.h"
 #include "common/value.h"
@@ -30,7 +31,6 @@
 #include "common/value_testing.h"
 #include "internal/parse_text_proto.h"
 #include "internal/testing.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 

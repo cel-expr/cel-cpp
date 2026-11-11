@@ -26,13 +26,13 @@
 #include "absl/container/flat_hash_map.h"
 #include "absl/memory/memory.h"
 #include "absl/status/statusor.h"
+#include "cel/expr/conformance/test/suite.pb.h"
 #include "common/value.h"
 #include "compiler/compiler.h"
 #include "eval/public/cel_expression.h"
 #include "runtime/activation_interface.h"
 #include "runtime/runtime.h"
 #include "testing/testrunner/cel_expression_source.h"
-#include "cel/expr/conformance/test/suite.pb.h"
 #include "google/protobuf/arena.h"
 namespace cel::test {
 

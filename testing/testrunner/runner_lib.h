@@ -20,11 +20,11 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "cel/expr/conformance/test/suite.pb.h"
 #include "common/value.h"
 #include "testing/testrunner/cel_test_context.h"
 #include "testing/testrunner/coverage_index.h"
 #include "testing/testrunner/coverage_reporting.h"
-#include "cel/expr/conformance/test/suite.pb.h"
 #include "google/protobuf/arena.h"
 
 namespace cel::test {

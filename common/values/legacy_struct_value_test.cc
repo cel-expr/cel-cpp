@@ -22,6 +22,7 @@
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/strings/string_view.h"
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "common/legacy_value.h"
 #include "common/value.h"
 #include "common/value_testing.h"
@@ -31,7 +32,6 @@
 #include "eval/public/structs/proto_message_type_adapter.h"
 #include "internal/testing.h"
 #include "runtime/runtime_options.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 
 namespace cel {
 namespace {

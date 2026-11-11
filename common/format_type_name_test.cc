@@ -14,9 +14,9 @@
 
 #include "common/format_type_name.h"
 
+#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "common/type.h"
 #include "internal/testing.h"
-#include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 
 namespace cel {

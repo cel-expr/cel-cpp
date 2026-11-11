@@ -19,6 +19,7 @@
 #include "absl/log/absl_log.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "cel/expr/conformance/test/suite.pb.h"
 #include "internal/status_macros.h"
 #include "internal/testing_descriptor_pool.h"
 #include "runtime/runtime.h"
@@ -26,7 +27,6 @@
 #include "runtime/standard_runtime_builder_factory.h"
 #include "testing/testrunner/cel_test_context.h"
 #include "testing/testrunner/cel_test_factories.h"
-#include "cel/expr/conformance/test/suite.pb.h"
 #include "google/protobuf/text_format.h"
 
 namespace cel::testing {

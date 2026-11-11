@@ -17,13 +17,13 @@
 #include <optional>
 #include <utility>
 
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "common/type.h"
 #include "common/value.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
 #include "internal/testing_message_factory.h"
 #include "runtime/internal/runtime_type_provider.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"

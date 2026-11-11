@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "eval/public/cel_options.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/structs/cel_proto_wrapper.h"
 #include "eval/public/structs/field_access_impl.h"
 #include "extensions/protobuf/internal/map_reflection.h"
 #include "internal/benchmark.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/map_field.h"

@@ -86,7 +86,7 @@ proto_library(
 proto_library(
     name = "test_external_extensions_proto",
     srcs = ["test_external_extensions.proto"],
-    deps = ["@com_google_cel_spec//proto/cel/expr/conformance/proto2:test_all_types_proto"],
+    deps = ["@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_proto"],
 )
 
 cel_proto_transitive_descriptor_set(

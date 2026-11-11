@@ -203,7 +203,7 @@ cc_test(
         "//internal:testing",
         "//internal:testing_descriptor_pool",
         "//internal:testing_message_factory",
-        "@com_google_cel_spec//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
+        "@cel_conformance//proto/cel/expr/conformance/proto3:test_all_types_cc_proto",
         "@com_google_protobuf//:protobuf",
     ],
 )

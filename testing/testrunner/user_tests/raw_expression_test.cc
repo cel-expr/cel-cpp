@@ -19,6 +19,7 @@
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "cel/expr/conformance/test/suite.pb.h"
 #include "checker/type_checker_builder.h"
 #include "common/decl.h"
 #include "common/type.h"
@@ -33,7 +34,6 @@
 #include "testing/testrunner/cel_expression_source.h"
 #include "testing/testrunner/cel_test_context.h"
 #include "testing/testrunner/cel_test_factories.h"
-#include "cel/expr/conformance/test/suite.pb.h"
 #include "google/protobuf/text_format.h"
 
 namespace cel::testing {

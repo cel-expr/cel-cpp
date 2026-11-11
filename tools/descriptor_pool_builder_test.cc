@@ -19,9 +19,9 @@
 #include "google/protobuf/descriptor.pb.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
-#include "internal/testing.h"
 #include "cel/expr/conformance/proto2/test_all_types.pb.h"
 #include "cel/expr/conformance/proto2/test_all_types_extensions.pb.h"
+#include "internal/testing.h"
 #include "google/protobuf/text_format.h"
 
 using ::absl_testing::IsOk;

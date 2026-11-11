@@ -22,8 +22,8 @@
 #include "absl/base/no_destructor.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
-#include "testing/testrunner/cel_test_context.h"
 #include "cel/expr/conformance/test/suite.pb.h"
+#include "testing/testrunner/cel_test_context.h"
 namespace cel::test {
 namespace internal {
 

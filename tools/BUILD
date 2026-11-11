@@ -225,9 +225,9 @@ cc_test(
     deps = [
         ":descriptor_pool_builder",
         "//internal:testing",
+        "@cel_conformance//proto/cel/expr/conformance/proto2:test_all_types_cc_proto",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:status_matchers",
-        "@com_google_cel_spec//proto/cel/expr/conformance/proto2:test_all_types_cc_proto",
         "@com_google_protobuf//:protobuf",
     ],
 )

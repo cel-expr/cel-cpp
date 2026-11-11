@@ -24,6 +24,7 @@
 #include "absl/strings/ascii.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "checker/optional.h"
 #include "checker/standard_library.h"
 #include "checker/type_check_issue.h"
@@ -37,7 +38,6 @@
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
 #include "testutil/baseline_tests.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 
 namespace cel {
 namespace {

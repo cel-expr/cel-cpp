@@ -31,6 +31,7 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "common/value.h"
 #include "extensions/protobuf/runtime_adapter.h"
 #include "internal/parse_text_proto.h"
@@ -44,7 +45,6 @@
 #include "runtime/runtime_builder.h"
 #include "runtime/runtime_options.h"
 #include "runtime/standard_runtime_builder_factory.h"
-#include "cel/expr/conformance/proto3/test_all_types.pb.h"
 #include "google/protobuf/arena.h"
 
 namespace cel::extensions {
