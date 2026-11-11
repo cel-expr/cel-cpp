@@ -220,9 +220,10 @@ INSTANTIATE_TEST_SUITE_P(
         // Tests for substring()
         "'tacocat'.substring(4) == 'cat'", "'tacocat'.substring(7) == ''",
         "'tacocat'.substring(0, 4) == 'taco'",
-        "'tacocat'.substring(4, 4) == ''",
+        "'tacocat'.substring(4, 4) == ''", "'tacocat'.substring(4, 7) == 'cat'",
+        "'tacocat'.substring(0, 7) == 'tacocat'",
         "'ta©o©αT'.substring(2, 6) == '©o©α'",
-        "'ta©o©αT'.substring(7, 7) == ''",
+        "'ta©o©αT'.substring(4, 7) == '©αT'", "'ta©o©αT'.substring(7, 7) == ''",
 
         // Tests for reverse()
         "''.reverse() == ''", "'hello'.reverse() == 'olleh'",

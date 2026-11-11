@@ -475,6 +475,12 @@ TEST_F(StringValueTest, Substring) {
   EXPECT_THAT(unicode_view.Substring(1, 2, arena()), StringValueIs("€"));
   EXPECT_THAT(unicode_cord.Substring(2, 4, arena()), StringValueIs("€€"));
   EXPECT_THAT(unicode_view.Substring(2, 4, arena()), StringValueIs("€€"));
+  EXPECT_THAT(unicode_cord.Substring(4, 6, arena()), StringValueIs("€€"));
+  EXPECT_THAT(unicode_view.Substring(4, 6, arena()), StringValueIs("€€"));
+  EXPECT_THAT(unicode_cord.Substring(0, 6, arena()), StringValueIs("€€€€€€"));
+  EXPECT_THAT(unicode_view.Substring(0, 6, arena()), StringValueIs("€€€€€€"));
+  EXPECT_THAT(unicode_cord.Substring(6, 6, arena()), StringValueIs(""));
+  EXPECT_THAT(unicode_view.Substring(6, 6, arena()), StringValueIs(""));
   EXPECT_THAT(unicode_cord.Substring(2, arena()), StringValueIs("€€€€"));
   EXPECT_THAT(unicode_view.Substring(2, arena()), StringValueIs("€€€€"));
 
