@@ -667,8 +667,11 @@ absl::StatusOr<std::pair<size_t, size_t>> SubstringImpl(
     ++size_code_points;
     size_code_units += code_units;
   }
-  if (size_code_points == start && start == end) {
-    return std::pair{size_code_units, size_code_units};
+  if (size_code_points == start) {
+    start_code_units = size_code_units;
+  }
+  if (size_code_points == end) {
+    return std::pair{start_code_units, size_code_units};
   }
   return absl::InvalidArgumentError(
       "<string>.substring(<start>, <end>): <start> or <end> is greater than "
@@ -697,8 +700,11 @@ absl::StatusOr<std::pair<size_t, size_t>> SubstringImpl(const absl::Cord& cord,
     ++size_code_points;
     size_code_units += code_units;
   }
-  if (size_code_points == start && start == end) {
-    return std::pair{size_code_units, size_code_units};
+  if (size_code_points == start) {
+    start_code_units = size_code_units;
+  }
+  if (size_code_points == end) {
+    return std::pair{start_code_units, size_code_units};
   }
   return absl::InvalidArgumentError(
       "<string>.substring(<start>, <end>): <start> or <end> is greater than "
