@@ -45,7 +45,11 @@ TEST_P(EnvStdExtensions, RegistrationTest) {
   env.SetDescriptorPool(internal::GetSharedTestingDescriptorPool());
 
   Config config;
-  ASSERT_THAT(config.AddExtensionConfig(param.extension), IsOk());
+  // These test cases exercise features from the newest version of each
+  // extension.
+  ASSERT_THAT(config.AddExtensionConfig(param.extension,
+                                        Config::ExtensionConfig::kLatest),
+              IsOk());
   env.SetConfig(config);
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, env.NewCompiler());

@@ -23,13 +23,21 @@
 
 namespace cel {
 
+struct EnvConfigFromYamlOptions {
+  // Whether to treat an omitted extension `version` as
+  // `Config::ExtensionConfig::kLatest` instead of version 0.
+  // Temporary rollout option; will be removed once callers migrate.
+  bool legacy_default_extension_version_latest = false;
+};
+
 // EnvConfigFromYaml creates an environment configuration from a YAML string.
 //
 // To ensure safety, only pass trusted YAML input. yaml-cpp has some fuzz
 // coverage, but its security model is unclear. Additionally, callers should be
 // aware that improper CEL configuration can lead to unsafe or unpredictably
 // expensive expressions.
-absl::StatusOr<Config> EnvConfigFromYaml(const std::string& yaml);
+absl::StatusOr<Config> EnvConfigFromYaml(
+    const std::string& yaml, const EnvConfigFromYamlOptions& options = {});
 
 struct EnvConfigToYamlOptions {
   // Whether to use type and overload signatures instead of arg/return types in
@@ -63,6 +71,12 @@ struct EnvConfigToYamlOptions {
   //         type_name: "int"
   // TODO(uncreated-issue/91): default to true after all dependencies are updated
   bool use_type_signatures = false;
+
+  // Whether to omit `version` when it is `Config::ExtensionConfig::kLatest` and
+  // emit `version: 0` explicitly instead of emitting `version: latest` and
+  // omitting version 0.
+  // Temporary rollout option; will be removed once callers migrate.
+  bool legacy_omit_latest_extension_version = false;
 };
 
 // EnvConfigToYaml serializes an environment configuration as a YAML string.

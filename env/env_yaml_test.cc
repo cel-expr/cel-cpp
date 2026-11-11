@@ -88,6 +88,8 @@ TEST(EnvYamlTest, ParseExtensionConfigs) {
                     - name: "optional"
                       version: 2
                     - name: "strings"
+                    - name: "lists"
+                      version: 0
                   )yaml"));
 
   EXPECT_THAT(config.GetExtensionConfigs(),
@@ -98,8 +100,9 @@ TEST(EnvYamlTest, ParseExtensionConfigs) {
                   AllOf(Field(&Config::ExtensionConfig::name, "optional"),
                         Field(&Config::ExtensionConfig::version, 2)),
                   AllOf(Field(&Config::ExtensionConfig::name, "strings"),
-                        Field(&Config::ExtensionConfig::version,
-                              Config::ExtensionConfig::kLatest))));
+                        Field(&Config::ExtensionConfig::version, 0)),
+                  AllOf(Field(&Config::ExtensionConfig::name, "lists"),
+                        Field(&Config::ExtensionConfig::version, 0))));
 }
 
 TEST(EnvYamlTest, DefaultExtensionConfigs) {
@@ -107,6 +110,69 @@ TEST(EnvYamlTest, DefaultExtensionConfigs) {
                   )yaml"));
 
   EXPECT_THAT(config.GetExtensionConfigs(), IsEmpty());
+}
+
+TEST(EnvYamlTest, RoundTripExtensionVersions) {
+  const std::string yaml = R"yaml(
+    extensions:
+      - name: "math"
+      - name: "lists"
+        version: 0
+      - name: "strings"
+        version: latest
+      - name: "optional"
+        version: 2
+  )yaml";
+  ASSERT_OK_AND_ASSIGN(Config config, EnvConfigFromYaml(yaml));
+  std::stringstream ss;
+  EnvConfigToYaml(config, ss);
+  ASSERT_OK_AND_ASSIGN(Config round_tripped_config,
+                       EnvConfigFromYaml(ss.str()));
+  EXPECT_THAT(round_tripped_config.GetExtensionConfigs(),
+              UnorderedElementsAre(
+                  AllOf(Field(&Config::ExtensionConfig::name, "math"),
+                        Field(&Config::ExtensionConfig::version, 0)),
+                  AllOf(Field(&Config::ExtensionConfig::name, "lists"),
+                        Field(&Config::ExtensionConfig::version, 0)),
+                  AllOf(Field(&Config::ExtensionConfig::name, "strings"),
+                        Field(&Config::ExtensionConfig::version,
+                              Config::ExtensionConfig::kLatest)),
+                  AllOf(Field(&Config::ExtensionConfig::name, "optional"),
+                        Field(&Config::ExtensionConfig::version, 2))));
+}
+
+TEST(EnvYamlTest, LegacyExtensionVersionOptions) {
+  const std::string yaml = R"yaml(
+    extensions:
+      - name: "math"
+      - name: "lists"
+        version: 0
+      - name: "optional"
+        version: 2
+  )yaml";
+  ASSERT_OK_AND_ASSIGN(
+      Config config,
+      EnvConfigFromYaml(yaml,
+                        {.legacy_default_extension_version_latest = true}));
+  EXPECT_THAT(config.GetExtensionConfigs(),
+              UnorderedElementsAre(
+                  AllOf(Field(&Config::ExtensionConfig::name, "math"),
+                        Field(&Config::ExtensionConfig::version,
+                              Config::ExtensionConfig::kLatest)),
+                  AllOf(Field(&Config::ExtensionConfig::name, "lists"),
+                        Field(&Config::ExtensionConfig::version, 0)),
+                  AllOf(Field(&Config::ExtensionConfig::name, "optional"),
+                        Field(&Config::ExtensionConfig::version, 2))));
+
+  std::stringstream ss;
+  EnvConfigToYaml(config, ss, {.legacy_omit_latest_extension_version = true});
+  EXPECT_EQ(ss.str(),
+            "extensions:\n"
+            "  - name: \"lists\"\n"
+            "    version: 0\n"
+            "  - name: \"math\"\n"
+            "  - name: \"optional\"\n"
+            "    version: 2");
 }
 
 TEST(EnvYamlTest, ParseStdlibConfig_ExclusionStyle) {
@@ -1303,6 +1369,8 @@ std::vector<ExportTestCase> GetExportTestCases() {
             CEL_RETURN_IF_ERROR(config.AddExtensionConfig("math"));
             CEL_RETURN_IF_ERROR(config.AddExtensionConfig("optional", 2));
             CEL_RETURN_IF_ERROR(config.AddExtensionConfig("bindings"));
+            CEL_RETURN_IF_ERROR(config.AddExtensionConfig(
+                "strings", Config::ExtensionConfig::kLatest));
             return config;
           }(),
           .expected_yaml = R"yaml(
@@ -1311,6 +1379,8 @@ std::vector<ExportTestCase> GetExportTestCases() {
                   - name: "math"
                   - name: "optional"
                     version: 2
+                  - name: "strings"
+                    version: latest
             )yaml",
       },
       ExportTestCase{
@@ -1813,7 +1883,6 @@ std::vector<std::string> GetStructuredRoundTripTestCases() {
         container: "common.proto.prefix"
         extensions:
           - name: "math"
-            version: 0
           - name: "optional"
             version: 2
         stdlib:

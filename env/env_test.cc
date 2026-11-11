@@ -150,6 +150,8 @@ absl::StatusOr<bool> CompileAndEvalBooleanExpr(
 class LibraryConfigTest : public testing::Test {
  protected:
   void SetUp() override {
+    env_.RegisterCompilerLibrary("testlib", "ml", 0,
+                                 []() { return TestLibrary(0); });
     env_.RegisterCompilerLibrary("testlib", "ml", 1,
                                  []() { return TestLibrary(1); });
     env_.RegisterCompilerLibrary("testlib", "ml", 2,
@@ -160,22 +162,56 @@ class LibraryConfigTest : public testing::Test {
   Env env_;
 };
 
-TEST_F(LibraryConfigTest, DefaultVersion) {
+TEST_F(LibraryConfigTest, LatestVersion) {
+  Config config;
+  ASSERT_THAT(
+      config.AddExtensionConfig("testlib", Config::ExtensionConfig::kLatest),
+      IsOk());
+
+  env_.SetConfig(config);
+
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, env_.NewCompiler());
+  ASSERT_OK_AND_ASSIGN(ValidationResult result1,
+                       compiler->Compile("testMacro1()"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result2,
+                       compiler->Compile("testFunc1()"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result3,
+                       compiler->Compile("testMacro2()"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result4,
+                       compiler->Compile("testFunc2()"));
+
+  EXPECT_THAT(result1.GetIssues(), IsEmpty());
+  EXPECT_THAT(result2.GetIssues(), IsEmpty());
+  EXPECT_THAT(result3.GetIssues(), IsEmpty());
+  EXPECT_THAT(result4.GetIssues(), IsEmpty());
+}
+
+TEST_F(LibraryConfigTest, DefaultVersionIsZero) {
   Config config;
   ASSERT_THAT(config.AddExtensionConfig("testlib"), IsOk());
 
   env_.SetConfig(config);
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<Compiler> compiler, env_.NewCompiler());
-  ASSERT_OK_AND_ASSIGN(auto result1, compiler->Compile("testMacro1()"));
-  ASSERT_OK_AND_ASSIGN(auto result2, compiler->Compile("testFunc1()"));
-  ASSERT_OK_AND_ASSIGN(auto result3, compiler->Compile("testMacro2()"));
-  ASSERT_OK_AND_ASSIGN(auto result4, compiler->Compile("testFunc2()"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result1,
+                       compiler->Compile("testMacro1()"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result2,
+                       compiler->Compile("testFunc1()"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result3,
+                       compiler->Compile("testMacro2()"));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result4,
+                       compiler->Compile("testFunc2()"));
 
   EXPECT_THAT(result1.GetIssues(), IsEmpty());
   EXPECT_THAT(result2.GetIssues(), IsEmpty());
-  EXPECT_THAT(result3.GetIssues(), IsEmpty());
-  EXPECT_THAT(result4.GetIssues(), IsEmpty());
+  EXPECT_THAT(result3.GetIssues(),
+              UnorderedElementsAre(
+                  Property(&TypeCheckIssue::message,
+                           HasSubstr("undeclared reference to 'testMacro2'"))));
+  EXPECT_THAT(result4.GetIssues(),
+              UnorderedElementsAre(
+                  Property(&TypeCheckIssue::message,
+                           HasSubstr("undeclared reference to 'testFunc2'"))));
 }
 
 TEST_F(LibraryConfigTest, SpecificVersion) {

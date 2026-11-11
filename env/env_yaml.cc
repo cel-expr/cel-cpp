@@ -236,7 +236,8 @@ absl::Status ParseContainerConfig(Config& config, absl::string_view yaml,
 }
 
 absl::Status ParseExtensionConfigs(Config& config, absl::string_view yaml,
-                                   const YAML::Node& root) {
+                                   const YAML::Node& root,
+                                   const EnvConfigFromYamlOptions& options) {
   const YAML::Node extensions = root["extensions"];
   if (!extensions.IsDefined()) {
     return absl::OkStatus();
@@ -256,9 +257,11 @@ absl::Status ParseExtensionConfigs(Config& config, absl::string_view yaml,
     std::string name_str = GetString(yaml, name);
 
     const YAML::Node version = extension["version"];
-    std::string version_str = GetString(yaml, version);
-    int extension_version;
+    int extension_version = options.legacy_default_extension_version_latest
+                                ? Config::ExtensionConfig::kLatest
+                                : 0;
     if (version.IsDefined()) {
+      std::string version_str = GetString(yaml, version);
       bool is_valid_version = false;
       if (version.IsScalar()) {
         if (version_str == "latest") {
@@ -277,8 +280,6 @@ absl::Status ParseExtensionConfigs(Config& config, absl::string_view yaml,
             absl::StrCat("Extension '", name_str,
                          "' version is not a valid number or 'latest'"));
       }
-    } else {
-      extension_version = Config::ExtensionConfig::kLatest;
     }
     absl::Status add_status =
         config.AddExtensionConfig(name_str, extension_version);
@@ -876,7 +877,8 @@ void EmitContainerConfig(const Config& env_config, YAML::Emitter& out) {
   }
 }
 
-void EmitExtensionConfigs(const Config& env_config, YAML::Emitter& out) {
+void EmitExtensionConfigs(const Config& env_config, YAML::Emitter& out,
+                          const EnvConfigToYamlOptions& options) {
   if (env_config.GetExtensionConfigs().empty()) {
     return;
   }
@@ -894,7 +896,15 @@ void EmitExtensionConfigs(const Config& env_config, YAML::Emitter& out) {
     out << YAML::BeginMap;
     out << YAML::Key << "name";
     out << YAML::Value << YAML::DoubleQuoted << extension_config.name;
-    if (extension_config.version != Config::ExtensionConfig::kLatest) {
+    if (options.legacy_omit_latest_extension_version) {
+      if (extension_config.version != Config::ExtensionConfig::kLatest) {
+        out << YAML::Key << "version";
+        out << YAML::Value << extension_config.version;
+      }
+    } else if (extension_config.version == Config::ExtensionConfig::kLatest) {
+      out << YAML::Key << "version";
+      out << YAML::Value << "latest";
+    } else if (extension_config.version != 0) {
       out << YAML::Key << "version";
       out << YAML::Value << extension_config.version;
     }
@@ -1280,7 +1290,8 @@ absl::Status ParseContextVariableConfig(Config& config, absl::string_view yaml,
 
 }  // namespace
 
-absl::StatusOr<Config> EnvConfigFromYaml(const std::string& yaml) {
+absl::StatusOr<Config> EnvConfigFromYaml(
+    const std::string& yaml, const EnvConfigFromYamlOptions& options) {
   Config config;
   CEL_ASSIGN_OR_RETURN(YAML::Node root, LoadYaml(yaml));
   if (!root.IsDefined() || root.IsNull()) {
@@ -1294,7 +1305,7 @@ absl::StatusOr<Config> EnvConfigFromYaml(const std::string& yaml) {
 
   CEL_RETURN_IF_ERROR(ParseName(config, yaml, root));
   CEL_RETURN_IF_ERROR(ParseContainerConfig(config, yaml, root));
-  CEL_RETURN_IF_ERROR(ParseExtensionConfigs(config, yaml, root));
+  CEL_RETURN_IF_ERROR(ParseExtensionConfigs(config, yaml, root, options));
   CEL_RETURN_IF_ERROR(ParseStandardLibraryConfig(config, yaml, root));
   CEL_RETURN_IF_ERROR(ParseContextVariableConfig(config, yaml, root));
   CEL_RETURN_IF_ERROR(ParseVariableConfigs(config, yaml, root));
@@ -1312,7 +1323,7 @@ void EnvConfigToYaml(const Config& env_config, std::ostream& os,
     out << YAML::Value << YAML::DoubleQuoted << env_config.GetName();
   }
   EmitContainerConfig(env_config, out);
-  EmitExtensionConfigs(env_config, out);
+  EmitExtensionConfigs(env_config, out, options);
   EmitStandardLibraryConfig(env_config, out);
   EmitVariableConfigs(env_config, out, options);
   EmitFunctionConfigs(env_config, out, options);

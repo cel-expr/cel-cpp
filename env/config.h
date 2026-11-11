@@ -60,14 +60,17 @@ class Config {
   }
 
   struct ExtensionConfig {
+    // Sentinel requesting the newest registered version of the extension.
     static constexpr int kLatest = std::numeric_limits<int>::max();
 
     std::string name;
-    int version = kLatest;
+    // Defaults to version 0, consistent with cel-go and cel-java. kLatest
+    // requests the newest registered version.
+    int version = 0;
   };
 
-  absl::Status AddExtensionConfig(std::string name,
-                                  int version = ExtensionConfig::kLatest);
+  // Adds an extension config. If version is omitted, defaults to version 0.
+  absl::Status AddExtensionConfig(std::string name, int version = 0);
 
   const std::vector<ExtensionConfig>& GetExtensionConfigs() const {
     return extension_configs_;

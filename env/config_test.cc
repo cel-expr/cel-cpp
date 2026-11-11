@@ -48,16 +48,37 @@ TEST(EnvConfigTest, ExtensionConfigs) {
                   AllOf(Field(&Config::ExtensionConfig::name, "optional"),
                         Field(&Config::ExtensionConfig::version, 2)),
                   AllOf(Field(&Config::ExtensionConfig::name, "strings"),
-                        Field(&Config::ExtensionConfig::version,
-                              Config::ExtensionConfig::kLatest))));
+                        Field(&Config::ExtensionConfig::version, 0))));
 }
 
 TEST(EnvConfigTest, ExtensionConfigConflict) {
   Config config;
   ASSERT_THAT(config.AddExtensionConfig("math", 2), IsOk());
   ASSERT_THAT(config.AddExtensionConfig("math", 2), IsOk());
-  ASSERT_THAT(config.AddExtensionConfig("math", 3),
-              StatusIs(absl::StatusCode::kAlreadyExists));
+  EXPECT_THAT(config.AddExtensionConfig("math", 3),
+              StatusIs(absl::StatusCode::kAlreadyExists,
+                       HasSubstr("Extension 'math' version 2 is already "
+                                 "included. Cannot also include version 3")));
+
+  Config config2;
+  ASSERT_THAT(
+      config2.AddExtensionConfig("strings", Config::ExtensionConfig::kLatest),
+      IsOk());
+  EXPECT_THAT(
+      config2.AddExtensionConfig("strings", 0),
+      StatusIs(
+          absl::StatusCode::kAlreadyExists,
+          HasSubstr("Extension 'strings' version 'latest' is already included. "
+                    "Cannot also include version 0")));
+
+  Config config3;
+  ASSERT_THAT(config3.AddExtensionConfig("strings", 0), IsOk());
+  EXPECT_THAT(
+      config3.AddExtensionConfig("strings", Config::ExtensionConfig::kLatest),
+      StatusIs(
+          absl::StatusCode::kAlreadyExists,
+          HasSubstr("Extension 'strings' version 0 is already included. Cannot "
+                    "also include version 'latest'")));
 }
 
 struct StandardLibraryConfigTestCase {

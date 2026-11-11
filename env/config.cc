@@ -35,6 +35,11 @@ namespace cel {
 
 namespace {
 
+std::string VersionToString(int version) {
+  return version == Config::ExtensionConfig::kLatest ? "'latest'"
+                                                     : absl::StrCat(version);
+}
+
 const char* ConstantKindToTypeName(const ConstantKind& kind) {
   return std::visit(absl::Overload{
                         [](const std::monostate& arg) { return "dyn"; },
@@ -58,15 +63,11 @@ absl::Status Config::AddExtensionConfig(std::string name, int version) {
       if (extension_config.version == version) {
         return absl::OkStatus();
       }
-      std::string version_str;
-      if (version == ExtensionConfig::kLatest) {
-        version_str = "'latest'";
-      } else {
-        version_str = absl::StrCat(version);
-      }
-      return absl::AlreadyExistsError(absl::StrCat(
-          "Extension '", name, "' version ", extension_config.version,
-          " is already included. Cannot also include version ", version_str));
+      return absl::AlreadyExistsError(
+          absl::StrCat("Extension '", name, "' version ",
+                       VersionToString(extension_config.version),
+                       " is already included. Cannot also include version ",
+                       VersionToString(version)));
     }
   }
   extension_configs_.push_back(
