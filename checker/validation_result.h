@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -89,6 +90,17 @@ class ValidationResult {
     resolved_type_map_ = std::move(resolved_type_map);
   }
 
+  // Returns the type of the root expression with free type parameters
+  // preserved as named type parameters (T1, T2, ...).
+  //
+  // Only populated if the AST was checked with an explicit arena and
+  // CheckerOptions::use_polymorphic_bind is enabled. Has the same
+  // lifetime requirements as the resolved type map.
+  std::optional<Type> GetGenericResultType() const {
+    return generic_result_type_;
+  }
+  void SetGenericResultType(Type type) { generic_result_type_ = type; }
+
   // Returns a string representation of the issues in the result suitable for
   // display.
   //
@@ -108,6 +120,7 @@ class ValidationResult {
  private:
   absl_nullable std::unique_ptr<Ast> ast_;
   TypeMap resolved_type_map_;
+  std::optional<Type> generic_result_type_;
   std::vector<TypeCheckIssue> issues_;
   absl_nullable std::unique_ptr<Source> source_;
 };

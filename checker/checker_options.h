@@ -103,6 +103,24 @@ struct CheckerOptions {
   // Note: The checked AST will contain the json field names and an extension
   // tag, but will require runtime support for resolving the json field names.
   bool use_json_field_names = false;
+
+  // If true, values bound by cel.bind and cel.@block are treated as
+  // polymorphic (Hindley-Milner let-polymorphism): type parameters of the
+  // bound expression that remain unconstrained (e.g. the element type of `[]`)
+  // are generalized, so each reference to the bound variable is inferred
+  // independently instead of constraining or widening the others. Type
+  // parameters shared with enclosing variables are not generalized.
+  //
+  // Also reports the type of the root expression with its free type
+  // parameters preserved as named type parameters (e.g. `list(T1)`) via
+  // ValidationResult::GetGenericResultType(), so bind-like composition outside
+  // of the checker (e.g. policy variables) can declare variables that are
+  // instantiated independently at each reference. Only populated if the AST
+  // was checked with an explicit arena.
+  //
+  // Disabled by default; when disabled, type checking is unchanged. The
+  // resolved type map and the checked AST type map are unaffected either way.
+  bool use_polymorphic_bind = false;
 };
 
 }  // namespace cel

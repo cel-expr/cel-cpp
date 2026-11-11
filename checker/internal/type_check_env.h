@@ -23,6 +23,7 @@
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/absl_check.h"
 #include "absl/memory/memory.h"
 #include "absl/status/status.h"
@@ -64,6 +65,18 @@ class VariableScope {
     return variables_.insert({decl.name(), std::move(decl)}).second;
   }
 
+  // Updates the type of a variable declared directly in this scope. Returns
+  // false if absent. The decl is updated in place, so existing pointers to it
+  // remain valid.
+  bool UpdateLocalVariableType(absl::string_view name, Type type) {
+    auto it = variables_.find(name);
+    if (it == variables_.end()) {
+      return false;
+    }
+    it->second.set_type(std::move(type));
+    return true;
+  }
+
   std::unique_ptr<VariableScope> MakeNestedScope() const
       ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return absl::WrapUnique(new VariableScope(this));
@@ -71,6 +84,18 @@ class VariableScope {
 
   const VariableDecl* absl_nullable LookupLocalVariable(
       absl::string_view name) const;
+
+  // Calls `f` for each variable declared in this scope or its parent scopes.
+  // Shadowed declarations are included.
+  void ForEachVisibleVariable(
+      absl::FunctionRef<void(const VariableDecl&)> f) const {
+    for (const VariableScope* scope = this; scope != nullptr;
+         scope = scope->parent_) {
+      for (const auto& entry : scope->variables_) {
+        f(entry.second);
+      }
+    }
+  }
 
  private:
   explicit VariableScope(

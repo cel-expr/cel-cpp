@@ -94,6 +94,7 @@ class TypeCheckerBuilderImpl : public TypeCheckerBuilder {
       ExpressionContainer expression_container) override;
 
   const CheckerOptions& options() const override { return options_; }
+  CheckerOptions& mutable_options() override { return options_; }
 
   google::protobuf::Arena* absl_nonnull arena() override {
     if (type_arena_ == nullptr) {

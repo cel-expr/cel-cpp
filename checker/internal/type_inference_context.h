@@ -22,6 +22,8 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/node_hash_map.h"
+#include "absl/container/node_hash_set.h"
+#include "absl/functional/function_ref.h"
 #include "absl/log/absl_check.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
@@ -121,6 +123,29 @@ class TypeInferenceContext {
   // Recursively apply any substitutions to the given type.
   Type FullySubstitute(const Type& type, bool free_to_dyn = false) const;
 
+  // Returns `type` with bound type variables fully substituted and every
+  // remaining free type variable that does not occur free in any of
+  // `env_types` replaced by a generic type parameter (Hindley-Milner
+  // generalization).
+  //
+  // Each subsequent `InstantiateTypeParams` call on the result mints fresh
+  // type variables for the generic parameters, so references to a variable
+  // declared with the result are inferred independently (let-polymorphism).
+  // This is used for lazily evaluated bindings (cel.bind, cel.@block) whose
+  // initializer has an unconstrained type (e.g. `[]`).
+  //
+  // `env_types` are the types of the variables in scope at the binding (e.g.
+  // an enclosing comprehension's iteration variable). Free type variables
+  // shared with them are left as is, so constraints from references to the
+  // binding still flow to the enclosing variables.
+  Type Generalize(const Type& type, absl::Span<const Type> env_types = {});
+
+  // Like `Generalize`, but names the generic type parameters `T1`, `T2`, ...
+  // in order of first occurrence. Names are allocated on the arena, so the
+  // result does not depend on the lifetime of this context and is suitable
+  // for declaring variables in another type checker environment.
+  Type GeneralizeWithCanonicalNames(const Type& type) const;
+
   // Replace any generic type parameters in the given type with specific type
   // variables. Internally, type variables are just a unique string parameter
   // name.
@@ -200,6 +225,12 @@ class TypeInferenceContext {
 
   Type Substitute(const Type& type, const SubstitutionMap& substitutions) const;
 
+  // Fully substitutes `type`, replacing each remaining free type variable
+  // with the result of `replace_free_var(var_name)`.
+  Type SubstituteFreeVars(
+      const Type& type,
+      absl::FunctionRef<Type(absl::string_view)> replace_free_var) const;
+
   // Types have special unification: type(A) and type(B) unify to type(dyn) if
   // A and B are not co-assignable. This applies at any depth of matching
   // parameterized types (e.g. list(type(int)) and list(type(uint)) unify to
@@ -232,6 +263,11 @@ class TypeInferenceContext {
   //
   // nullopt signifies a free type variable.
   absl::node_hash_map<std::string, TypeVar> type_parameter_bindings_;
+  // Names of generic type parameters introduced by `Generalize`.
+  //
+  // node_hash_set is used to preserve pointer stability for use with
+  // TypeParamType.
+  absl::node_hash_set<std::string> generic_type_param_names_;
   int64_t next_type_parameter_id_ = 0;
   google::protobuf::Arena* arena_;
   bool enable_legacy_null_assignment_;

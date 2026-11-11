@@ -210,6 +210,94 @@ TEST(TypeInferenceContextTest, InstantiateTypeParamsOpaque) {
                           IsTypeParam("T%2"), IsTypeParam("T%1")));
 }
 
+TEST(TypeInferenceContextTest, GeneralizeFreeTypeVars) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  Type map_type = context.InstantiateTypeParams(
+      MapType(&arena, TypeParamType("K"), TypeParamType("K")));
+  ASSERT_THAT(map_type, IsMapType(IsTypeParam("T%1"), IsTypeParam("T%1")));
+
+  Type generic = context.Generalize(map_type);
+  EXPECT_THAT(generic, IsMapType(IsTypeParam("%G1"), IsTypeParam("%G1")));
+
+  // Each instantiation mints fresh type vars, preserving links between
+  // positions.
+  EXPECT_THAT(context.InstantiateTypeParams(generic),
+              IsMapType(IsTypeParam("T%2"), IsTypeParam("T%2")));
+  EXPECT_THAT(context.InstantiateTypeParams(generic),
+              IsMapType(IsTypeParam("T%3"), IsTypeParam("T%3")));
+}
+
+TEST(TypeInferenceContextTest, GeneralizeSubstitutesBoundTypeVars) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  Type map_type = context.InstantiateTypeParams(
+      MapType(&arena, TypeParamType("K"), TypeParamType("V")));
+  ASSERT_THAT(map_type, IsMapType(IsTypeParam("T%1"), IsTypeParam("T%2")));
+  ASSERT_TRUE(context.IsAssignable(StringType(), TypeParamType("T%1")));
+
+  EXPECT_THAT(context.Generalize(map_type),
+              IsMapType(IsTypeKind(TypeKind::kString), IsTypeParam("%G2")));
+}
+
+TEST(TypeInferenceContextTest, GeneralizeKeepsEnvironmentTypeVars) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  Type map_type = context.InstantiateTypeParams(
+      MapType(&arena, TypeParamType("K"), TypeParamType("V")));
+  ASSERT_THAT(map_type, IsMapType(IsTypeParam("T%1"), IsTypeParam("T%2")));
+  // An enclosing variable's type references T%1 (via a binding to T%3).
+  Type env_type =
+      context.InstantiateTypeParams(ListType(&arena, TypeParamType("E")));
+  ASSERT_THAT(env_type, IsListType(IsTypeParam("T%3")));
+  ASSERT_TRUE(context.IsAssignable(TypeParamType("T%1"), TypeParamType("T%3")));
+
+  Type env_types[] = {env_type};
+  Type generic = context.Generalize(map_type, env_types);
+  // T%1 is shared with the environment, so it stays monomorphic. Whether it is
+  // reported as T%1 or T%3 depends on the binding direction.
+  ASSERT_THAT(generic, IsTypeKind(TypeKind::kMap));
+  Type key = generic.AsMap()->GetKey();
+  ASSERT_THAT(key, IsTypeKind(TypeKind::kTypeParam));
+  EXPECT_TRUE(key.AsTypeParam()->name() == "T%1" ||
+              key.AsTypeParam()->name() == "T%3")
+      << key.AsTypeParam()->name();
+  EXPECT_THAT(generic.AsMap()->GetValue(), IsTypeParam("%G2"));
+
+  // Instantiating keeps the shared var and mints a fresh one for the value.
+  Type instance = context.InstantiateTypeParams(generic);
+  EXPECT_EQ(instance.AsMap()->GetKey().AsTypeParam()->name(),
+            key.AsTypeParam()->name());
+  EXPECT_THAT(instance.AsMap()->GetValue(), IsTypeParam("T%4"));
+}
+
+TEST(TypeInferenceContextTest, GeneralizeConcreteTypeIsUnchanged) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  Type list_type = ListType(&arena, IntType());
+
+  EXPECT_THAT(context.Generalize(list_type),
+              IsListType(IsTypeKind(TypeKind::kInt)));
+}
+
+TEST(TypeInferenceContextTest, GeneralizedTypeIsIndependentOfInstances) {
+  google::protobuf::Arena arena;
+  TypeInferenceContext context(&arena);
+  Type generic = context.Generalize(
+      context.InstantiateTypeParams(ListType(&arena, TypeParamType("E"))));
+
+  // Binding one instance does not affect the generic type or other instances.
+  Type instance1 = context.InstantiateTypeParams(generic);
+  Type instance2 = context.InstantiateTypeParams(generic);
+  ASSERT_TRUE(context.IsAssignable(ListType(&arena, IntType()), instance1));
+  ASSERT_TRUE(context.IsAssignable(ListType(&arena, StringType()), instance2));
+  EXPECT_THAT(context.FinalizeType(instance1),
+              IsListType(IsTypeKind(TypeKind::kInt)));
+  EXPECT_THAT(context.FinalizeType(instance2),
+              IsListType(IsTypeKind(TypeKind::kString)));
+  EXPECT_THAT(context.Generalize(generic), IsListType(IsTypeParam("%G1")));
+}
+
 // TODO(uncreated-issue/72): Does not consider any substitutions based on type
 // inferences yet.
 TEST(TypeInferenceContextTest, OpaqueTypeAssignable) {

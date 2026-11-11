@@ -70,6 +70,29 @@ bool MatchesBlock(const Expr& expr) {
          call.args()[0].has_list_expr();
 }
 
+// Returns true if the comprehension's loop step is just a reference to the
+// accumulator (e.g. the cel.bind expansion). The accumulator is then always
+// the value of accu_init.
+bool IsBindShapedComprehension(const ComprehensionExpr& comprehension) {
+  return comprehension.loop_step().has_ident_expr() &&
+         comprehension.loop_step().ident_expr().name() ==
+             comprehension.accu_var();
+}
+
+// Returns the types of the local variables visible from `scope`, i.e. the
+// environment for generalizing a binding declared in a child of `scope`.
+//
+// Declared (global) variables are not included: their types can only contain
+// declared type parameters, which are instantiated with fresh type variables
+// at each reference, so they never share inference type variables with a
+// binding.
+std::vector<Type> VisibleLocalVariableTypes(const VariableScope& scope) {
+  std::vector<Type> types;
+  scope.ForEachVisibleVariable(
+      [&](const VariableDecl& decl) { types.push_back(decl.type()); });
+  return types;
+}
+
 using AstType = cel::TypeSpec;
 using Severity = TypeCheckIssue::Severity;
 
@@ -206,7 +229,7 @@ class ResolveVisitor : public AstVisitorBase {
                  const TypeCheckEnv& env, const Ast& ast,
                  TypeInferenceContext& inference_context,
                  std::vector<TypeCheckIssue>& issues,
-                 google::protobuf::Arena* absl_nonnull arena)
+                 google::protobuf::Arena* absl_nonnull arena, bool use_polymorphic_bind)
       : namespace_generator_(std::move(namespace_generator)),
         env_(&env),
         inference_context_(&inference_context),
@@ -214,6 +237,7 @@ class ResolveVisitor : public AstVisitorBase {
         ast_(&ast),
         root_scope_(),
         arena_(arena),
+        use_polymorphic_bind_(use_polymorphic_bind),
         current_scope_(&root_scope_) {}
 
   void PreVisitExpr(const Expr& expr) override {
@@ -454,6 +478,8 @@ class ResolveVisitor : public AstVisitorBase {
   const Ast* absl_nonnull ast_;
   VariableScope root_scope_;
   google::protobuf::Arena* absl_nonnull arena_;
+  // See CheckerOptions::use_polymorphic_bind.
+  bool use_polymorphic_bind_;
 
   // state tracking for the traversal.
   const VariableScope* current_scope_;
@@ -907,6 +933,21 @@ void ResolveVisitor::PostVisitComprehensionSubexpression(
       if (!inference_context_->IsAssignable(step_type, accu_type)) {
         ReportTypeMismatch(comprehension.loop_step().id(), accu_type,
                            step_type);
+        break;
+      }
+      // With polymorphic bind, for bind-shaped comprehensions (the loop step
+      // is just the accumulator, as in the cel.bind expansion), the
+      // accumulator is a lazily evaluated alias for accu_init. Generalize its
+      // type so that each reference in the result is inferred independently,
+      // like a cel.@block index
+      // (e.g. `cel.bind(x, [], x + [1] == [1] && x + ['a'] == ['a'])`).
+      // Type params shared with variables in the enclosing scope are not
+      // generalized.
+      if (use_polymorphic_bind_ && IsBindShapedComprehension(comprehension)) {
+        scope.accu_scope->UpdateLocalVariableType(
+            comprehension.accu_var(),
+            inference_context_->Generalize(
+                accu_type, VisibleLocalVariableTypes(*scope.parent)));
       }
       break;
     }
@@ -1328,8 +1369,14 @@ void ResolveVisitor::HandleBlockIndex(const Expr* expr) {
 
   // Block is typically manually assembled from logically separate
   // expressions so fix the type instead of inferring any remaining free type
-  // params as for normal subexpressions.
-  auto type = inference_context_->FinalizeType(GetDeducedType(expr));
+  // params as for normal subexpressions. With polymorphic bind, generalize any
+  // remaining free type params instead: each reference to the index is
+  // inferred independently instead of constraining (or widening) the others.
+  Type type = use_polymorphic_bind_
+                  ? inference_context_->Generalize(
+                        GetDeducedType(expr),
+                        VisibleLocalVariableTypes(*current_scope_))
+                  : inference_context_->FinalizeType(GetDeducedType(expr));
 
   VariableDecl decl = MakeVariableDecl(var_name, std::move(type));
 
@@ -1451,7 +1498,8 @@ absl::StatusOr<ValidationResult> TypeCheckerImpl::CheckImpl(
   TypeInferenceContext type_inference_context(
       arena, options_.enable_legacy_null_assignment);
   ResolveVisitor visitor(std::move(generator), env_, *ast,
-                         type_inference_context, issues, arena);
+                         type_inference_context, issues, arena,
+                         options_.use_polymorphic_bind);
 
   TraversalOptions opts;
   opts.use_comprehension_callbacks = true;
@@ -1496,6 +1544,14 @@ absl::StatusOr<ValidationResult> TypeCheckerImpl::CheckImpl(
   // Apply updates as needed.
   // Happens in a second pass to simplify validating that pointers haven't
   // been invalidated by other updates.
+  std::optional<Type> generic_result_type;
+  if (options_.use_polymorphic_bind && !type_arena.has_value()) {
+    if (auto it = visitor.types().find(&ast->root_expr());
+        it != visitor.types().end()) {
+      generic_result_type =
+          type_inference_context.GeneralizeWithCanonicalNames(it->second);
+    }
+  }
   ValidationResult::TypeMap resolved_types;
   ResolveRewriter rewriter(visitor, type_inference_context, options_,
                            ast->mutable_reference_map(),
@@ -1518,6 +1574,9 @@ absl::StatusOr<ValidationResult> TypeCheckerImpl::CheckImpl(
     // arena is destructed. Only set the resolved type map if we're using the
     // caller's arena.
     result.SetResolvedTypeMap(std::move(resolved_types));
+    if (generic_result_type.has_value()) {
+      result.SetGenericResultType(*std::move(generic_result_type));
+    }
   }
 
   return result;

@@ -22,6 +22,7 @@
 
 #include "absl/base/no_destructor.h"
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/functional/function_ref.h"
 #include "absl/log/absl_check.h"
 #include "absl/log/absl_log.h"
@@ -37,6 +38,7 @@
 #include "common/standard_definitions.h"
 #include "common/type.h"
 #include "common/type_kind.h"
+#include "google/protobuf/arena.h"
 
 namespace cel::checker_internal {
 namespace {
@@ -756,6 +758,62 @@ Type TypeInferenceContext::FullySubstitute(const Type& type,
     if (free_to_dyn && t.kind() == TypeKind::kTypeParam) {
       t = DynType();
     }
+  });
+}
+
+Type TypeInferenceContext::SubstituteFreeVars(
+    const Type& type,
+    absl::FunctionRef<Type(absl::string_view)> replace_free_var) const {
+  return TransformTypeRecursively(arena_, type, [&](Type& t) {
+    if (t.kind() != TypeKind::kTypeParam) {
+      return;
+    }
+    // The substitution may itself contain type params; they are handled as
+    // the transform recurses into it.
+    t = Substitute(t, {});
+    if (t.kind() == TypeKind::kTypeParam &&
+        IsTypeVar(t.GetTypeParam().name())) {
+      t = replace_free_var(t.GetTypeParam().name());
+    }
+  });
+}
+
+Type TypeInferenceContext::Generalize(const Type& type,
+                                      absl::Span<const Type> env_types) {
+  // Free type vars that occur in the environment stay monomorphic.
+  absl::flat_hash_set<absl::string_view> env_free_vars;
+  for (const Type& env_type : env_types) {
+    SubstituteFreeVars(env_type, [&](absl::string_view var_name) -> Type {
+      env_free_vars.insert(var_name);
+      return DynType();
+    });
+  }
+  return SubstituteFreeVars(type, [&](absl::string_view var_name) -> Type {
+    if (env_free_vars.contains(var_name)) {
+      // var_name refers to the key in type_parameter_bindings_, so it is
+      // stable.
+      return TypeParamType(var_name);
+    }
+    // Type vars are named "T%<id>"; the generic parameter is "%G<id>", which
+    // can't collide with declared type parameter names and is not treated as
+    // an instantiated type var by InstantiateTypeParams.
+    auto it =
+        generic_type_param_names_.insert(absl::StrCat("%G", var_name.substr(2)))
+            .first;
+    return TypeParamType(*it);
+  });
+}
+
+Type TypeInferenceContext::GeneralizeWithCanonicalNames(
+    const Type& type) const {
+  absl::flat_hash_map<absl::string_view, absl::string_view> names;
+  return SubstituteFreeVars(type, [&](absl::string_view var_name) -> Type {
+    auto [it, inserted] = names.try_emplace(var_name);
+    if (inserted) {
+      it->second = *google::protobuf::Arena::Create<std::string>(
+          arena_, absl::StrCat("T", names.size()));
+    }
+    return TypeParamType(it->second);
   });
 }
 

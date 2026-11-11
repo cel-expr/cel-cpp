@@ -167,6 +167,14 @@ class TypeCheckerBuilder {
   // The current options for the TypeChecker being built.
   virtual const CheckerOptions& options() const = 0;
 
+  // Mutable access to the options for the TypeChecker being built (e.g. to
+  // adjust options on a builder obtained from TypeChecker::ToBuilder()).
+  //
+  // Options that validate declarations as they are added (e.g.
+  // enable_type_parameter_name_validation, max_type_decl_nesting) only apply
+  // to declarations added after the update.
+  virtual CheckerOptions& mutable_options() = 0;
+
   // Builds a new TypeChecker instance.
   virtual absl::StatusOr<std::unique_ptr<TypeChecker>> Build() = 0;
 

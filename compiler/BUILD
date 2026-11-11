@@ -133,6 +133,34 @@ cc_test(
     ],
 )
 
+cc_test(
+    name = "free_type_param_test",
+    srcs = ["free_type_param_test.cc"],
+    deps = [
+        ":compiler",
+        ":compiler_factory",
+        ":optional",
+        ":standard_library",
+        "//checker:type_checker_builder",
+        "//checker:validation_result",
+        "//common:ast",
+        "//common:decl",
+        "//common:expr",
+        "//common:navigable_ast",
+        "//common:type",
+        "//extensions:bindings_ext",
+        "//internal:status_macros",
+        "//internal:testing",
+        "//internal:testing_descriptor_pool",
+        "//testutil:test_macros",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
 cc_library(
     name = "standard_library",
     srcs = ["standard_library.cc"],

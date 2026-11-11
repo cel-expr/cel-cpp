@@ -887,6 +887,16 @@ class TestExprBuilder {
   // `__result__`.
   std::unique_ptr<Ast> ComprehensionAst(Expr accu_init, Expr loop_condition,
                                         Expr loop_step) {
+    Expr result = Ident("__result__");
+    return ComprehensionAst(std::move(accu_init), std::move(loop_condition),
+                            std::move(loop_step), std::move(result));
+  }
+
+  // Builds a comprehension over the range `[1, 2]` (iteration variable `i`,
+  // accumulator `__result__`) with the given accu_init, loop_condition,
+  // loop_step and result.
+  std::unique_ptr<Ast> ComprehensionAst(Expr accu_init, Expr loop_condition,
+                                        Expr loop_step, Expr result) {
     Expr expr = NewExpr();
     ComprehensionExpr& comprehension = expr.mutable_comprehension_expr();
     comprehension.set_iter_var("i");
@@ -895,7 +905,7 @@ class TestExprBuilder {
     comprehension.set_accu_init(std::move(accu_init));
     comprehension.set_loop_condition(std::move(loop_condition));
     comprehension.set_loop_step(std::move(loop_step));
-    comprehension.set_result(Ident("__result__"));
+    comprehension.set_result(std::move(result));
     return std::make_unique<Ast>(std::move(expr), SourceInfo());
   }
 
@@ -1053,6 +1063,85 @@ TEST(TypeCheckerImplTest, ComprehensionRecursiveAccumulatorIsError) {
               Contains(IsIssueWithSubstring(Severity::kError,
                                             "expected type 'list(dyn)' but "
                                             "found 'list(list(dyn))'")));
+}
+
+// For a bind-shaped comprehension (loop step is the accumulator), references
+// to the accumulator in the result are inferred independently.
+TEST(TypeCheckerImplTest, BindShapedComprehensionAccumulatorIsGeneralized) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  CheckerOptions options;
+  options.use_polymorphic_bind = true;
+  TypeCheckerImpl impl(std::move(env), options);
+
+  // [__result__ + [1], __result__ + ['a']]
+  TestExprBuilder b;
+  Expr result_expr =
+      b.List(b.Call("_+_", b.Ident("__result__"), b.List(b.IntConst(1))),
+             b.Call("_+_", b.Ident("__result__"), b.List(b.StringConst("a"))));
+  std::unique_ptr<Ast> ast = b.ComprehensionAst(
+      /*accu_init=*/b.List(), /*loop_condition=*/b.BoolConst(false),
+      /*loop_step=*/b.Ident("__result__"), std::move(result_expr));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result,
+                       impl.Check(std::move(ast), &arena));
+  ASSERT_TRUE(result.IsValid()) << result.FormatError();
+  const Expr& root = result.GetAst()->root_expr();
+  EXPECT_EQ(FormatTypeName(result.GetResolvedTypeMap().at(root.id())),
+            "list(dyn)");
+  // The accumulator init is not constrained by the references.
+  EXPECT_EQ(FormatTypeName(result.GetResolvedTypeMap().at(
+                root.comprehension_expr().accu_init().id())),
+            "list(dyn)");
+}
+
+// Without CheckerOptions::use_polymorphic_bind, references to the accumulator
+// of a bind-shaped comprehension share its type params.
+TEST(TypeCheckerImplTest,
+     BindShapedComprehensionAccumulatorNotGeneralizedByDefault) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  // [__result__ + [1], __result__ + ['a']]
+  TestExprBuilder b;
+  Expr result_expr =
+      b.List(b.Call("_+_", b.Ident("__result__"), b.List(b.IntConst(1))),
+             b.Call("_+_", b.Ident("__result__"), b.List(b.StringConst("a"))));
+  std::unique_ptr<Ast> ast = b.ComprehensionAst(
+      /*accu_init=*/b.List(), /*loop_condition=*/b.BoolConst(false),
+      /*loop_step=*/b.Ident("__result__"), std::move(result_expr));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(Severity::kError,
+                                            "no matching overload for '_+_'")));
+}
+
+// Other comprehensions keep a single (monomorphic) accumulator type, even if
+// the loop step leaves it unconstrained.
+TEST(TypeCheckerImplTest, NonBindComprehensionAccumulatorIsNotGeneralized) {
+  TypeCheckEnv env(GetSharedTestingDescriptorPool());
+  google::protobuf::Arena arena;
+  ASSERT_THAT(RegisterMinimalBuiltins(&arena, env), IsOk());
+  TypeCheckerImpl impl(std::move(env));
+
+  // loop step: __result__ + []
+  // result: [__result__ + [1], __result__ + ['a']]
+  TestExprBuilder b;
+  Expr result_expr =
+      b.List(b.Call("_+_", b.Ident("__result__"), b.List(b.IntConst(1))),
+             b.Call("_+_", b.Ident("__result__"), b.List(b.StringConst("a"))));
+  std::unique_ptr<Ast> ast = b.ComprehensionAst(
+      /*accu_init=*/b.List(), /*loop_condition=*/b.BoolConst(true),
+      /*loop_step=*/b.Call("_+_", b.Ident("__result__"), b.List()),
+      std::move(result_expr));
+  ASSERT_OK_AND_ASSIGN(ValidationResult result, impl.Check(std::move(ast)));
+  EXPECT_FALSE(result.IsValid());
+  EXPECT_THAT(result.GetIssues(),
+              Contains(IsIssueWithSubstring(Severity::kError,
+                                            "no matching overload for '_+_'")));
 }
 
 TEST(TypeCheckerImplTest, MapTypeWithMixedKeys) {
