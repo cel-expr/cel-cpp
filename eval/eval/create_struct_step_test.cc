@@ -168,7 +168,9 @@ class CreateCreateStructStepTest
 TEST_P(CreateCreateStructStepTest, TestEmptyMessageCreation) {
   ExecutionPath path;
 
-  auto adapter = env_->legacy_type_registry.FindTypeAdapter(
+  CelTypeRegistry legacy_type_registry(env_->descriptor_pool.get(),
+                                       env_->MutableMessageFactory());
+  auto adapter = legacy_type_registry.FindTypeAdapter(
       "google.api.expr.runtime.TestMessage");
   ASSERT_TRUE(adapter.has_value() && adapter->access_apis() != nullptr);
 

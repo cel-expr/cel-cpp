@@ -31,10 +31,7 @@
 #include "common/native_type.h"
 #include "common/value.h"
 #include "common/value_kind.h"
-#include "common/values/list_value_builder.h"
-#include "common/values/map_value_builder.h"
 #include "common/values/values.h"
-#include "eval/public/cel_value.h"
 #include "internal/status_macros.h"
 #include "internal/well_known_types.h"
 #include "google/protobuf/arena.h"
@@ -48,8 +45,6 @@ namespace {
 
 using ::cel::well_known_types::StructReflection;
 using ::cel::well_known_types::ValueReflection;
-using ::google::api::expr::runtime::CelList;
-using ::google::api::expr::runtime::CelValue;
 
 absl::Status NoSuchKeyError(const Value& key) {
   return absl::NotFoundError(
@@ -61,7 +56,7 @@ absl::Status InvalidMapKeyTypeError(ValueKind kind) {
       absl::StrCat("Invalid map key type: '", ValueKindToString(kind), "'"));
 }
 
-class EmptyMapValue final : public common_internal::CompatMapValue {
+class EmptyMapValue final : public CustomMapValueInterface {
  public:
   static const EmptyMapValue& Get() {
     static const absl::NoDestructor<EmptyMapValue> empty;
@@ -69,8 +64,6 @@ class EmptyMapValue final : public common_internal::CompatMapValue {
   }
 
   EmptyMapValue() = default;
-
-  google::protobuf::Arena* GetOwningArena() const override { return nullptr; }
 
   std::string DebugString() const override { return "{}"; }
 
@@ -109,28 +102,6 @@ class EmptyMapValue final : public common_internal::CompatMapValue {
     return CustomMapValue();
   }
 
-  absl::optional<CelValue> operator[](CelValue key) const override {
-    return std::nullopt;
-  }
-
-  using CompatMapValue::Get;
-  absl::optional<CelValue> Get(google::protobuf::Arena* arena,
-                               CelValue key) const override {
-    return std::nullopt;
-  }
-
-  absl::StatusOr<bool> Has(const CelValue& key) const override { return false; }
-
-  int size() const override { return static_cast<int>(Size()); }
-
-  absl::StatusOr<const CelList*> ListKeys() const override {
-    return common_internal::EmptyCompatListValue();
-  }
-
-  absl::StatusOr<const CelList*> ListKeys(google::protobuf::Arena*) const override {
-    return ListKeys();
-  }
-
  private:
   absl::StatusOr<bool> Find(
       const Value& key,
@@ -148,17 +119,13 @@ class EmptyMapValue final : public common_internal::CompatMapValue {
       google::protobuf::Arena* absl_nonnull arena) const override {
     return false;
   }
+
+  NativeTypeId GetNativeTypeId() const override {
+    return NativeTypeId::For<EmptyMapValue>();
+  }
 };
 
 }  // namespace
-
-namespace common_internal {
-
-const CompatMapValue* absl_nonnull EmptyCompatMapValue() {
-  return &EmptyMapValue::Get();
-}
-
-}  // namespace common_internal
 
 class CustomMapValueInterfaceIterator final : public ValueIterator {
  public:

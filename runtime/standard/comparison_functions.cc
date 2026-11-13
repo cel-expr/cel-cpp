@@ -14,15 +14,22 @@
 
 #include "runtime/standard/comparison_functions.h"
 
-#include <cstdint>
+#include <memory>
+#include <utility>
 
 #include "absl/status/status.h"
-#include "absl/time/time.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "absl/types/optional.h"
+#include "absl/types/span.h"
 #include "base/builtins.h"
-#include "base/function_adapter.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
 #include "common/value.h"
+#include "common/value_kind.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
+#include "runtime/function.h"
 #include "runtime/function_registry.h"
 #include "runtime/runtime_options.h"
 
@@ -32,231 +39,148 @@ namespace {
 
 using ::cel::internal::Number;
 
-// Comparison template functions
-template <class Type>
-bool LessThan(Type t1, Type t2) {
-  return (t1 < t2);
+absl::optional<Number> NumberFromValue(const Value& value) {
+  switch (value.kind()) {
+    case ValueKind::kInt:
+      return Number::FromInt64(value.GetInt().NativeValue());
+    case ValueKind::kUint:
+      return Number::FromUint64(value.GetUint().NativeValue());
+    case ValueKind::kDouble:
+      return Number::FromDouble(value.GetDouble().NativeValue());
+    default:
+      return absl::nullopt;
+  }
 }
 
-template <class Type>
-bool LessThanOrEqual(Type t1, Type t2) {
-  return (t1 <= t2);
-}
+class ComparisonFunction final : public Function {
+ public:
+  enum class Op { kLess, kLessOrEqual, kGreater, kGreaterOrEqual };
 
-template <class Type>
-bool GreaterThan(Type t1, Type t2) {
-  return LessThan(t2, t1);
-}
+  explicit ComparisonFunction(Op op) : op_(op) {}
 
-template <class Type>
-bool GreaterThanOrEqual(Type t1, Type t2) {
-  return LessThanOrEqual(t2, t1);
-}
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext&) const override {
+    if (args.size() != 2) {
+      return absl::InvalidArgumentError(
+          "unexpected number of arguments for binary function");
+    }
+    if (args[0].kind() == args[1].kind()) {
+      switch (args[0].kind()) {
+        case ValueKind::kBool:
+          return BoolValue(CompareOrdered(args[0].GetBool().NativeValue(),
+                                          args[1].GetBool().NativeValue()));
+        case ValueKind::kInt:
+          return BoolValue(CompareOrdered(args[0].GetInt().NativeValue(),
+                                          args[1].GetInt().NativeValue()));
+        case ValueKind::kUint:
+          return BoolValue(CompareOrdered(args[0].GetUint().NativeValue(),
+                                          args[1].GetUint().NativeValue()));
+        case ValueKind::kDouble:
+          return BoolValue(CompareOrdered(args[0].GetDouble().NativeValue(),
+                                          args[1].GetDouble().NativeValue()));
+        case ValueKind::kString: {
+          int cmp = args[0].GetString().Compare(args[1].GetString());
+          return BoolValue(CompareThreeWay(cmp));
+        }
+        case ValueKind::kBytes: {
+          int cmp = args[0].GetBytes().Compare(args[1].GetBytes());
+          return BoolValue(CompareThreeWay(cmp));
+        }
+        case ValueKind::kDuration:
+          return BoolValue(CompareOrdered(args[0].GetDuration().ToDuration(),
+                                          args[1].GetDuration().ToDuration()));
+        case ValueKind::kTimestamp:
+          return BoolValue(CompareOrdered(args[0].GetTimestamp().ToTime(),
+                                          args[1].GetTimestamp().ToTime()));
+        default:
+          return absl::InvalidArgumentError("expected comparable value");
+      }
+    }
 
-// String value comparions specializations
-template <>
-bool LessThan(const StringValue& t1, const StringValue& t2) {
-  return t1.Compare(t2) < 0;
-}
+    absl::optional<Number> lhs = NumberFromValue(args[0]);
+    absl::optional<Number> rhs = NumberFromValue(args[1]);
+    if (!lhs.has_value() || !rhs.has_value()) {
+      return absl::InvalidArgumentError("expected numeric value");
+    }
+    return BoolValue(CompareOrdered(*lhs, *rhs));
+  }
 
-template <>
-bool LessThanOrEqual(const StringValue& t1, const StringValue& t2) {
-  return t1.Compare(t2) <= 0;
-}
+ private:
+  template <typename T>
+  bool CompareOrdered(const T& lhs, const T& rhs) const {
+    switch (op_) {
+      case Op::kLess:
+        return lhs < rhs;
+      case Op::kLessOrEqual:
+        return lhs <= rhs;
+      case Op::kGreater:
+        return lhs > rhs;
+      case Op::kGreaterOrEqual:
+        return lhs >= rhs;
+    }
+  }
 
-template <>
-bool GreaterThan(const StringValue& t1, const StringValue& t2) {
-  return t1.Compare(t2) > 0;
-}
+  bool CompareThreeWay(int cmp) const {
+    switch (op_) {
+      case Op::kLess:
+        return cmp < 0;
+      case Op::kLessOrEqual:
+        return cmp <= 0;
+      case Op::kGreater:
+        return cmp > 0;
+      case Op::kGreaterOrEqual:
+        return cmp >= 0;
+    }
+  }
 
-template <>
-bool GreaterThanOrEqual(const StringValue& t1, const StringValue& t2) {
-  return t1.Compare(t2) >= 0;
-}
+  Op op_;
+};
 
-// bytes value comparions specializations
-template <>
-bool LessThan(const BytesValue& t1, const BytesValue& t2) {
-  return t1.Compare(t2) < 0;
-}
-
-template <>
-bool LessThanOrEqual(const BytesValue& t1, const BytesValue& t2) {
-  return t1.Compare(t2) <= 0;
-}
-
-template <>
-bool GreaterThan(const BytesValue& t1, const BytesValue& t2) {
-  return t1.Compare(t2) > 0;
-}
-
-template <>
-bool GreaterThanOrEqual(const BytesValue& t1, const BytesValue& t2) {
-  return t1.Compare(t2) >= 0;
-}
-
-// Duration comparison specializations
-template <>
-bool LessThan(absl::Duration t1, absl::Duration t2) {
-  return absl::operator<(t1, t2);
-}
-
-template <>
-bool LessThanOrEqual(absl::Duration t1, absl::Duration t2) {
-  return absl::operator<=(t1, t2);
-}
-
-template <>
-bool GreaterThan(absl::Duration t1, absl::Duration t2) {
-  return absl::operator>(t1, t2);
-}
-
-template <>
-bool GreaterThanOrEqual(absl::Duration t1, absl::Duration t2) {
-  return absl::operator>=(t1, t2);
-}
-
-// Timestamp comparison specializations
-template <>
-bool LessThan(absl::Time t1, absl::Time t2) {
-  return absl::operator<(t1, t2);
-}
-
-template <>
-bool LessThanOrEqual(absl::Time t1, absl::Time t2) {
-  return absl::operator<=(t1, t2);
-}
-
-template <>
-bool GreaterThan(absl::Time t1, absl::Time t2) {
-  return absl::operator>(t1, t2);
-}
-
-template <>
-bool GreaterThanOrEqual(absl::Time t1, absl::Time t2) {
-  return absl::operator>=(t1, t2);
-}
-
-template <typename T, typename U>
-bool CrossNumericLessThan(T t, U u) {
-  return Number(t) < Number(u);
-}
-
-template <typename T, typename U>
-bool CrossNumericGreaterThan(T t, U u) {
-  return Number(t) > Number(u);
-}
-
-template <typename T, typename U>
-bool CrossNumericLessOrEqualTo(T t, U u) {
-  return Number(t) <= Number(u);
-}
-
-template <typename T, typename U>
-bool CrossNumericGreaterOrEqualTo(T t, U u) {
-  return Number(t) >= Number(u);
-}
-
-template <class Type>
-absl::Status RegisterComparisonFunctionsForType(
-    cel::FunctionRegistry& registry) {
-  using FunctionAdapter = BinaryFunctionAdapter<bool, Type, Type>;
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kLess, false),
-      FunctionAdapter::WrapFunction(LessThan<Type>)));
-
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kLessOrEqual, false),
-      FunctionAdapter::WrapFunction(LessThanOrEqual<Type>)));
-
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kGreater, false),
-      FunctionAdapter::WrapFunction(GreaterThan<Type>)));
-
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kGreaterOrEqual, false),
-      FunctionAdapter::WrapFunction(GreaterThanOrEqual<Type>)));
-
+absl::Status RegisterComparisonOverloads(FunctionRegistry& registry, Kind lhs,
+                                         Kind rhs) {
+  static constexpr struct {
+    absl::string_view name;
+    ComparisonFunction::Op op;
+  } kOps[] = {
+      {cel::builtin::kLess, ComparisonFunction::Op::kLess},
+      {cel::builtin::kLessOrEqual, ComparisonFunction::Op::kLessOrEqual},
+      {cel::builtin::kGreater, ComparisonFunction::Op::kGreater},
+      {cel::builtin::kGreaterOrEqual, ComparisonFunction::Op::kGreaterOrEqual},
+  };
+  for (const auto& entry : kOps) {
+    CEL_RETURN_IF_ERROR(registry.Register(
+        FunctionDescriptor(entry.name, /*is_receiver_style=*/false, {lhs, rhs}),
+        std::make_unique<ComparisonFunction>(entry.op)));
+  }
   return absl::OkStatus();
 }
 
 absl::Status RegisterHomogenousComparisonFunctions(
     cel::FunctionRegistry& registry) {
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<bool>(registry));
-
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<int64_t>(registry));
-
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<uint64_t>(registry));
-
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<double>(registry));
-
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const StringValue&>(registry));
-
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const BytesValue&>(registry));
-
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<absl::Duration>(registry));
-
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<absl::Time>(registry));
-
-  return absl::OkStatus();
-}
-
-template <typename T, typename U>
-absl::Status RegisterCrossNumericComparisons(cel::FunctionRegistry& registry) {
-  using FunctionAdapter = BinaryFunctionAdapter<bool, T, U>;
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kLess,
-                                        /*receiver_style=*/false),
-      FunctionAdapter::WrapFunction(&CrossNumericLessThan<T, U>)));
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kGreater,
-                                        /*receiver_style=*/false),
-      FunctionAdapter::WrapFunction(&CrossNumericGreaterThan<T, U>)));
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kGreaterOrEqual,
-                                        /*receiver_style=*/false),
-      FunctionAdapter::WrapFunction(&CrossNumericGreaterOrEqualTo<T, U>)));
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kLessOrEqual,
-                                        /*receiver_style=*/false),
-      FunctionAdapter::WrapFunction(&CrossNumericLessOrEqualTo<T, U>)));
+  static constexpr Kind kOrderableKinds[] = {
+      Kind::kBool,   Kind::kInt,   Kind::kUint,     Kind::kDouble,
+      Kind::kString, Kind::kBytes, Kind::kDuration, Kind::kTimestamp,
+  };
+  for (Kind kind : kOrderableKinds) {
+    CEL_RETURN_IF_ERROR(RegisterComparisonOverloads(registry, kind, kind));
+  }
   return absl::OkStatus();
 }
 
 absl::Status RegisterHeterogeneousComparisonFunctions(
     cel::FunctionRegistry& registry) {
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<double, int64_t>(registry)));
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<double, uint64_t>(registry)));
-
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<uint64_t, double>(registry)));
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<uint64_t, int64_t>(registry)));
-
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<int64_t, double>(registry)));
-  CEL_RETURN_IF_ERROR(
-      (RegisterCrossNumericComparisons<int64_t, uint64_t>(registry)));
-
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<bool>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<int64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<uint64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<double>(registry));
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const StringValue&>(registry));
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<const BytesValue&>(registry));
-  CEL_RETURN_IF_ERROR(
-      RegisterComparisonFunctionsForType<absl::Duration>(registry));
-  CEL_RETURN_IF_ERROR(RegisterComparisonFunctionsForType<absl::Time>(registry));
-
-  return absl::OkStatus();
+  static constexpr std::pair<Kind, Kind> kCrossNumericKinds[] = {
+      {Kind::kDouble, Kind::kInt},  {Kind::kDouble, Kind::kUint},
+      {Kind::kUint, Kind::kDouble}, {Kind::kUint, Kind::kInt},
+      {Kind::kInt, Kind::kDouble},  {Kind::kInt, Kind::kUint},
+  };
+  for (const auto& pair : kCrossNumericKinds) {
+    CEL_RETURN_IF_ERROR(
+        RegisterComparisonOverloads(registry, pair.first, pair.second));
+  }
+  return RegisterHomogenousComparisonFunctions(registry);
 }
+
 }  // namespace
 
 absl::Status RegisterComparisonFunctions(FunctionRegistry& registry,

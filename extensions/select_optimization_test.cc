@@ -60,7 +60,6 @@
 #include "eval/compiler/resolver.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/internal/interop.h"
-#include "eval/public/cel_type_registry.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/structs/cel_proto_wrapper.h"
 #include "extensions/protobuf/ast_converters.h"
@@ -352,7 +351,6 @@ class SelectOptimizationTest : public testing::Test {
  public:
   SelectOptimizationTest()
       : env_(NewTestingRuntimeEnv()),
-        legacy_registry_(env_->legacy_type_registry),
         type_registry_(env_->type_registry),
         function_registry_(env_->function_registry),
         resolver_("", function_registry_, type_registry_,
@@ -377,7 +375,6 @@ class SelectOptimizationTest : public testing::Test {
 
  protected:
   absl_nonnull std::shared_ptr<RuntimeEnv> env_;
-  google::api::expr::runtime::CelTypeRegistry& legacy_registry_;
   TypeRegistry& type_registry_;
   FunctionRegistry& function_registry_;
   google::protobuf::Arena arena_;
