@@ -837,7 +837,7 @@ absl::Status OptimizedSelectImpl::ApplySelect(ExecutionFrameBase& frame,
   bool is_unsafe = false;
   if (result_in_out.IsParsedMessage()) {
     ParsedMessageValue parsed_message = result_in_out.GetParsedMessage();
-    current_message = &(*parsed_message);
+    current_message = parsed_message.message();
     is_unsafe =
         cel::interop_internal::IsUnsafeParsedMessageValue(parsed_message);
   } else if (const google::protobuf::Message* legacy_message =
