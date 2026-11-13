@@ -49,14 +49,92 @@ namespace common_internal {
 
 class LegacyMapValue;
 
+struct LegacyMapValueDispatcher {
+  using DebugString = std::string (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl);
+
+  using SerializeTo = absl::Status (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output);
+
+  using ConvertToJson = absl::Status (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json);
+
+  using ConvertToJsonObject = absl::Status (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json);
+
+  using IsEmpty = bool (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl);
+
+  using Size = size_t (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl);
+
+  using Get = absl::Status (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  using Find = absl::StatusOr<bool> (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  using Has = absl::Status (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  using ListKeys = absl::Status (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, ListValue* absl_nonnull result);
+
+  using ForEach = absl::Status (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl,
+      CustomMapValueInterface::ForEachCallback callback,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena);
+
+  using NewIterator = absl::StatusOr<absl_nonnull ValueIteratorPtr> (*)(
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl);
+
+  absl_nonnull DebugString debug_string;
+  absl_nonnull SerializeTo serialize_to;
+  absl_nonnull ConvertToJson convert_to_json;
+  absl_nonnull ConvertToJsonObject convert_to_json_object;
+  absl_nonnull IsEmpty is_empty;
+  absl_nonnull Size size;
+  absl_nonnull Get get;
+  absl_nonnull Find find;
+  absl_nonnull Has has;
+  absl_nonnull ListKeys list_keys;
+  absl_nonnull ForEach for_each;
+  absl_nonnull NewIterator new_iterator;
+};
+
 class LegacyMapValue final
     : private common_internal::MapValueMixin<LegacyMapValue> {
  public:
   static constexpr ValueKind kKind = ValueKind::kMap;
 
   explicit LegacyMapValue(
-      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl)
-      : impl_(impl) {}
+      const google::api::expr::runtime::CelMap* absl_nullability_unknown impl);
 
   // By default, this creates an empty map whose type is `map(dyn, dyn)`.
   // Unless you can help it, you should use a more specific typed map value.
@@ -158,6 +236,7 @@ class LegacyMapValue final
 
   friend void swap(LegacyMapValue& lhs, LegacyMapValue& rhs) noexcept {
     using std::swap;
+    swap(lhs.dispatcher_, rhs.dispatcher_);
     swap(lhs.impl_, rhs.impl_);
   }
 
@@ -165,6 +244,7 @@ class LegacyMapValue final
   friend class common_internal::ValueMixin<LegacyMapValue>;
   friend class common_internal::MapValueMixin<LegacyMapValue>;
 
+  const LegacyMapValueDispatcher* absl_nullable dispatcher_ = nullptr;
   const google::api::expr::runtime::CelMap* absl_nullability_unknown impl_ =
       nullptr;
 };

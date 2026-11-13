@@ -1,20 +1,26 @@
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cel/expr/syntax.pb.h"
 #include "google/protobuf/struct.pb.h"
 #include "absl/status/status.h"
-#include "eval/public/activation.h"
-#include "eval/public/builtin_func_registrar.h"
-#include "eval/public/cel_expr_builder_factory.h"
-#include "eval/public/cel_expression.h"
-#include "eval/public/cel_value.h"
-#include "eval/public/structs/cel_proto_wrapper.h"
+#include "absl/status/statusor.h"
+#include "absl/types/span.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
+#include "common/value.h"
 #include "eval/testutil/test_message.pb.h"
-#include "internal/status_macros.h"
+#include "extensions/protobuf/runtime_adapter.h"
 #include "internal/testing.h"
-#include "testutil/util.h"
+#include "runtime/activation.h"
+#include "runtime/function.h"
+#include "runtime/runtime_options.h"
+#include "runtime/standard_runtime_builder_factory.h"
+#include "google/protobuf/arena.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
 
 namespace google {
@@ -24,33 +30,41 @@ namespace runtime {
 
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
+using ::cel::Activation;
+using ::cel::BoolValue;
+using ::cel::CreateStandardRuntimeBuilder;
+using ::cel::ErrorValue;
+using ::cel::Function;
+using ::cel::FunctionDescriptor;
+using ::cel::IntValue;
+using ::cel::Kind;
+using ::cel::NullValue;
+using ::cel::RuntimeOptions;
+using ::cel::Value;
+using ::cel::extensions::ProtobufRuntimeAdapter;
 using ::cel::expr::Expr;
 using ::cel::expr::SourceInfo;
 using ::google::protobuf::Arena;
 using ::google::protobuf::TextFormat;
 
 // Simple one parameter function that records the message argument it receives.
-class RecordArgFunction : public CelFunction {
+class RecordArgFunction : public Function {
  public:
-  explicit RecordArgFunction(const std::string& name,
-                             std::vector<CelValue>* output)
-      : CelFunction(
-            CelFunctionDescriptor{name, false, {CelValue::Type::kMessage}}),
-        output_(*output) {}
+  explicit RecordArgFunction(std::vector<Value>* output) : output_(*output) {}
 
-  absl::Status Evaluate(absl::Span<const CelValue> args, CelValue* result,
-                        google::protobuf::Arena* arena) const override {
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext& context) const override {
     if (args.size() != 1) {
       return absl::Status(absl::StatusCode::kInvalidArgument,
                           "Bad arguments number");
     }
     output_.push_back(args.at(0));
-    *result = CelValue::CreateBool(true);
-    return absl::OkStatus();
+    return BoolValue(true);
   }
 
-  std::vector<CelValue>& output_;
+  std::vector<Value>& output_;
 };
 
 // Simple end-to-end test, which also serves as usage example.
@@ -74,28 +88,29 @@ TEST(EndToEndTest, SimpleOnePlusOne) {
 
   Expr expr;
   SourceInfo source_info;
-  TextFormat::ParseFromString(kExpr0, &expr);
+  ASSERT_TRUE(TextFormat::ParseFromString(kExpr0, &expr));
 
-  // Obtain CEL Expression builder.
-  std::unique_ptr<CelExpressionBuilder> builder = CreateCelExpressionBuilder();
+  // Obtain CEL Runtime builder.
+  ASSERT_OK_AND_ASSIGN(
+      auto builder,
+      CreateStandardRuntimeBuilder(google::protobuf::DescriptorPool::generated_pool(),
+                                   RuntimeOptions{}));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
 
-  // Builtin registration.
-  ASSERT_OK(RegisterBuiltinFunctions(builder->GetRegistry()));
-
-  // Create CelExpression from AST (Expr object).
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&expr, &source_info));
+  // Create Program from AST (Expr object).
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, expr, &source_info));
   Activation activation;
 
   // Bind value to "var" parameter.
-  activation.InsertValue("var", CelValue::CreateInt64(1));
+  activation.InsertOrAssignValue("var", IntValue(1));
 
   Arena arena;
 
   // Run evaluation.
-  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
-  ASSERT_TRUE(result.IsInt64());
-  EXPECT_EQ(result.Int64OrDie(), 2);
+  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+  ASSERT_TRUE(result.IsInt());
+  EXPECT_EQ(result.GetInt().NativeValue(), 2);
 }
 
 // Simple end-to-end test, which also serves as usage example.
@@ -149,17 +164,18 @@ TEST(EndToEndTest, EmptyStringCompare) {
 
   Expr expr;
   SourceInfo source_info;
-  TextFormat::ParseFromString(kExpr0, &expr);
+  ASSERT_TRUE(TextFormat::ParseFromString(kExpr0, &expr));
 
-  // Obtain CEL Expression builder.
-  std::unique_ptr<CelExpressionBuilder> builder = CreateCelExpressionBuilder();
+  // Obtain CEL Runtime builder.
+  ASSERT_OK_AND_ASSIGN(
+      auto builder,
+      CreateStandardRuntimeBuilder(google::protobuf::DescriptorPool::generated_pool(),
+                                   RuntimeOptions{}));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
 
-  // Builtin registration.
-  ASSERT_OK(RegisterBuiltinFunctions(builder->GetRegistry()));
-
-  // Create CelExpression from AST (Expr object).
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&expr, &source_info));
+  // Create Program from AST (Expr object).
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, expr, &source_info));
   Activation activation;
 
   // Bind value to "var" parameter.
@@ -168,14 +184,17 @@ TEST(EndToEndTest, EmptyStringCompare) {
     int64_value: 0
   )";
   TestMessage data;
-  TextFormat::ParseFromString(kData, &data);
+  ASSERT_TRUE(TextFormat::ParseFromString(kData, &data));
   Arena arena;
-  activation.InsertValue("var", CelProtoWrapper::CreateMessage(&data, &arena));
+  activation.InsertOrAssignValue(
+      "var",
+      Value::WrapMessage(&data, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   // Run evaluation.
-  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
   ASSERT_TRUE(result.IsBool());
-  EXPECT_TRUE(result.BoolOrDie());
+  EXPECT_TRUE(result.GetBool().NativeValue());
 }
 
 TEST(EndToEndTest, NullLiteral) {
@@ -201,22 +220,23 @@ TEST(EndToEndTest, NullLiteral) {
 
   Expr expr;
   SourceInfo source_info;
-  TextFormat::ParseFromString(kExpr0, &expr);
+  ASSERT_TRUE(TextFormat::ParseFromString(kExpr0, &expr));
 
-  // Obtain CEL Expression builder.
-  std::unique_ptr<CelExpressionBuilder> builder = CreateCelExpressionBuilder();
-  builder->set_container("google.protobuf");
+  // Obtain CEL Runtime builder.
+  RuntimeOptions options;
+  options.container = "google.protobuf";
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
 
-  // Builtin registration.
-  ASSERT_OK(RegisterBuiltinFunctions(builder->GetRegistry()));
-
-  // Create CelExpression from AST (Expr object).
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&expr, &source_info));
+  // Create Program from AST (Expr object).
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, expr, &source_info));
   Activation activation;
   Arena arena;
   // Run evaluation.
-  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
+  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
   ASSERT_TRUE(result.IsNull());
 }
 
@@ -233,36 +253,39 @@ constexpr char kNullMessageHandlingExpr[] = R"pb(
 )pb";
 
 TEST(EndToEndTest, StrictNullHandling) {
-  InterpreterOptions options;
+  RuntimeOptions options;
 
   Expr expr;
   ASSERT_TRUE(
       google::protobuf::TextFormat::ParseFromString(kNullMessageHandlingExpr, &expr));
   SourceInfo info;
 
-  auto builder = CreateCelExpressionBuilder(options);
-  std::vector<CelValue> extension_calls;
-  ASSERT_OK(builder->GetRegistry()->Register(
-      std::make_unique<RecordArgFunction>("RecordArg", &extension_calls)));
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  std::vector<Value> extension_calls;
+  ASSERT_THAT(builder.function_registry().Register(
+                  FunctionDescriptor("RecordArg", false, {Kind::kStruct}),
+                  std::make_unique<RecordArgFunction>(&extension_calls)),
+              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
 
-  ASSERT_OK_AND_ASSIGN(auto expression,
-                       builder->CreateExpression(&expr, &info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, expr, &info));
 
   Activation activation;
   google::protobuf::Arena arena;
-  activation.InsertValue("test_message", CelValue::CreateNull());
+  activation.InsertOrAssignValue("test_message", NullValue());
 
-  ASSERT_OK_AND_ASSIGN(CelValue result,
-                       expression->Evaluate(activation, &arena));
-  const CelError* result_value;
-  ASSERT_TRUE(result.GetValue(&result_value)) << result.DebugString();
-  EXPECT_THAT(*result_value,
+  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+  ASSERT_TRUE(result.Is<ErrorValue>()) << result.DebugString();
+  EXPECT_THAT(result.Get<ErrorValue>().NativeValue(),
               StatusIs(absl::StatusCode::kUnknown,
                        testing::HasSubstr("No matching overloads")));
 }
 
 TEST(EndToEndTest, OutOfRangeDurationConstant) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   options.enable_timestamp_duration_overflow_errors = true;
 
   Expr expr;
@@ -282,20 +305,20 @@ TEST(EndToEndTest, OutOfRangeDurationConstant) {
       &expr));
   SourceInfo info;
 
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_OK(RegisterBuiltinFunctions(builder->GetRegistry(), options));
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
 
-  ASSERT_OK_AND_ASSIGN(auto expression,
-                       builder->CreateExpression(&expr, &info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, expr, &info));
 
   Activation activation;
   google::protobuf::Arena arena;
 
-  ASSERT_OK_AND_ASSIGN(CelValue result,
-                       expression->Evaluate(activation, &arena));
-  const CelError* result_value;
-  ASSERT_TRUE(result.GetValue(&result_value)) << result.DebugString();
-  EXPECT_THAT(*result_value,
+  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+  ASSERT_TRUE(result.Is<ErrorValue>()) << result.DebugString();
+  EXPECT_THAT(result.Get<ErrorValue>().NativeValue(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        testing::HasSubstr("Duration is out of range")));
 }

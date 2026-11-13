@@ -19,6 +19,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 
 #include "google/protobuf/any.pb.h"
 #include "google/protobuf/duration.pb.h"
@@ -34,6 +35,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "eval/public/cel_value.h"
+#include "internal/json.h"
 #include "internal/overflow.h"
 #include "internal/proto_time_encoding.h"
 #include "internal/status_macros.h"
@@ -41,7 +43,6 @@
 #include "internal/well_known_types.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
-#include "google/protobuf/json/json.h"
 #include "google/protobuf/message.h"
 
 namespace google::api::expr::runtime::internal {
@@ -63,8 +64,6 @@ using google::protobuf::Arena;
 using google::protobuf::Descriptor;
 using google::protobuf::Message;
 using google::protobuf::MessageFactory;
-using google::protobuf::json::MessageToJsonString;
-using google::protobuf::json::PrintOptions;
 
 // kMaxIntJSON is defined as the Number.MAX_SAFE_INTEGER value per EcmaScript 6.
 constexpr int64_t kMaxIntJSON = (1ll << 53) - 1;
@@ -94,23 +93,28 @@ static bool IsFieldMaskProto(const google::protobuf::Descriptor* descriptor) {
 
 static std::optional<std::string> GetFieldMaskJsonString(
     const google::protobuf::Message& message) {
-  // TODO(b/540507668): Refactor to pipe descriptor_pool through
-  // ValueFromValue to use internal::MessageToJson.
-  PrintOptions json_options;
-  std::string json_str;
-  auto status = MessageToJsonString(message, &json_str, json_options);
+  Value json_value;
+  const google::protobuf::Descriptor* descriptor = message.GetDescriptor();
+  const google::protobuf::Reflection* reflection = message.GetReflection();
+  if (descriptor == nullptr || reflection == nullptr) {
+    ABSL_LOG(ERROR) << "Failed to convert FieldMask to JSON: missing "
+                       "descriptor or reflection";
+    return std::nullopt;
+  }
+  const google::protobuf::DescriptorPool* pool = descriptor->file()->pool();
+  google::protobuf::MessageFactory* factory = reflection->GetMessageFactory();
+  if (pool == nullptr || factory == nullptr) {
+    ABSL_LOG(ERROR) << "Failed to convert FieldMask to JSON: missing "
+                       "descriptor pool or message factory";
+    return std::nullopt;
+  }
+  absl::Status status =
+      cel::internal::MessageToJson(message, pool, factory, &json_value);
   if (!status.ok()) {
     ABSL_LOG(ERROR) << "Failed to convert FieldMask to JSON: " << status;
     return std::nullopt;
   }
-  // If JSON marshalling is correct, we know we'll always get a plain
-  // JSON string value and it shouldn't contain any escapes that we need
-  // to interpret.
-  if (json_str.size() >= 2 && json_str.front() == '"' &&
-      json_str.back() == '"') {
-    return json_str.substr(1, json_str.size() - 2);
-  }
-  return json_str;
+  return std::move(*json_value.mutable_string_value());
 }
 
 struct IgnoreErrorAndReturnNullptr {

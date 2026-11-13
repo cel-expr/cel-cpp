@@ -19,13 +19,13 @@
 #include "env/env.h"
 #include "extensions/bindings_ext.h"
 #include "extensions/comprehensions_v2.h"
-#include "extensions/encoders.h"
+#include "extensions/encoders_modern.h"
 #include "extensions/lists_functions.h"
 #include "extensions/math_ext_decls.h"
 #include "extensions/proto_ext.h"
-#include "extensions/regex_ext.h"
-#include "extensions/sets_functions.h"
-#include "extensions/strings.h"
+#include "extensions/regex_ext_modern.h"
+#include "extensions/sets_functions_modern.h"
+#include "extensions/strings_modern.h"
 
 namespace cel {
 
