@@ -295,7 +295,6 @@ cc_library(
         ":expression_step_base",
         ":expression_step_logic",
         "//base:attributes",
-        "//common:legacy_value",
         "//common:type",
         "//common:value",
         "//common:value_kind",
