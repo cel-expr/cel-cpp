@@ -175,10 +175,29 @@ TEST(EnvYamlTest, LegacyExtensionVersionOptions) {
             "    version: 2");
 }
 
-TEST(EnvYamlTest, ParseStdlibConfig_ExclusionStyle) {
+TEST(EnvYamlTest, ParseStdlibConfig_LegacyDisable) {
   ASSERT_OK_AND_ASSIGN(Config config, EnvConfigFromYaml(R"yaml(
                     stdlib:
                       disable: true
+                  )yaml"));
+
+  EXPECT_TRUE(config.GetStandardLibraryConfig().disable);
+}
+
+TEST(EnvYamlTest, ParseStdlibConfig_DisabledAndLegacyDisableAgree) {
+  ASSERT_OK_AND_ASSIGN(Config config, EnvConfigFromYaml(R"yaml(
+                    stdlib:
+                      disabled: true
+                      disable: true
+                  )yaml"));
+
+  EXPECT_TRUE(config.GetStandardLibraryConfig().disable);
+}
+
+TEST(EnvYamlTest, ParseStdlibConfig_ExclusionStyle) {
+  ASSERT_OK_AND_ASSIGN(Config config, EnvConfigFromYaml(R"yaml(
+                    stdlib:
+                      disabled: true
                       disable_macros: true
                       exclude_macros:
                       - map
@@ -955,6 +974,26 @@ INSTANTIATE_TEST_SUITE_P(
         ParseTestCase{
             .yaml = R"yaml(
               stdlib:
+                disabled: "error"
+            )yaml",
+            .expected_error = "3:27: Node 'disabled' is not a boolean\n"
+                              "|                disabled: \"error\"\n"
+                              "|                          ^",
+        },
+        ParseTestCase{
+            .yaml = R"yaml(
+              stdlib:
+                disabled: true
+                disable: false
+            )yaml",
+            .expected_error =
+                "4:26: Nodes 'disabled' and 'disable' have different values\n"
+                "|                disable: false\n"
+                "|                         ^",
+        },
+        ParseTestCase{
+            .yaml = R"yaml(
+              stdlib:
                 disable_macros: "error"
             )yaml",
             .expected_error = "3:33: Node 'disable_macros' is not a boolean\n"
@@ -1394,7 +1433,7 @@ std::vector<ExportTestCase> GetExportTestCases() {
           }(),
           .expected_yaml = R"yaml(
                 stdlib:
-                  disable: true
+                  disabled: true
             )yaml",
       },
       ExportTestCase{
@@ -1875,7 +1914,7 @@ std::vector<std::string> GetStructuredRoundTripTestCases() {
   return {
       R"yaml(
         stdlib:
-          disable: true
+          disabled: true
           disable_macros: true
       )yaml",
       R"yaml(

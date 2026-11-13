@@ -383,13 +383,31 @@ absl::Status ParseStandardLibraryConfig(Config& config, absl::string_view yaml,
 
   Config::StandardLibraryConfig standard_library_config;
 
-  const YAML::Node disable = standard_library["disable"];
-  if (disable.IsDefined()) {
-    if (!disable.IsScalar()) {
-      return YamlError(yaml, disable, "Node 'disable' is not a boolean");
+  // `disabled` is the key used by the other CEL implementations.
+  const YAML::Node disabled = standard_library["disabled"];
+  if (disabled.IsDefined()) {
+    if (!disabled.IsScalar()) {
+      return YamlError(yaml, disabled, "Node 'disabled' is not a boolean");
     }
     CEL_ASSIGN_OR_RETURN(standard_library_config.disable,
-                         GetBool(yaml, "disable", disable));
+                         GetBool(yaml, "disabled", disabled));
+  }
+
+  // TODO(b/585595756): `disable` is accepted temporarily so that existing
+  // configs keep working. Remove once they use `disabled`.
+  const YAML::Node legacy_disable = standard_library["disable"];
+  if (legacy_disable.IsDefined()) {
+    if (!legacy_disable.IsScalar()) {
+      return YamlError(yaml, legacy_disable, "Node 'disable' is not a boolean");
+    }
+    CEL_ASSIGN_OR_RETURN(bool legacy_value,
+                         GetBool(yaml, "disable", legacy_disable));
+    if (disabled.IsDefined() &&
+        legacy_value != standard_library_config.disable) {
+      return YamlError(yaml, legacy_disable,
+                       "Nodes 'disabled' and 'disable' have different values");
+    }
+    standard_library_config.disable = legacy_value;
   }
 
   const YAML::Node disable_macros = standard_library["disable_macros"];
@@ -979,7 +997,7 @@ void EmitStandardLibraryConfig(const Config& env_config, YAML::Emitter& out) {
 
   out << YAML::Key << "stdlib" << YAML::Value << YAML::BeginMap;
   if (standard_library_config.disable) {
-    out << YAML::Key << "disable" << YAML::Value << true;
+    out << YAML::Key << "disabled" << YAML::Value << true;
   }
   if (standard_library_config.disable_macros) {
     out << YAML::Key << "disable_macros" << YAML::Value << true;
