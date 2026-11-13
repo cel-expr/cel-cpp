@@ -24,6 +24,7 @@
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "common/legacy_value.h"
@@ -33,7 +34,6 @@
 #include "common/value_kind.h"
 #include "common/values/legacy_list_value.h"
 #include "common/values/legacy_struct_value.h"
-#include "common/values/map_value_builder.h"
 #include "common/values/values.h"
 #include "eval/public/cel_value.h"
 #include "eval/public/structs/proto_message_type_adapter.h"
@@ -86,6 +86,22 @@ bool MatchesMapKeyType(const google::protobuf::FieldDescriptor* absl_nonnull key
 absl::Status InvalidMapKeyType(absl::string_view key_type) {
   return absl::InvalidArgumentError(
       absl::StrCat("Invalid map key type: '", key_type, "'"));
+}
+
+absl::StatusOr<const google::api::expr::runtime::CelList*> ToLegacyListKeys(
+    const ListValue& keys, google::protobuf::Arena* absl_nonnull arena) {
+  if (auto legacy_list = AsLegacyListValue(keys); legacy_list.has_value()) {
+    return legacy_list->cel_list();
+  }
+  if (auto custom_list = keys.AsCustom(); custom_list.has_value()) {
+    CEL_ASSIGN_OR_RETURN(
+        const CompatListValue* compat_list,
+        MakeCompatListValue(
+            *custom_list, google::protobuf::DescriptorPool::generated_pool(),
+            google::protobuf::MessageFactory::generated_factory(), arena));
+    return compat_list;
+  }
+  return absl::InternalError("failed to convert list keys to legacy list");
 }
 
 }  // namespace
@@ -273,11 +289,7 @@ class LegacyParsedMapFieldMapValue final
     CEL_RETURN_IF_ERROR(value_.ListKeys(
         google::protobuf::DescriptorPool::generated_pool(),
         google::protobuf::MessageFactory::generated_factory(), arena, &keys));
-    auto legacy_list = AsLegacyListValue(keys);
-    if (!legacy_list.has_value()) {
-      return absl::InternalError("failed to convert list keys to legacy list");
-    }
-    return legacy_list->cel_list();
+    return ToLegacyListKeys(keys, arena);
   }
 
   google::protobuf::Arena* absl_nonnull arena() const { return arena_; }
@@ -461,11 +473,7 @@ class LegacyParsedJsonMapValue final
     CEL_RETURN_IF_ERROR(value_.ListKeys(
         google::protobuf::DescriptorPool::generated_pool(),
         google::protobuf::MessageFactory::generated_factory(), arena, &keys));
-    auto legacy_list = AsLegacyListValue(keys);
-    if (!legacy_list.has_value()) {
-      return absl::InternalError("failed to convert list keys to legacy list");
-    }
-    return legacy_list->cel_list();
+    return ToLegacyListKeys(keys, arena);
   }
 
   google::protobuf::Arena* absl_nonnull arena() const { return arena_; }
@@ -516,28 +524,8 @@ MapValue FromLegacyMap(
       }
       return CustomMapValue();
     }
-    if (native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-      const auto* impl =
-          cel::internal::down_cast<const MutableCompatMapValue*>(cel_map);
-      if (google::protobuf::Arena* arena = impl->GetOwningArena(); arena != nullptr) {
-        return CustomMapValue(impl, arena);
-      }
-    }
   }
   return LegacyMapValue(cel_map);
-}
-
-absl::Status LegacyMapValue::Equal(
-    const Value& other,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  if (auto map_value = other.AsMap(); map_value.has_value()) {
-    return MapValueEqual(*this, *map_value, descriptor_pool, message_factory,
-                         arena, result);
-  }
-  *result = FalseValue();
-  return absl::OkStatus();
 }
 
 bool IsLegacyMapValue(const Value& value) {
@@ -554,16 +542,14 @@ std::optional<LegacyMapValue> AsLegacyMapValue(const Value& value) {
     return GetLegacyMapValue(value);
   }
   if (auto custom_map_value = value.AsCustomMap(); custom_map_value) {
+    if (custom_map_value->interface() == CustomMapValue().interface()) {
+      return LegacyMapValue(EmptyCompatMapValue());
+    }
     NativeTypeId native_type_id = NativeTypeId::Of(*custom_map_value);
     if (native_type_id == NativeTypeId::For<CompatMapValue>()) {
       return LegacyMapValue(
           static_cast<const google::api::expr::runtime::CelMap*>(
               cel::internal::down_cast<const CompatMapValue*>(
-                  custom_map_value->interface())));
-    } else if (native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-      return LegacyMapValue(
-          static_cast<const google::api::expr::runtime::CelMap*>(
-              cel::internal::down_cast<const MutableCompatMapValue*>(
                   custom_map_value->interface())));
     } else if (native_type_id ==
                NativeTypeId::For<LegacyParsedMapFieldMapValue>()) {

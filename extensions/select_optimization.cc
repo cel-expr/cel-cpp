@@ -47,7 +47,6 @@
 #include "common/function_descriptor.h"
 #include "common/internal/attribute_trail.h"
 #include "common/kind.h"
-#include "common/legacy_value.h"
 #include "common/native_type.h"
 #include "common/type.h"
 #include "common/value.h"
@@ -838,10 +837,9 @@ absl::Status OptimizedSelectImpl::ApplySelect(ExecutionFrameBase& frame,
   if (result_in_out.IsParsedMessage()) {
     ParsedMessageValue parsed_message = result_in_out.GetParsedMessage();
     current_message = parsed_message.message();
-    is_unsafe =
-        cel::interop_internal::IsUnsafeParsedMessageValue(parsed_message);
+    is_unsafe = parsed_message.is_unsafe();
   } else if (const google::protobuf::Message* legacy_message =
-                 cel::interop_internal::GetLegacyMessage(result_in_out);
+                 cel::common_internal::GetLegacyMessage(result_in_out);
              legacy_message != nullptr) {
     current_message = legacy_message;
     is_unsafe = true;

@@ -36,14 +36,12 @@
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "common/allocator.h"
-#include "common/legacy_value.h"
 #include "common/native_type.h"
 #include "common/type.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
 #include "common/values/map_value_builder.h"
-#include "eval/public/cel_value.h"
 #include "internal/casts.h"
 #include "internal/manual.h"
 #include "internal/status_macros.h"
@@ -61,7 +59,6 @@ namespace {
 using ::cel::well_known_types::ListValueReflection;
 using ::cel::well_known_types::StructReflection;
 using ::cel::well_known_types::ValueReflection;
-using ::google::api::expr::runtime::CelValue;
 
 using ValueVector = std::vector<Value, ArenaAllocator<Value>>;
 
@@ -122,9 +119,9 @@ absl::Status ListValueToJson(
                               reflection.MutableListValue(json));
 }
 
-class CompatListValueImplIterator final : public ValueIterator {
+class ListValueImplIterator final : public ValueIterator {
  public:
-  explicit CompatListValueImplIterator(absl::Span<const Value> elements)
+  explicit ListValueImplIterator(absl::Span<const Value> elements)
       : elements_(elements) {}
 
   bool HasNext() override { return index_ < elements_.size(); }
@@ -198,6 +195,8 @@ struct ValueFormatter {
   }
 };
 
+class ListValueImpl;
+
 class ListValueBuilderImpl final : public ListValueBuilder {
  public:
   explicit ListValueBuilderImpl(google::protobuf::Arena* absl_nonnull arena)
@@ -224,24 +223,19 @@ class ListValueBuilderImpl final : public ListValueBuilder {
 
   CustomListValue BuildCustom() &&;
 
-  const CompatListValue* absl_nonnull BuildCompat() &&;
+  const ListValueImpl* absl_nonnull BuildImpl() &&;
 
-  const CompatListValue* absl_nonnull BuildCompatAt(
-      void* absl_nonnull address) &&;
+  const ListValueImpl* absl_nonnull BuildAt(void* absl_nonnull address) &&;
 
  private:
   google::protobuf::Arena* absl_nonnull const arena_;
   internal::Manual<ValueVector> elements_;
 };
 
-class CompatListValueImpl final : public CompatListValue {
+class ListValueImpl final : public CustomListValueInterface {
  public:
-  explicit CompatListValueImpl(ValueVector&& elements)
+  explicit ListValueImpl(ValueVector&& elements)
       : elements_(std::move(elements)) {}
-
-  google::protobuf::Arena* GetOwningArena() const override {
-    return elements_.get_allocator().arena();
-  }
 
   std::string DebugString() const override {
     return absl::StrCat("[", absl::StrJoin(elements_, ", ", ValueFormatter{}),
@@ -285,31 +279,9 @@ class CompatListValueImpl final : public CompatListValue {
   }
 
   absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
-    return std::make_unique<CompatListValueImplIterator>(
+    return std::make_unique<ListValueImplIterator>(
         absl::MakeConstSpan(elements_));
   }
-
-  CelValue operator[](int index) const override {
-    return Get(elements_.get_allocator().arena(), index);
-  }
-
-  // Like `operator[](int)` above, but also accepts an arena. Prefer calling
-  // this variant if the arena is known.
-  CelValue Get(google::protobuf::Arena* arena, int index) const override {
-    if (arena == nullptr) {
-      arena = elements_.get_allocator().arena();
-    }
-    if (ABSL_PREDICT_FALSE(index < 0 || index >= size())) {
-      return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
-          arena, common_internal::MakeIndexOutOfBoundsError(index)));
-    }
-    return common_internal::UnsafeLegacyValue(
-        elements_[index],
-        /*stable=*/true,
-        arena != nullptr ? arena : elements_.get_allocator().arena());
-  }
-
-  int size() const override { return static_cast<int>(Size()); }
 
  protected:
   absl::Status Get(size_t index,
@@ -326,6 +298,10 @@ class CompatListValueImpl final : public CompatListValue {
   }
 
  private:
+  NativeTypeId GetNativeTypeId() const override {
+    return NativeTypeId::For<ListValueImpl>();
+  }
+
   const ValueVector elements_;
 };
 
@@ -338,34 +314,27 @@ ListValue ListValueBuilderImpl::Build() && {
 
 CustomListValue ListValueBuilderImpl::BuildCustom() && {
   if (elements_->empty()) {
-    return CustomListValue(EmptyCompatListValue(), arena_);
+    return CustomListValue();
   }
-  return CustomListValue(std::move(*this).BuildCompat(), arena_);
+  return CustomListValue(std::move(*this).BuildImpl(), arena_);
 }
 
-const CompatListValue* absl_nonnull ListValueBuilderImpl::BuildCompat() && {
-  if (elements_->empty()) {
-    return EmptyCompatListValue();
-  }
-  return std::move(*this).BuildCompatAt(arena_->AllocateAligned(
-      sizeof(CompatListValueImpl), alignof(CompatListValueImpl)));
+const ListValueImpl* absl_nonnull ListValueBuilderImpl::BuildImpl() && {
+  return std::move(*this).BuildAt(
+      arena_->AllocateAligned(sizeof(ListValueImpl), alignof(ListValueImpl)));
 }
 
-const CompatListValue* absl_nonnull ListValueBuilderImpl::BuildCompatAt(
+const ListValueImpl* absl_nonnull ListValueBuilderImpl::BuildAt(
     void* absl_nonnull address) && {
-  CompatListValueImpl* absl_nonnull impl =
-      ::new (address) CompatListValueImpl(std::move(*elements_));
+  ListValueImpl* absl_nonnull impl =
+      ::new (address) ListValueImpl(std::move(*elements_));
   return impl;
 }
 
-class MutableCompatListValueImpl final : public MutableCompatListValue {
+class MutableListValueImpl final : public MutableListValue {
  public:
-  explicit MutableCompatListValueImpl(google::protobuf::Arena* absl_nonnull arena)
+  explicit MutableListValueImpl(google::protobuf::Arena* absl_nonnull arena)
       : elements_(arena) {}
-
-  google::protobuf::Arena* GetOwningArena() const override {
-    return elements_.get_allocator().arena();
-  }
 
   std::string DebugString() const override {
     return absl::StrCat("[", absl::StrJoin(elements_, ", ", ValueFormatter{}),
@@ -409,30 +378,9 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
   }
 
   absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
-    return std::make_unique<CompatListValueImplIterator>(
+    return std::make_unique<ListValueImplIterator>(
         absl::MakeConstSpan(elements_));
   }
-
-  CelValue operator[](int index) const override {
-    return Get(elements_.get_allocator().arena(), index);
-  }
-
-  // Like `operator[](int)` above, but also accepts an arena. Prefer calling
-  // this variant if the arena is known.
-  CelValue Get(google::protobuf::Arena* arena, int index) const override {
-    if (arena == nullptr) {
-      arena = elements_.get_allocator().arena();
-    }
-    if (ABSL_PREDICT_FALSE(index < 0 || index >= size())) {
-      return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
-          arena, common_internal::MakeIndexOutOfBoundsError(index)));
-    }
-    return common_internal::UnsafeLegacyValue(
-        elements_[index], /*stable=*/false,
-        arena != nullptr ? arena : elements_.get_allocator().arena());
-  }
-
-  int size() const override { return static_cast<int>(Size()); }
 
   absl::Status Append(Value value) const override {
     CEL_RETURN_IF_ERROR(CheckListElement(value));
@@ -462,62 +410,34 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
 
 }  // namespace
 
-absl::StatusOr<const CompatListValue* absl_nonnull> MakeCompatListValue(
-    const CustomListValue& value,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) {
-  ListValueBuilderImpl builder(arena);
-  builder.Reserve(value.Size());
-
-  CEL_RETURN_IF_ERROR(value.ForEach(
-      [&](const Value& element) -> absl::StatusOr<bool> {
-        CEL_RETURN_IF_ERROR(builder.Add(element));
-        return true;
-      },
-      descriptor_pool, message_factory, arena));
-
-  return std::move(builder).BuildCompat();
-}
-
 MutableListValue* absl_nonnull NewMutableListValue(
     google::protobuf::Arena* absl_nonnull arena) {
-  return ::new (arena->AllocateAligned(sizeof(MutableCompatListValueImpl),
-                                       alignof(MutableCompatListValueImpl)))
-      MutableCompatListValueImpl(arena);
+  return ::new (arena->AllocateAligned(sizeof(MutableListValueImpl),
+                                       alignof(MutableListValueImpl)))
+      MutableListValueImpl(arena);
 }
 
 bool IsMutableListValue(const Value& value) {
   if (auto custom_list_value = value.AsCustomList(); custom_list_value) {
-    NativeTypeId native_type_id = custom_list_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableListValue>() ||
-        native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-      return true;
-    }
+    return custom_list_value->GetTypeId() ==
+           NativeTypeId::For<MutableListValue>();
   }
   return false;
 }
 
 bool IsMutableListValue(const ListValue& value) {
   if (auto custom_list_value = value.AsCustom(); custom_list_value) {
-    NativeTypeId native_type_id = custom_list_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableListValue>() ||
-        native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-      return true;
-    }
+    return custom_list_value->GetTypeId() ==
+           NativeTypeId::For<MutableListValue>();
   }
   return false;
 }
 
 const MutableListValue* absl_nullable AsMutableListValue(const Value& value) {
   if (auto custom_list_value = value.AsCustomList(); custom_list_value) {
-    NativeTypeId native_type_id = custom_list_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableListValue>()) {
+    if (custom_list_value->GetTypeId() ==
+        NativeTypeId::For<MutableListValue>()) {
       return cel::internal::down_cast<const MutableListValue*>(
-          custom_list_value->interface());
-    }
-    if (native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-      return cel::internal::down_cast<const MutableCompatListValue*>(
           custom_list_value->interface());
     }
   }
@@ -527,13 +447,9 @@ const MutableListValue* absl_nullable AsMutableListValue(const Value& value) {
 const MutableListValue* absl_nullable AsMutableListValue(
     const ListValue& value) {
   if (auto custom_list_value = value.AsCustom(); custom_list_value) {
-    NativeTypeId native_type_id = custom_list_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableListValue>()) {
+    if (custom_list_value->GetTypeId() ==
+        NativeTypeId::For<MutableListValue>()) {
       return cel::internal::down_cast<const MutableListValue*>(
-          custom_list_value->interface());
-    }
-    if (native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-      return cel::internal::down_cast<const MutableCompatListValue*>(
           custom_list_value->interface());
     }
   }
@@ -542,32 +458,14 @@ const MutableListValue* absl_nullable AsMutableListValue(
 
 const MutableListValue& GetMutableListValue(const Value& value) {
   ABSL_DCHECK(IsMutableListValue(value)) << value;
-  const auto& custom_list_value = value.GetCustomList();
-  NativeTypeId native_type_id = custom_list_value.GetTypeId();
-  if (native_type_id == NativeTypeId::For<MutableListValue>()) {
-    return cel::internal::down_cast<const MutableListValue&>(
-        *custom_list_value.interface());
-  }
-  if (native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-    return cel::internal::down_cast<const MutableCompatListValue&>(
-        *custom_list_value.interface());
-  }
-  ABSL_UNREACHABLE();
+  return cel::internal::down_cast<const MutableListValue&>(
+      *value.GetCustomList().interface());
 }
 
 const MutableListValue& GetMutableListValue(const ListValue& value) {
   ABSL_DCHECK(IsMutableListValue(value)) << value;
-  const auto& custom_list_value = value.GetCustom();
-  NativeTypeId native_type_id = custom_list_value.GetTypeId();
-  if (native_type_id == NativeTypeId::For<MutableListValue>()) {
-    return cel::internal::down_cast<const MutableListValue&>(
-        *custom_list_value.interface());
-  }
-  if (native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-    return cel::internal::down_cast<const MutableCompatListValue&>(
-        *custom_list_value.interface());
-  }
-  ABSL_UNREACHABLE();
+  return cel::internal::down_cast<const MutableListValue&>(
+      *value.GetCustom().interface());
 }
 
 absl_nonnull cel::ListValueBuilderPtr NewListValueBuilder(
@@ -584,9 +482,6 @@ namespace cel {
 namespace common_internal {
 
 namespace {
-
-using ::google::api::expr::runtime::CelList;
-using ::google::api::expr::runtime::CelValue;
 
 absl::Status CheckMapValue(const Value& value) {
   if (auto error_value = value.AsError(); ABSL_PREDICT_FALSE(error_value)) {
@@ -611,21 +506,6 @@ size_t ValueHash(const Value& value) {
                           absl::implicit_cast<uint64_t>(value.GetUint()));
     case ValueKind::kString:
       return absl::HashOf(value.kind(), value.GetString());
-    default:
-      ABSL_UNREACHABLE();
-  }
-}
-
-size_t ValueHash(const CelValue& value) {
-  switch (value.type()) {
-    case CelValue::Type::kBool:
-      return absl::HashOf(ValueKind::kBool, value.BoolOrDie());
-    case CelValue::Type::kInt:
-      return absl::HashOf(ValueKind::kInt, value.Int64OrDie());
-    case CelValue::Type::kUint:
-      return absl::HashOf(ValueKind::kUint, value.Uint64OrDie());
-    case CelValue::Type::kString:
-      return absl::HashOf(ValueKind::kString, value.StringOrDie().value());
     default:
       ABSL_UNREACHABLE();
   }
@@ -690,65 +570,6 @@ bool ValueEquals(const Value& lhs, const Value& rhs) {
   }
 }
 
-bool CelValueEquals(const CelValue& lhs, const Value& rhs) {
-  switch (lhs.type()) {
-    case CelValue::Type::kBool:
-      switch (rhs.kind()) {
-        case ValueKind::kBool:
-          return BoolValue(lhs.BoolOrDie()) == rhs.GetBool();
-        case ValueKind::kInt:
-          return false;
-        case ValueKind::kUint:
-          return false;
-        case ValueKind::kString:
-          return false;
-        default:
-          ABSL_UNREACHABLE();
-      }
-    case CelValue::Type::kInt:
-      switch (rhs.kind()) {
-        case ValueKind::kBool:
-          return false;
-        case ValueKind::kInt:
-          return IntValue(lhs.Int64OrDie()) == rhs.GetInt();
-        case ValueKind::kUint:
-          return false;
-        case ValueKind::kString:
-          return false;
-        default:
-          ABSL_UNREACHABLE();
-      }
-    case CelValue::Type::kUint:
-      switch (rhs.kind()) {
-        case ValueKind::kBool:
-          return false;
-        case ValueKind::kInt:
-          return false;
-        case ValueKind::kUint:
-          return UintValue(lhs.Uint64OrDie()) == rhs.GetUint();
-        case ValueKind::kString:
-          return false;
-        default:
-          ABSL_UNREACHABLE();
-      }
-    case CelValue::Type::kString:
-      switch (rhs.kind()) {
-        case ValueKind::kBool:
-          return false;
-        case ValueKind::kInt:
-          return false;
-        case ValueKind::kUint:
-          return false;
-        case ValueKind::kString:
-          return rhs.GetString().Equals(lhs.StringOrDie().value());
-        default:
-          ABSL_UNREACHABLE();
-      }
-    default:
-      ABSL_UNREACHABLE();
-  }
-}
-
 absl::StatusOr<std::string> ValueToJsonString(const Value& value) {
   switch (value.kind()) {
     case ValueKind::kString:
@@ -805,24 +626,10 @@ absl::Status MapValueToJson(
 }
 
 struct ValueHasher {
-  using is_transparent = void;
-
   size_t operator()(const Value& value) const { return (ValueHash)(value); }
-
-  size_t operator()(const CelValue& value) const { return (ValueHash)(value); }
 };
 
 struct ValueEqualer {
-  using is_transparent = void;
-
-  bool operator()(const Value& lhs, const CelValue& rhs) const {
-    return (*this)(rhs, lhs);
-  }
-
-  bool operator()(const CelValue& lhs, const Value& rhs) const {
-    return (CelValueEquals)(lhs, rhs);
-  }
-
   bool operator()(const Value& lhs, const Value& rhs) const {
     return (ValueEquals)(lhs, rhs);
   }
@@ -834,9 +641,9 @@ using ValueFlatHashMap =
     absl::flat_hash_map<Value, Value, ValueHasher, ValueEqualer,
                         ValueFlatHashMapAllocator>;
 
-class CompatMapValueImplIterator final : public ValueIterator {
+class MapValueImplIterator final : public ValueIterator {
  public:
-  explicit CompatMapValueImplIterator(const ValueFlatHashMap* absl_nonnull map)
+  explicit MapValueImplIterator(const ValueFlatHashMap* absl_nonnull map)
       : begin_(map->begin()), end_(map->end()) {}
 
   bool HasNext() override { return begin_ != end_; }
@@ -899,6 +706,8 @@ class CompatMapValueImplIterator final : public ValueIterator {
   const typename ValueFlatHashMap::const_iterator end_;
 };
 
+class MapValueImpl;
+
 class MapValueBuilderImpl final : public MapValueBuilder {
  public:
   explicit MapValueBuilderImpl(google::protobuf::Arena* absl_nonnull arena)
@@ -929,20 +738,16 @@ class MapValueBuilderImpl final : public MapValueBuilder {
 
   CustomMapValue BuildCustom() &&;
 
-  const CompatMapValue* absl_nonnull BuildCompat() &&;
+  const MapValueImpl* absl_nonnull BuildImpl() &&;
 
  private:
   google::protobuf::Arena* absl_nonnull const arena_;
   internal::Manual<ValueFlatHashMap> map_;
 };
 
-class CompatMapValueImpl final : public CompatMapValue {
+class MapValueImpl final : public CustomMapValueInterface {
  public:
-  explicit CompatMapValueImpl(ValueFlatHashMap&& map) : map_(std::move(map)) {}
-
-  google::protobuf::Arena* GetOwningArena() const override {
-    return map_.get_allocator().arena();
-  }
+  explicit MapValueImpl(ValueFlatHashMap&& map) : map_(std::move(map)) {}
 
   std::string DebugString() const override {
     return absl::StrCat("{", absl::StrJoin(map_, ", ", ValueFormatter{}), "}");
@@ -992,42 +797,7 @@ class CompatMapValueImpl final : public CompatMapValue {
   }
 
   absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
-    return std::make_unique<CompatMapValueImplIterator>(&map_);
-  }
-
-  absl::optional<CelValue> operator[](CelValue key) const override {
-    return Get(map_.get_allocator().arena(), key);
-  }
-
-  using CompatMapValue::Get;
-  absl::optional<CelValue> Get(google::protobuf::Arena* arena,
-                               CelValue key) const override {
-    if (auto status = CelValue::CheckMapKeyType(key); !status.ok()) {
-      status.IgnoreError();
-      return std::nullopt;
-    }
-    if (auto it = map_.find(key); it != map_.end()) {
-      return common_internal::UnsafeLegacyValue(
-          it->second, /*stable=*/true,
-          arena != nullptr ? arena : map_.get_allocator().arena());
-    }
-    return std::nullopt;
-  }
-
-  absl::StatusOr<bool> Has(const CelValue& key) const override {
-    // This check safeguards against issues with invalid key types such as NaN.
-    CEL_RETURN_IF_ERROR(CelValue::CheckMapKeyType(key));
-    return map_.find(key) != map_.end();
-  }
-
-  int size() const override { return static_cast<int>(Size()); }
-
-  absl::StatusOr<const CelList*> ListKeys() const override {
-    return ProjectKeys();
-  }
-
-  absl::StatusOr<const CelList*> ListKeys(google::protobuf::Arena* arena) const override {
-    return ProjectKeys();
+    return std::make_unique<MapValueImplIterator>(&map_);
   }
 
  protected:
@@ -1055,7 +825,11 @@ class CompatMapValueImpl final : public CompatMapValue {
   }
 
  private:
-  const CompatListValue* absl_nonnull ProjectKeys() const {
+  NativeTypeId GetNativeTypeId() const override {
+    return NativeTypeId::For<MapValueImpl>();
+  }
+
+  const CustomListValueInterface* absl_nonnull ProjectKeys() const {
     absl::call_once(keys_once_, [this]() {
       ListValueBuilderImpl builder(map_.get_allocator().arena());
       builder.Reserve(map_.size());
@@ -1064,15 +838,14 @@ class CompatMapValueImpl final : public CompatMapValue {
         builder.UnsafeAdd(entry.first);
       }
 
-      std::move(builder).BuildCompatAt(&keys_[0]);
+      std::move(builder).BuildAt(&keys_[0]);
     });
-    return std::launder(
-        reinterpret_cast<const CompatListValueImpl*>(&keys_[0]));
+    return std::launder(reinterpret_cast<const ListValueImpl*>(&keys_[0]));
   }
 
   const ValueFlatHashMap map_;
   mutable absl::once_flag keys_once_;
-  alignas(CompatListValueImpl) mutable char keys_[sizeof(CompatListValueImpl)];
+  alignas(ListValueImpl) mutable char keys_[sizeof(ListValueImpl)];
 };
 
 MapValue MapValueBuilderImpl::Build() && {
@@ -1084,29 +857,22 @@ MapValue MapValueBuilderImpl::Build() && {
 
 CustomMapValue MapValueBuilderImpl::BuildCustom() && {
   if (map_->empty()) {
-    return CustomMapValue(EmptyCompatMapValue(), arena_);
+    return CustomMapValue();
   }
-  return CustomMapValue(std::move(*this).BuildCompat(), arena_);
+  return CustomMapValue(std::move(*this).BuildImpl(), arena_);
 }
 
-const CompatMapValue* absl_nonnull MapValueBuilderImpl::BuildCompat() && {
-  if (map_->empty()) {
-    return EmptyCompatMapValue();
-  }
-  CompatMapValueImpl* absl_nonnull impl = ::new (arena_->AllocateAligned(
-      sizeof(CompatMapValueImpl), alignof(CompatMapValueImpl)))
-      CompatMapValueImpl(std::move(*map_));
+const MapValueImpl* absl_nonnull MapValueBuilderImpl::BuildImpl() && {
+  MapValueImpl* absl_nonnull impl = ::new (
+      arena_->AllocateAligned(sizeof(MapValueImpl), alignof(MapValueImpl)))
+      MapValueImpl(std::move(*map_));
   return impl;
 }
 
-class MutableCompatMapValueImpl final : public MutableCompatMapValue {
+class MutableMapValueImpl final : public MutableMapValue {
  public:
-  explicit MutableCompatMapValueImpl(google::protobuf::Arena* absl_nonnull arena)
+  explicit MutableMapValueImpl(google::protobuf::Arena* absl_nonnull arena)
       : map_(arena) {}
-
-  google::protobuf::Arena* GetOwningArena() const override {
-    return map_.get_allocator().arena();
-  }
 
   std::string DebugString() const override {
     return absl::StrCat("{", absl::StrJoin(map_, ", ", ValueFormatter{}), "}");
@@ -1156,42 +922,7 @@ class MutableCompatMapValueImpl final : public MutableCompatMapValue {
   }
 
   absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
-    return std::make_unique<CompatMapValueImplIterator>(&map_);
-  }
-
-  absl::optional<CelValue> operator[](CelValue key) const override {
-    return Get(map_.get_allocator().arena(), key);
-  }
-
-  using MutableCompatMapValue::Get;
-  absl::optional<CelValue> Get(google::protobuf::Arena* arena,
-                               CelValue key) const override {
-    if (auto status = CelValue::CheckMapKeyType(key); !status.ok()) {
-      status.IgnoreError();
-      return std::nullopt;
-    }
-    if (auto it = map_.find(key); it != map_.end()) {
-      return common_internal::UnsafeLegacyValue(
-          it->second, /*stable=*/false,
-          arena != nullptr ? arena : map_.get_allocator().arena());
-    }
-    return std::nullopt;
-  }
-
-  absl::StatusOr<bool> Has(const CelValue& key) const override {
-    // This check safeguards against issues with invalid key types such as NaN.
-    CEL_RETURN_IF_ERROR(CelValue::CheckMapKeyType(key));
-    return map_.find(key) != map_.end();
-  }
-
-  int size() const override { return static_cast<int>(Size()); }
-
-  absl::StatusOr<const CelList*> ListKeys() const override {
-    return ProjectKeys();
-  }
-
-  absl::StatusOr<const CelList*> ListKeys(google::protobuf::Arena* arena) const override {
-    return ProjectKeys();
+    return std::make_unique<MapValueImplIterator>(&map_);
   }
 
   absl::Status Put(Value key, Value value) const override {
@@ -1232,7 +963,7 @@ class MutableCompatMapValueImpl final : public MutableCompatMapValue {
   }
 
  private:
-  const CompatListValue* absl_nonnull ProjectKeys() const {
+  const CustomListValueInterface* absl_nonnull ProjectKeys() const {
     absl::call_once(keys_once_, [this]() {
       ListValueBuilderImpl builder(map_.get_allocator().arena());
       builder.Reserve(map_.size());
@@ -1241,75 +972,45 @@ class MutableCompatMapValueImpl final : public MutableCompatMapValue {
         builder.UnsafeAdd(entry.first);
       }
 
-      std::move(builder).BuildCompatAt(&keys_[0]);
+      std::move(builder).BuildAt(&keys_[0]);
     });
-    return std::launder(
-        reinterpret_cast<const CompatListValueImpl*>(&keys_[0]));
+    return std::launder(reinterpret_cast<const ListValueImpl*>(&keys_[0]));
   }
 
   mutable ValueFlatHashMap map_;
   mutable absl::once_flag keys_once_;
-  alignas(CompatListValueImpl) mutable char keys_[sizeof(CompatListValueImpl)];
+  alignas(ListValueImpl) mutable char keys_[sizeof(ListValueImpl)];
 };
 
 }  // namespace
 
-absl::StatusOr<const CompatMapValue* absl_nonnull> MakeCompatMapValue(
-    const CustomMapValue& value,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) {
-  MapValueBuilderImpl builder(arena);
-  builder.Reserve(value.Size());
-
-  CEL_RETURN_IF_ERROR(value.ForEach(
-      [&](const Value& key, const Value& value) -> absl::StatusOr<bool> {
-        CEL_RETURN_IF_ERROR(builder.Put(key, value));
-        return true;
-      },
-      descriptor_pool, message_factory, arena));
-
-  return std::move(builder).BuildCompat();
-}
-
 MutableMapValue* absl_nonnull NewMutableMapValue(
     google::protobuf::Arena* absl_nonnull arena) {
-  return ::new (arena->AllocateAligned(sizeof(MutableCompatMapValueImpl),
-                                       alignof(MutableCompatMapValueImpl)))
-      MutableCompatMapValueImpl(arena);
+  return ::new (arena->AllocateAligned(sizeof(MutableMapValueImpl),
+                                       alignof(MutableMapValueImpl)))
+      MutableMapValueImpl(arena);
 }
 
 bool IsMutableMapValue(const Value& value) {
   if (auto custom_map_value = value.AsCustomMap(); custom_map_value) {
-    NativeTypeId native_type_id = custom_map_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableMapValue>() ||
-        native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-      return true;
-    }
+    return custom_map_value->GetTypeId() ==
+           NativeTypeId::For<MutableMapValue>();
   }
   return false;
 }
 
 bool IsMutableMapValue(const MapValue& value) {
   if (auto custom_map_value = value.AsCustom(); custom_map_value) {
-    NativeTypeId native_type_id = custom_map_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableMapValue>() ||
-        native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-      return true;
-    }
+    return custom_map_value->GetTypeId() ==
+           NativeTypeId::For<MutableMapValue>();
   }
   return false;
 }
 
 const MutableMapValue* absl_nullable AsMutableMapValue(const Value& value) {
   if (auto custom_map_value = value.AsCustomMap(); custom_map_value) {
-    NativeTypeId native_type_id = custom_map_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableMapValue>()) {
+    if (custom_map_value->GetTypeId() == NativeTypeId::For<MutableMapValue>()) {
       return cel::internal::down_cast<const MutableMapValue*>(
-          custom_map_value->interface());
-    }
-    if (native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-      return cel::internal::down_cast<const MutableCompatMapValue*>(
           custom_map_value->interface());
     }
   }
@@ -1318,13 +1019,8 @@ const MutableMapValue* absl_nullable AsMutableMapValue(const Value& value) {
 
 const MutableMapValue* absl_nullable AsMutableMapValue(const MapValue& value) {
   if (auto custom_map_value = value.AsCustom(); custom_map_value) {
-    NativeTypeId native_type_id = custom_map_value->GetTypeId();
-    if (native_type_id == NativeTypeId::For<MutableMapValue>()) {
+    if (custom_map_value->GetTypeId() == NativeTypeId::For<MutableMapValue>()) {
       return cel::internal::down_cast<const MutableMapValue*>(
-          custom_map_value->interface());
-    }
-    if (native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-      return cel::internal::down_cast<const MutableCompatMapValue*>(
           custom_map_value->interface());
     }
   }
@@ -1333,32 +1029,14 @@ const MutableMapValue* absl_nullable AsMutableMapValue(const MapValue& value) {
 
 const MutableMapValue& GetMutableMapValue(const Value& value) {
   ABSL_DCHECK(IsMutableMapValue(value)) << value;
-  const auto& custom_map_value = value.GetCustomMap();
-  NativeTypeId native_type_id = custom_map_value.GetTypeId();
-  if (native_type_id == NativeTypeId::For<MutableMapValue>()) {
-    return cel::internal::down_cast<const MutableMapValue&>(
-        *custom_map_value.interface());
-  }
-  if (native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-    return cel::internal::down_cast<const MutableCompatMapValue&>(
-        *custom_map_value.interface());
-  }
-  ABSL_UNREACHABLE();
+  return cel::internal::down_cast<const MutableMapValue&>(
+      *value.GetCustomMap().interface());
 }
 
 const MutableMapValue& GetMutableMapValue(const MapValue& value) {
   ABSL_DCHECK(IsMutableMapValue(value)) << value;
-  const auto& custom_map_value = value.GetCustom();
-  NativeTypeId native_type_id = custom_map_value.GetTypeId();
-  if (native_type_id == NativeTypeId::For<MutableMapValue>()) {
-    return cel::internal::down_cast<const MutableMapValue&>(
-        *custom_map_value.interface());
-  }
-  if (native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
-    return cel::internal::down_cast<const MutableCompatMapValue&>(
-        *custom_map_value.interface());
-  }
-  ABSL_UNREACHABLE();
+  return cel::internal::down_cast<const MutableMapValue&>(
+      *value.GetCustom().interface());
 }
 
 absl_nonnull cel::MapValueBuilderPtr NewMapValueBuilder(

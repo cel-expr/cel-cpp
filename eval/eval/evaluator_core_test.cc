@@ -28,6 +28,7 @@
 #include "runtime/activation.h"
 #include "runtime/function_overload_reference.h"
 #include "runtime/function_registry.h"
+#include "runtime/internal/legacy_runtime_env_testing.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/internal/runtime_type_provider.h"
 #include "runtime/runtime_options.h"
@@ -40,6 +41,7 @@ using ::absl_testing::StatusIs;
 using ::cel::IntValue;
 using ::cel::TypeProvider;
 using ::cel::interop_internal::CreateIntValue;
+using ::cel::runtime_internal::NewTestingLegacyRuntimeEnv;
 using ::cel::runtime_internal::NewTestingRuntimeEnv;
 using ::cel::expr::Expr;
 using ::google::api::expr::runtime::RegisterBuiltinFunctions;
@@ -370,7 +372,7 @@ TEST(EvaluatorCoreTest, TraceTest) {
 
   cel::RuntimeOptions options;
   options.short_circuiting = false;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv(), options);
   ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
   ASSERT_OK_AND_ASSIGN(auto cel_expr,
                        builder.CreateExpression(&expr, &source_info));

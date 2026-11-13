@@ -53,6 +53,134 @@ namespace common_internal {
 
 class LegacyStructValue;
 
+struct LegacyStructValueDispatcher {
+  using GetTypeName = absl::string_view (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info);
+
+  using DebugString = std::string (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info);
+
+  using SerializeTo = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output);
+
+  using ConvertToJson = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json);
+
+  using ConvertToJsonObject = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json);
+
+  using Equal = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      const Value& other,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  using IsZeroValue = bool (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info);
+
+  using GetFieldByName = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      absl::string_view name, ProtoWrapperTypeOptions unboxing_options,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  using GetFieldByNumber = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      int64_t number, ProtoWrapperTypeOptions unboxing_options,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  using HasFieldByName = absl::StatusOr<bool> (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      absl::string_view name);
+
+  using HasFieldByNumber = absl::StatusOr<bool> (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      int64_t number);
+
+  using ForEachField = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      CustomStructValueInterface::ForEachFieldCallback callback,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena);
+
+  using Qualify = absl::Status (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+      absl::Span<const SelectQualifier> qualifiers, bool presence_test,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result,
+      int* absl_nonnull count);
+
+  using GetLegacyMessage = const google::protobuf::Message* absl_nullable (*)(
+      const google::protobuf::Message* absl_nullability_unknown message_ptr,
+      const google::api::expr::runtime::
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info);
+
+  using WrapLegacyMessageField = absl::Status (*)(
+      const google::protobuf::Message* absl_nonnull message,
+      const google::protobuf::FieldDescriptor* absl_nonnull field_descriptor,
+      ProtoWrapperTypeOptions unboxing_option,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull out);
+
+  absl_nonnull GetTypeName get_type_name;
+  absl_nonnull DebugString debug_string;
+  absl_nonnull SerializeTo serialize_to;
+  absl_nonnull ConvertToJson convert_to_json;
+  absl_nonnull ConvertToJsonObject convert_to_json_object;
+  absl_nonnull Equal equal;
+  absl_nonnull IsZeroValue is_zero_value;
+  absl_nonnull GetFieldByName get_field_by_name;
+  absl_nonnull GetFieldByNumber get_field_by_number;
+  absl_nonnull HasFieldByName has_field_by_name;
+  absl_nonnull HasFieldByNumber has_field_by_number;
+  absl_nonnull ForEachField for_each_field;
+  absl_nonnull Qualify qualify;
+  absl_nonnull GetLegacyMessage get_legacy_message;
+  absl_nonnull WrapLegacyMessageField wrap_legacy_message_field;
+};
+
 // `LegacyStructValue` is a wrapper around the old representation of protocol
 // buffer messages in `google::api::expr::runtime::CelValue`. It only supports
 // arena allocation.
@@ -66,11 +194,12 @@ class LegacyStructValue final
   LegacyStructValue(
       const google::protobuf::Message* absl_nullability_unknown message_ptr,
       const google::api::expr::runtime::
-          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info)
-      : message_ptr_(message_ptr), legacy_type_info_(legacy_type_info) {}
+          LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info);
 
   LegacyStructValue(const LegacyStructValue&) = default;
+  LegacyStructValue(LegacyStructValue&&) = default;
   LegacyStructValue& operator=(const LegacyStructValue&) = default;
+  LegacyStructValue& operator=(LegacyStructValue&&) = default;
 
   constexpr ValueKind kind() const { return kKind; }
 
@@ -141,6 +270,15 @@ class LegacyStructValue final
       int* absl_nonnull count) const;
   using StructValueMixin::Qualify;
 
+  const google::protobuf::Message* absl_nullable GetLegacyMessage() const;
+
+  absl::Status WrapLegacyMessageField(
+      const google::protobuf::FieldDescriptor* absl_nonnull field_descriptor,
+      ProtoWrapperTypeOptions unboxing_option,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull out) const;
+
   const google::protobuf::Message* absl_nullability_unknown message_ptr() const {
     return message_ptr_;
   }
@@ -152,6 +290,7 @@ class LegacyStructValue final
 
   friend void swap(LegacyStructValue& lhs, LegacyStructValue& rhs) noexcept {
     using std::swap;
+    swap(lhs.dispatcher_, rhs.dispatcher_);
     swap(lhs.message_ptr_, rhs.message_ptr_);
     swap(lhs.legacy_type_info_, rhs.legacy_type_info_);
   }
@@ -160,6 +299,7 @@ class LegacyStructValue final
   friend class common_internal::ValueMixin<LegacyStructValue>;
   friend class common_internal::StructValueMixin<LegacyStructValue>;
 
+  const LegacyStructValueDispatcher* absl_nullable dispatcher_ = nullptr;
   const google::protobuf::Message* absl_nullability_unknown message_ptr_ = nullptr;
   const google::api::expr::runtime::LegacyTypeInfoApis* absl_nullability_unknown
   legacy_type_info_ = nullptr;
@@ -175,6 +315,8 @@ bool IsLegacyStructValue(const Value& value);
 LegacyStructValue GetLegacyStructValue(const Value& value);
 
 absl::optional<LegacyStructValue> AsLegacyStructValue(const Value& value);
+
+const google::protobuf::Message* absl_nullable GetLegacyMessage(const Value& value);
 
 }  // namespace common_internal
 
