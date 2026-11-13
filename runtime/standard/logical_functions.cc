@@ -14,16 +14,19 @@
 
 #include "runtime/standard/logical_functions.h"
 
+#include <memory>
+
 #include "absl/status/status.h"
-#include "absl/strings/string_view.h"
+#include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "base/builtins.h"
-#include "base/function_adapter.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
 #include "common/value.h"
 #include "internal/status_macros.h"
 #include "runtime/function.h"
 #include "runtime/function_registry.h"
 #include "runtime/internal/errors.h"
-#include "runtime/register_function_helper.h"
 #include "runtime/runtime_options.h"
 
 namespace cel {
@@ -31,40 +34,67 @@ namespace {
 
 using ::cel::runtime_internal::CreateNoMatchingOverloadError;
 
-Value NotStrictlyFalseImpl(const Value& value,
-                           const Function::InvokeContext& context) {
-  if (value.IsBool()) {
-    return value;
+class LogicalNotFunction final : public Function {
+ public:
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext&) const override {
+    if (args.size() != 1) {
+      return absl::InvalidArgumentError(
+          "unexpected number of arguments for unary function");
+    }
+    if (!args[0].IsBool()) {
+      return absl::InvalidArgumentError("expected bool value");
+    }
+    return BoolValue(!args[0].GetBool().NativeValue());
   }
+};
 
-  if (value.IsError() || value.IsUnknown()) {
-    return TrueValue();
+class NotStrictlyFalseFunction final : public Function {
+ public:
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext& context) const override {
+    if (args.size() != 1) {
+      return absl::InvalidArgumentError(
+          "unexpected number of arguments for unary function");
+    }
+    const Value& value = args[0];
+    if (value.IsBool()) {
+      return value;
+    }
+
+    if (value.IsError() || value.IsUnknown()) {
+      return TrueValue();
+    }
+
+    // Should only accept bool unknown or error.
+    return ErrorValue::From(
+        CreateNoMatchingOverloadError(builtin::kNotStrictlyFalse),
+        context.arena());
   }
-
-  // Should only accept bool unknown or error.
-  return ErrorValue::From(
-      CreateNoMatchingOverloadError(builtin::kNotStrictlyFalse),
-      context.arena());
-}
+};
 
 }  // namespace
 
 absl::Status RegisterLogicalFunctions(FunctionRegistry& registry,
                                       const RuntimeOptions& options) {
   // logical NOT
-  CEL_RETURN_IF_ERROR(
-      (RegisterHelper<UnaryFunctionAdapter<bool, bool>>::RegisterGlobalOverload(
-          builtin::kNot, [](bool value) -> bool { return !value; }, registry)));
+  CEL_RETURN_IF_ERROR(registry.Register(
+      FunctionDescriptor(builtin::kNot, /*is_receiver_style=*/false,
+                         {Kind::kBool}),
+      std::make_unique<LogicalNotFunction>()));
 
   // Strictness
-  using StrictnessHelper = RegisterHelper<UnaryFunctionAdapter<Value, Value>>;
-  CEL_RETURN_IF_ERROR(StrictnessHelper::RegisterNonStrictOverload(
-      builtin::kNotStrictlyFalse, &NotStrictlyFalseImpl, registry));
+  CEL_RETURN_IF_ERROR(registry.Register(
+      FunctionDescriptor(builtin::kNotStrictlyFalse,
+                         /*is_receiver_style=*/false, {Kind::kAny},
+                         /*is_strict=*/false),
+      std::make_unique<NotStrictlyFalseFunction>()));
 
-  CEL_RETURN_IF_ERROR(StrictnessHelper::RegisterNonStrictOverload(
-      builtin::kNotStrictlyFalseDeprecated, &NotStrictlyFalseImpl, registry));
-
-  return absl::OkStatus();
+  return registry.Register(
+      FunctionDescriptor(builtin::kNotStrictlyFalseDeprecated,
+                         /*is_receiver_style=*/false, {Kind::kAny},
+                         /*is_strict=*/false),
+      std::make_unique<NotStrictlyFalseFunction>());
 }
 
 }  // namespace cel

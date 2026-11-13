@@ -505,6 +505,38 @@ TEST_F(CelProtoWrapValueToMessageTest, WrapFieldMaskToValue) {
   ExpectWrappedMessage(value, expected_message);
 }
 
+TEST_F(CelProtoWrapValueToMessageTest, WrapFieldMaskSnakeCaseToValue) {
+  FieldMask field_mask;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(paths: "foo_bar.baz_qux" paths: "some_field")pb", &field_mask));
+  CelValue value = MessageToCelValue(&field_mask);
+
+  Value expected_message;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(string_value: "fooBar.bazQux,someField")pb", &expected_message));
+
+  ExpectWrappedMessage(value, expected_message);
+}
+
+TEST_F(CelProtoWrapValueToMessageTest, WrapEmptyFieldMaskToValue) {
+  FieldMask field_mask;
+  CelValue value = MessageToCelValue(&field_mask);
+
+  Value expected_message;
+  expected_message.set_string_value("");
+
+  ExpectWrappedMessage(value, expected_message);
+}
+
+TEST_F(CelProtoWrapValueToMessageTest, WrapInvalidFieldMaskToValue) {
+  FieldMask field_mask;
+  field_mask.add_paths("Foo");
+  CelValue value = MessageToCelValue(&field_mask);
+
+  Value expected_message;
+  ExpectNotWrapped(value, expected_message);
+}
+
 TEST_F(CelProtoWrapValueToMessageTest, WrapMapWithFieldMaskToAny) {
   const std::string kField = "field_mask";
   FieldMask field_mask;
