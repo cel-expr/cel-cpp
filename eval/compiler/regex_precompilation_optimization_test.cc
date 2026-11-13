@@ -40,8 +40,8 @@
 #include "internal/testing.h"
 #include "parser/parser.h"
 #include "runtime/internal/issue_collector.h"
-#include "runtime/internal/runtime_env.h"
-#include "runtime/internal/runtime_env_testing.h"
+#include "runtime/internal/legacy_runtime_env.h"
+#include "runtime/internal/legacy_runtime_env_testing.h"
 #include "runtime/runtime_issue.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
@@ -51,8 +51,8 @@ namespace {
 
 using ::cel::RuntimeIssue;
 using ::cel::runtime_internal::IssueCollector;
-using ::cel::runtime_internal::NewTestingRuntimeEnv;
-using ::cel::runtime_internal::RuntimeEnv;
+using ::cel::runtime_internal::LegacyRuntimeEnv;
+using ::cel::runtime_internal::NewTestingLegacyRuntimeEnv;
 using ::google::api::expr::parser::Parse;
 using ::testing::ElementsAre;
 
@@ -61,7 +61,7 @@ namespace exprpb = cel::expr;
 class RegexPrecompilationExtensionTest : public testing::TestWithParam<bool> {
  public:
   RegexPrecompilationExtensionTest()
-      : env_(NewTestingRuntimeEnv()),
+      : env_(NewTestingLegacyRuntimeEnv()),
         builder_(env_),
         type_registry_(*builder_.GetTypeRegistry()),
         function_registry_(*builder_.GetRegistry()),
@@ -95,7 +95,7 @@ class RegexPrecompilationExtensionTest : public testing::TestWithParam<bool> {
     };
   }
 
-  absl_nonnull std::shared_ptr<RuntimeEnv> env_;
+  absl_nonnull std::shared_ptr<LegacyRuntimeEnv> env_;
   CelExpressionBuilderFlatImpl builder_;
   CelTypeRegistry& type_registry_;
   CelFunctionRegistry& function_registry_;
@@ -114,7 +114,7 @@ TEST_P(RegexPrecompilationExtensionTest, SmokeTest) {
   cel::Ast ast_impl;
   ast_impl.set_is_checked(true);
   std::shared_ptr<google::protobuf::Arena> arena;
-  PlannerContext context(env_, resolver_, runtime_options_,
+  PlannerContext context(env_->GetRuntimeEnv(), resolver_, runtime_options_,
                          type_registry_.GetTypeProvider(), issue_collector_,
                          program_builder, arena);
 

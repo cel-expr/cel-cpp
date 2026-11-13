@@ -212,7 +212,6 @@ cc_library(
         "//base:data",
         "//common:type",
         "//common:value",
-        "//runtime/internal:legacy_runtime_type_provider",
         "//runtime/internal:runtime_type_provider",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",

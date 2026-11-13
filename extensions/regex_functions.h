@@ -21,18 +21,11 @@
 
 #include "absl/base/attributes.h"
 #include "absl/status/status.h"
-#include "absl/strings/string_view.h"
-#include "checker/type_checker_builder.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_options.h"
-#include "runtime/function_registry.h"
-#include "runtime/runtime_options.h"
+#include "extensions/regex_functions_modern.h"  // IWYU pragma: export
 
 namespace cel::extensions {
-
-inline constexpr absl::string_view kRegexExtract = "re.extract";
-inline constexpr absl::string_view kRegexCapture = "re.capture";
-inline constexpr absl::string_view kRegexCaptureN = "re.captureN";
 
 // Register Extract and Capture Functions for RE2
 // Requires options.enable_regex to be true
@@ -42,11 +35,6 @@ ABSL_DEPRECATED("Use RegisterRegexExtensionsFunctions instead.")
 absl::Status RegisterRegexFunctions(
     google::api::expr::runtime::CelFunctionRegistry* registry,
     const google::api::expr::runtime::InterpreterOptions& options);
-absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
-                                    const RuntimeOptions& options);
-
-// Declarations for the regex extension library.
-CheckerLibrary RegexCheckerLibrary();
 
 }  // namespace cel::extensions
 #endif  // THIRD_PARTY_CEL_CPP_EXTENSIONS_REGEX_FUNCTIONS_H_
