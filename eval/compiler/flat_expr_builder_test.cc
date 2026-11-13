@@ -1887,7 +1887,6 @@ absl::Status RunTernaryExpression(CelValue selector, CelValue value1,
   CEL_ASSIGN_OR_RETURN(auto cel_expr,
                        builder.CreateExpression(&expr, &source_info));
 
-  std::string variable = "test";
 
   Activation activation;
   activation.InsertValue("selector", selector);

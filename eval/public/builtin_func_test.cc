@@ -267,7 +267,7 @@ class BuiltinsTest : public ::testing::Test {
 
   void TestComparisonsForType(CelValue::Type kind, const CelValue& ref,
                               const CelValue& lesser) {
-    std::string type_name = CelValue::TypeName(kind);
+    [[maybe_unused]] std::string type_name = CelValue::TypeName(kind);
 
     TestComparison(builtin::kEqual, ref, ref, true);
     TestComparison(builtin::kEqual, ref, lesser, false);

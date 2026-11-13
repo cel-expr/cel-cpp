@@ -55,7 +55,6 @@ class LogicStepTest : public testing::TestWithParam<bool> {
                   IdentifierTable{{"name0", 0}, {"name1", 1}, {"name2", 2}}));
 
     Activation activation;
-    std::string value("test");
 
     activation.InsertValue("name0", arg0);
     activation.InsertValue("name1", arg1);

@@ -21,8 +21,6 @@ using cel::expr::Expr;
 
 TEST(UnknownAttributeSetTest, TestCreate) {
   const std::string kAttr1 = "a1";
-  const std::string kAttr2 = "a2";
-  const std::string kAttr3 = "a3";
 
   std::shared_ptr<CelAttribute> cel_attr = std::make_shared<CelAttribute>(
       "root", std::vector<CelAttributeQualifier>(
@@ -38,8 +36,6 @@ TEST(UnknownAttributeSetTest, TestCreate) {
 
 TEST(UnknownAttributeSetTest, TestMergeSets) {
   const std::string kAttr1 = "a1";
-  const std::string kAttr2 = "a2";
-  const std::string kAttr3 = "a3";
 
   CelAttribute cel_attr1(
       "root", std::vector<CelAttributeQualifier>(

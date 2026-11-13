@@ -817,9 +817,6 @@ TEST(StringsTest, UTF8Unescape) {
 }
 
 TEST(StringsTest, TestUnescapeErrorMessages) {
-  std::string error_string;
-  std::string out;
-
   auto status_or_string = UnescapeString("\\2");
   EXPECT_THAT(status_or_string, StatusIs(absl::StatusCode::kInvalidArgument));
   EXPECT_TRUE(absl::StrContains(

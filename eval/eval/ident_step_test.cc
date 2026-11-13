@@ -128,7 +128,6 @@ TEST(IdentStepTest, TestIdentStepNameNotFound) {
 
   Activation activation;
   Arena arena;
-  std::string value("test");
 
   absl::StatusOr<CelValue> status0 = impl.Evaluate(activation, &arena);
   ASSERT_THAT(status0, IsOk());
