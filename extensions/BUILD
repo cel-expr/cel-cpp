@@ -4,17 +4,15 @@ load("@rules_cc//cc:cc_test.bzl", "cc_test")
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
-    name = "encoders",
-    srcs = ["encoders.cc"],
-    hdrs = ["encoders.h"],
+    name = "encoders_modern",
+    srcs = ["encoders_modern.cc"],
+    hdrs = ["encoders_modern.h"],
     deps = [
         "//checker:type_checker_builder",
         "//common:decl",
         "//common:type",
         "//common:value",
         "//compiler",
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_options",
         "//internal:status_macros",
         "//runtime:function_adapter",
         "//runtime:function_registry",
@@ -24,6 +22,19 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "encoders",
+    srcs = ["encoders.cc"],
+    hdrs = ["encoders.h"],
+    deps = [
+        ":encoders_modern",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_options",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -71,15 +82,13 @@ cc_library(
 )
 
 cc_library(
-    name = "math_ext",
-    srcs = ["math_ext.cc"],
-    hdrs = ["math_ext.h"],
+    name = "math_ext_modern",
+    srcs = ["math_ext_modern.cc"],
+    hdrs = ["math_ext_modern.h"],
     deps = [
         ":math_ext_decls",
         "//common:value",
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_number",
-        "//eval/public:cel_options",
+        "//internal:number",
         "//internal:status_macros",
         "//runtime:function",
         "//runtime:function_adapter",
@@ -92,6 +101,18 @@ cc_library(
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "math_ext",
+    srcs = ["math_ext.cc"],
+    hdrs = ["math_ext.h"],
+    deps = [
+        ":math_ext_modern",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_options",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -181,31 +202,44 @@ cc_test(
 
 # New users should use ":regex_ext" instead.
 cc_library(
-    name = "regex_functions",
-    srcs = ["regex_functions.cc"],
-    hdrs = ["regex_functions.h"],
+    name = "regex_functions_modern",
+    srcs = ["regex_functions_modern.cc"],
+    hdrs = ["regex_functions_modern.h"],
     deps = [
         "//checker:type_checker_builder",
         "//checker/internal:builtins_arena",
         "//common:decl",
         "//common:type",
         "//common:value",
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_options",
         "//internal:re2_options",
         "//internal:status_macros",
         "//runtime:function_adapter",
         "//runtime:function_registry",
         "//runtime:runtime_options",
-        "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/functional:bind_front",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_protobuf//:protobuf",
         "@com_googlesource_code_re2//:re2",
+    ],
+)
+
+# New users should use ":regex_ext" instead.
+cc_library(
+    name = "regex_functions",
+    srcs = ["regex_functions.cc"],
+    hdrs = ["regex_functions.h"],
+    deps = [
+        ":regex_functions_modern",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_options",
+        "//internal:status_macros",
+        "@com_google_absl//absl/base:core_headers",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -329,7 +363,6 @@ cc_library(
         "//common:expr",
         "//common:function_descriptor",
         "//common:kind",
-        "//common:legacy_value",
         "//common:native_type",
         "//common:type",
         "//common:value",
@@ -390,7 +423,6 @@ cc_test(
         "//eval/compiler:resolver",
         "//eval/eval:evaluator_core",
         "//eval/internal:interop",
-        "//eval/public:cel_type_registry",
         "//eval/public:cel_value",
         "//eval/public/structs:cel_proto_wrapper",
         "//extensions/protobuf:ast_converters",
@@ -503,9 +535,9 @@ cc_test(
 )
 
 cc_library(
-    name = "sets_functions",
-    srcs = ["sets_functions.cc"],
-    hdrs = ["sets_functions.h"],
+    name = "sets_functions_modern",
+    srcs = ["sets_functions_modern.cc"],
+    hdrs = ["sets_functions_modern.h"],
     deps = [
         "//base:function_adapter",
         "//checker:type_checker_builder",
@@ -513,8 +545,6 @@ cc_library(
         "//common:type",
         "//common:value",
         "//compiler",
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_options",
         "//internal:status_macros",
         "//runtime:function_registry",
         "//runtime:runtime_options",
@@ -522,6 +552,18 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "sets_functions",
+    srcs = ["sets_functions.cc"],
+    hdrs = ["sets_functions.h"],
+    deps = [
+        ":sets_functions_modern",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_options",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -568,6 +610,7 @@ cc_test(
         "//checker:validation_result",
         "//common:ast",
         "//common:decl",
+        "//common:legacy_value",
         "//common:minimal_descriptor_pool",
         "//common:type",
         "//common:value",
@@ -596,9 +639,9 @@ cc_test(
 )
 
 cc_library(
-    name = "strings",
-    srcs = ["strings.cc"],
-    hdrs = ["strings.h"],
+    name = "strings_modern",
+    srcs = ["strings_modern.cc"],
+    hdrs = ["strings_modern.h"],
     deps = [
         ":formatting",
         "//checker:type_checker_builder",
@@ -607,8 +650,6 @@ cc_library(
         "//common:type",
         "//common:value",
         "//compiler",
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_options",
         "//internal:status_macros",
         "//runtime:function",
         "//runtime:function_adapter",
@@ -619,9 +660,20 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_absl//absl/strings",
-        "@com_google_absl//absl/strings:cord",
         "@com_google_absl//absl/strings:string_view",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "strings",
+    srcs = ["strings.cc"],
+    hdrs = ["strings.h"],
+    deps = [
+        ":strings_modern",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_options",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -661,13 +713,11 @@ cc_test(
 )
 
 cc_library(
-    name = "comprehensions_v2_functions",
-    srcs = ["comprehensions_v2_functions.cc"],
-    hdrs = ["comprehensions_v2_functions.h"],
+    name = "comprehensions_v2_functions_modern",
+    srcs = ["comprehensions_v2_functions_modern.cc"],
+    hdrs = ["comprehensions_v2_functions_modern.h"],
     deps = [
         "//common:value",
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_options",
         "//internal:status_macros",
         "//runtime:function_adapter",
         "//runtime:function_registry",
@@ -676,6 +726,18 @@ cc_library(
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/status:statusor",
         "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "comprehensions_v2_functions",
+    srcs = ["comprehensions_v2_functions.cc"],
+    hdrs = ["comprehensions_v2_functions.h"],
+    deps = [
+        ":comprehensions_v2_functions_modern",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_options",
+        "@com_google_absl//absl/status",
     ],
 )
 
@@ -778,9 +840,9 @@ cc_library(
 )
 
 cc_library(
-    name = "regex_ext",
-    srcs = ["regex_ext.cc"],
-    hdrs = ["regex_ext.h"],
+    name = "regex_ext_modern",
+    srcs = ["regex_ext_modern.cc"],
+    hdrs = ["regex_ext_modern.h"],
     deps = [
         "//checker:type_checker_builder",
         "//checker/internal:builtins_arena",
@@ -788,8 +850,6 @@ cc_library(
         "//common:type",
         "//common:value",
         "//compiler",
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_options",
         "//internal:casts",
         "//internal:re2_options",
         "//internal:status_macros",
@@ -809,6 +869,18 @@ cc_library(
         "@com_google_absl//absl/strings:string_view",
         "@com_google_protobuf//:protobuf",
         "@com_googlesource_code_re2//:re2",
+    ],
+)
+
+cc_library(
+    name = "regex_ext",
+    srcs = ["regex_ext.cc"],
+    hdrs = ["regex_ext.h"],
+    deps = [
+        ":regex_ext_modern",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_options",
+        "@com_google_absl//absl/status",
     ],
 )
 

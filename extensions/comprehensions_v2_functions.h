@@ -18,14 +18,10 @@
 #include "absl/status/status.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_options.h"
-#include "runtime/function_registry.h"
-#include "runtime/runtime_options.h"
+#include "extensions/comprehensions_v2_functions_modern.h"  // IWYU pragma: export
 
 namespace cel::extensions {
 
-// Register comprehension v2 functions.
-absl::Status RegisterComprehensionsV2Functions(FunctionRegistry& registry,
-                                               const RuntimeOptions& options);
 absl::Status RegisterComprehensionsV2Functions(
     google::api::expr::runtime::CelFunctionRegistry* registry,
     const google::api::expr::runtime::InterpreterOptions& options);

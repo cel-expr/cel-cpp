@@ -20,41 +20,15 @@
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "common/native_type.h"
 #include "common/value.h"
-#include "eval/public/cel_value.h"
 #include "google/protobuf/arena.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/message.h"
 
 namespace cel {
 
 class ValueFactory;
 
 namespace common_internal {
-
-// Special implementation of map which is both a modern map and legacy map. Do
-// not try this at home. This should only be implemented in
-// `map_value_builder.cc`.
-class CompatMapValue : public CustomMapValueInterface,
-                       public google::api::expr::runtime::CelMap {
- public:
-  virtual google::protobuf::Arena* GetOwningArena() const = 0;
-
- private:
-  NativeTypeId GetNativeTypeId() const final {
-    return NativeTypeId::For<CompatMapValue>();
-  }
-};
-
-const CompatMapValue* absl_nonnull EmptyCompatMapValue();
-
-absl::StatusOr<const CompatMapValue* absl_nonnull> MakeCompatMapValue(
-    const CustomMapValue& value,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena);
 
 // Extension of ParsedMapValueInterface which is also mutable. Accessing this
 // like a normal map before all entries are finished being inserted is a bug.
@@ -71,22 +45,6 @@ class MutableMapValue : public CustomMapValueInterface {
  private:
   NativeTypeId GetNativeTypeId() const override {
     return NativeTypeId::For<MutableMapValue>();
-  }
-};
-
-// Special implementation of map which is both a modern map, legacy map, and
-// mutable.
-//
-// NOTE: We do not extend CompatMapValue to avoid having to use virtual
-// inheritance and `dynamic_cast`.
-class MutableCompatMapValue : public MutableMapValue,
-                              public google::api::expr::runtime::CelMap {
- public:
-  virtual google::protobuf::Arena* GetOwningArena() const = 0;
-
- private:
-  NativeTypeId GetNativeTypeId() const final {
-    return NativeTypeId::For<MutableCompatMapValue>();
   }
 };
 

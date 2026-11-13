@@ -46,7 +46,7 @@
 #include "compiler/compiler_factory.h"
 #include "compiler/standard_library.h"
 #include "eval/tests/request_context.pb.h"
-#include "extensions/comprehensions_v2_functions.h"
+#include "extensions/comprehensions_v2_functions_modern.h"
 #include "extensions/comprehensions_v2_macros.h"
 #include "extensions/protobuf/runtime_adapter.h"
 #include "internal/benchmark.h"

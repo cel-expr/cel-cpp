@@ -17,12 +17,15 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <new>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "google/protobuf/struct.pb.h"
 #include "absl/base/attributes.h"
+#include "absl/base/call_once.h"
+#include "absl/base/no_destructor.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/functional/overload.h"
@@ -33,19 +36,18 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
-#include "absl/types/span.h"
 #include "absl/types/variant.h"
 #include "base/attribute.h"
 #include "common/kind.h"
 #include "common/memory.h"
+#include "common/native_type.h"
 #include "common/type.h"
 #include "common/unknown.h"
 #include "common/value.h"
 #include "common/value_kind.h"
 #include "common/values/legacy_list_value.h"
 #include "common/values/legacy_map_value.h"
-#include "common/values/list_value_builder.h"
-#include "common/values/map_value_builder.h"
+#include "common/values/legacy_struct_value.h"
 #include "common/values/values.h"
 #include "eval/internal/cel_value_equal.h"
 #include "eval/public/cel_value.h"
@@ -54,6 +56,7 @@
 #include "eval/public/structs/legacy_type_info_apis.h"
 #include "eval/public/structs/proto_message_type_adapter.h"
 #include "eval/public/structs/trivial_legacy_type_info_internal.h"
+#include "internal/casts.h"
 #include "internal/json.h"
 #include "internal/status_macros.h"
 #include "runtime/runtime_options.h"
@@ -249,6 +252,480 @@ namespace common_internal {
 
 namespace {
 
+class EmptyCompatListValueImpl final : public CompatListValue {
+ public:
+  static const EmptyCompatListValueImpl& Get() {
+    static const absl::NoDestructor<EmptyCompatListValueImpl> empty;
+    return *empty;
+  }
+
+  EmptyCompatListValueImpl() = default;
+
+  google::protobuf::Arena* GetOwningArena() const override { return nullptr; }
+
+  std::string DebugString() const override { return "[]"; }
+
+  bool IsEmpty() const override { return true; }
+
+  size_t Size() const override { return 0; }
+
+  absl::Status ConvertToJsonArray(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json) const override {
+    ABSL_DCHECK(descriptor_pool != nullptr);
+    ABSL_DCHECK(message_factory != nullptr);
+    ABSL_DCHECK(json != nullptr);
+    ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
+                   google::protobuf::Descriptor::WELLKNOWNTYPE_LISTVALUE);
+
+    json->Clear();
+    return absl::OkStatus();
+  }
+
+  CustomListValue Clone(google::protobuf::Arena* absl_nonnull arena) const override {
+    return CustomListValue();
+  }
+
+  int size() const override { return 0; }
+
+  CelValue operator[](int index) const override {
+    static const absl::NoDestructor<absl::Status> error(
+        absl::InvalidArgumentError("index out of bounds"));
+    return CelValue::CreateError(&*error);
+  }
+
+  CelValue Get(google::protobuf::Arena* arena, int index) const override {
+    if (arena == nullptr) {
+      return (*this)[index];
+    }
+    return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
+        arena, absl::InvalidArgumentError("index out of bounds")));
+  }
+
+ private:
+  absl::Status Get(size_t index, const google::protobuf::DescriptorPool* absl_nonnull,
+                   google::protobuf::MessageFactory* absl_nonnull,
+                   google::protobuf::Arena* absl_nonnull arena,
+                   Value* absl_nonnull result) const override {
+    *result = IndexOutOfBoundsError(index, arena);
+    return absl::OkStatus();
+  }
+};
+
+class CompatListValueImpl final : public CompatListValue {
+ public:
+  CompatListValueImpl(
+      CustomListValue value,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena)
+      : value_(std::move(value)),
+        descriptor_pool_(descriptor_pool),
+        message_factory_(message_factory),
+        arena_(arena) {
+    ABSL_DCHECK(descriptor_pool_ != nullptr);
+    ABSL_DCHECK(message_factory_ != nullptr);
+    ABSL_DCHECK(arena_ != nullptr);
+  }
+
+  google::protobuf::Arena* GetOwningArena() const override { return arena_; }
+
+  std::string DebugString() const override { return value_.DebugString(); }
+
+  absl::Status SerializeTo(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) const override {
+    return value_.SerializeTo(descriptor_pool, message_factory, output);
+  }
+
+  absl::Status ConvertToJsonArray(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json) const override {
+    return value_.ConvertToJsonArray(descriptor_pool, message_factory, json);
+  }
+
+  absl::Status Equal(const ListValue& other,
+                     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+                     google::protobuf::MessageFactory* absl_nonnull message_factory,
+                     google::protobuf::Arena* absl_nonnull arena,
+                     Value* absl_nonnull result) const override {
+    return value_.Equal(Value(other), descriptor_pool, message_factory, arena,
+                        result);
+  }
+
+  bool IsZeroValue() const override { return value_.IsZeroValue(); }
+
+  CustomListValue Clone(google::protobuf::Arena* absl_nonnull arena) const override {
+    ABSL_DCHECK(arena != nullptr);
+    if (value_.IsEmpty()) {
+      return CustomListValue();
+    }
+    return CustomListValue(google::protobuf::Arena::Create<CompatListValueImpl>(
+                               arena, value_.Clone(arena), descriptor_pool_,
+                               message_factory_, arena),
+                           arena);
+  }
+
+  bool IsEmpty() const override { return value_.IsEmpty(); }
+
+  size_t Size() const override { return value_.Size(); }
+
+  absl::Status ForEach(
+      ForEachWithIndexCallback callback,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena) const override {
+    return value_.ForEach(callback, descriptor_pool, message_factory, arena);
+  }
+
+  absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
+    return value_.NewIterator();
+  }
+
+  absl::Status Contains(
+      const Value& other,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      Value* absl_nonnull result) const override {
+    return value_.Contains(other, descriptor_pool, message_factory, arena,
+                           result);
+  }
+
+  CelValue operator[](int index) const override { return Get(arena_, index); }
+
+  CelValue Get(google::protobuf::Arena* arena, int index) const override {
+    if (arena == nullptr) {
+      arena = arena_;
+    }
+    if (ABSL_PREDICT_FALSE(index < 0 || index >= size())) {
+      return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
+          arena, common_internal::MakeIndexOutOfBoundsError(index)));
+    }
+    Value element;
+    absl::Status status =
+        value_.Get(static_cast<size_t>(index), descriptor_pool_,
+                   message_factory_, arena, &element);
+    if (ABSL_PREDICT_FALSE(!status.ok())) {
+      return CelValue::CreateError(
+          google::protobuf::Arena::Create<absl::Status>(arena, std::move(status)));
+    }
+    return common_internal::UnsafeLegacyValue(element, /*stable=*/false, arena);
+  }
+
+  int size() const override { return static_cast<int>(Size()); }
+
+ protected:
+  absl::Status Get(size_t index,
+                   const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+                   google::protobuf::MessageFactory* absl_nonnull message_factory,
+                   google::protobuf::Arena* absl_nonnull arena,
+                   Value* absl_nonnull result) const override {
+    return value_.Get(index, descriptor_pool, message_factory, arena, result);
+  }
+
+ private:
+  const CustomListValue value_;
+  const google::protobuf::DescriptorPool* absl_nonnull const descriptor_pool_;
+  google::protobuf::MessageFactory* absl_nonnull const message_factory_;
+  google::protobuf::Arena* absl_nonnull const arena_;
+};
+
+class EmptyCompatMapValueImpl final : public CompatMapValue {
+ public:
+  static const EmptyCompatMapValueImpl& Get() {
+    static const absl::NoDestructor<EmptyCompatMapValueImpl> empty;
+    return *empty;
+  }
+
+  EmptyCompatMapValueImpl() = default;
+
+  google::protobuf::Arena* GetOwningArena() const override { return nullptr; }
+
+  std::string DebugString() const override { return "{}"; }
+
+  bool IsEmpty() const override { return true; }
+
+  size_t Size() const override { return 0; }
+
+  absl::Status ListKeys(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      ListValue* absl_nonnull result) const override {
+    *result = ListValue();
+    return absl::OkStatus();
+  }
+
+  absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
+    return NewEmptyValueIterator();
+  }
+
+  absl::Status ConvertToJsonObject(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json) const override {
+    ABSL_DCHECK(descriptor_pool != nullptr);
+    ABSL_DCHECK(message_factory != nullptr);
+    ABSL_DCHECK(json != nullptr);
+    ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
+                   google::protobuf::Descriptor::WELLKNOWNTYPE_STRUCT);
+
+    json->Clear();
+    return absl::OkStatus();
+  }
+
+  CustomMapValue Clone(google::protobuf::Arena* absl_nonnull) const override {
+    return CustomMapValue();
+  }
+
+  absl::optional<CelValue> operator[](CelValue key) const override {
+    return std::nullopt;
+  }
+
+  using CompatMapValue::Get;
+  absl::optional<CelValue> Get(google::protobuf::Arena* arena,
+                               CelValue key) const override {
+    return std::nullopt;
+  }
+
+  absl::StatusOr<bool> Has(const CelValue& key) const override { return false; }
+
+  int size() const override { return static_cast<int>(Size()); }
+
+  absl::StatusOr<const CelList*> ListKeys() const override {
+    return EmptyCompatListValue();
+  }
+
+  absl::StatusOr<const CelList*> ListKeys(google::protobuf::Arena*) const override {
+    return ListKeys();
+  }
+
+ private:
+  absl::StatusOr<bool> Find(
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      Value* absl_nonnull result) const override {
+    return false;
+  }
+
+  absl::StatusOr<bool> Has(
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena) const override {
+    return false;
+  }
+};
+
+class CompatMapValueImpl final : public CompatMapValue {
+ public:
+  CompatMapValueImpl(CustomMapValue value,
+                     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+                     google::protobuf::MessageFactory* absl_nonnull message_factory,
+                     google::protobuf::Arena* absl_nonnull arena)
+      : value_(std::move(value)),
+        descriptor_pool_(descriptor_pool),
+        message_factory_(message_factory),
+        arena_(arena) {
+    ABSL_DCHECK(descriptor_pool_ != nullptr);
+    ABSL_DCHECK(message_factory_ != nullptr);
+    ABSL_DCHECK(arena_ != nullptr);
+  }
+
+  google::protobuf::Arena* GetOwningArena() const override { return arena_; }
+
+  std::string DebugString() const override { return value_.DebugString(); }
+
+  absl::Status SerializeTo(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) const override {
+    return value_.SerializeTo(descriptor_pool, message_factory, output);
+  }
+
+  absl::Status ConvertToJsonObject(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json) const override {
+    return value_.ConvertToJsonObject(descriptor_pool, message_factory, json);
+  }
+
+  absl::Status Equal(const MapValue& other,
+                     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+                     google::protobuf::MessageFactory* absl_nonnull message_factory,
+                     google::protobuf::Arena* absl_nonnull arena,
+                     Value* absl_nonnull result) const override {
+    return value_.Equal(Value(other), descriptor_pool, message_factory, arena,
+                        result);
+  }
+
+  bool IsZeroValue() const override { return value_.IsZeroValue(); }
+
+  CustomMapValue Clone(google::protobuf::Arena* absl_nonnull arena) const override {
+    ABSL_DCHECK(arena != nullptr);
+    if (value_.IsEmpty()) {
+      return CustomMapValue();
+    }
+    return CustomMapValue(google::protobuf::Arena::Create<CompatMapValueImpl>(
+                              arena, value_.Clone(arena), descriptor_pool_,
+                              message_factory_, arena),
+                          arena);
+  }
+
+  bool IsEmpty() const override { return value_.IsEmpty(); }
+
+  size_t Size() const override { return value_.Size(); }
+
+  absl::Status ListKeys(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      ListValue* absl_nonnull result) const override {
+    return value_.ListKeys(descriptor_pool, message_factory, arena, result);
+  }
+
+  absl::Status ForEach(
+      ForEachCallback callback,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena) const override {
+    return value_.ForEach(callback, descriptor_pool, message_factory, arena);
+  }
+
+  absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
+    return value_.NewIterator();
+  }
+
+  absl::optional<CelValue> operator[](CelValue key) const override {
+    return Get(arena_, key);
+  }
+
+  using CompatMapValue::Get;
+  absl::optional<CelValue> Get(google::protobuf::Arena* arena,
+                               CelValue key) const override {
+    if (arena == nullptr) {
+      arena = arena_;
+    }
+    if (auto status = CelValue::CheckMapKeyType(key); !status.ok()) {
+      status.IgnoreError();
+      return std::nullopt;
+    }
+    Value modern_key;
+    if (!ModernValue(arena, key, modern_key).ok()) {
+      return std::nullopt;
+    }
+    Value modern_val;
+    absl::StatusOr<bool> found = value_.Find(
+        modern_key, descriptor_pool_, message_factory_, arena, &modern_val);
+    if (!found.ok()) {
+      return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
+          arena, std::move(found).status()));
+    }
+    if (!*found) {
+      return std::nullopt;
+    }
+    return common_internal::UnsafeLegacyValue(modern_val, /*stable=*/false,
+                                              arena);
+  }
+
+  absl::StatusOr<bool> Has(const CelValue& key) const override {
+    CEL_RETURN_IF_ERROR(CelValue::CheckMapKeyType(key));
+    Value modern_key;
+    CEL_RETURN_IF_ERROR(ModernValue(arena_, key, modern_key));
+    return Has(modern_key, descriptor_pool_, message_factory_, arena_);
+  }
+
+  int size() const override { return static_cast<int>(Size()); }
+
+  absl::StatusOr<const CelList*> ListKeys() const override {
+    return ListKeys(arena_);
+  }
+
+  absl::StatusOr<const CelList*> ListKeys(google::protobuf::Arena* arena) const override {
+    if (arena == nullptr) {
+      arena = arena_;
+    }
+    if (arena == arena_) {
+      absl::call_once(keys_once_, [this]() {
+        ListValue modern_keys;
+        absl::Status status = value_.ListKeys(
+            descriptor_pool_, message_factory_, arena_, &modern_keys);
+        if (!status.ok()) {
+          keys_ = std::move(status);
+          return;
+        }
+        if (auto legacy_list = AsLegacyListValue(modern_keys);
+            legacy_list.has_value()) {
+          keys_ = legacy_list->cel_list();
+          return;
+        }
+        if (auto custom_list = modern_keys.AsCustom();
+            custom_list.has_value()) {
+          keys_ = MakeCompatListValue(*custom_list, descriptor_pool_,
+                                      message_factory_, arena_);
+          return;
+        }
+        keys_ =
+            absl::InternalError("failed to convert list keys to legacy list");
+      });
+      return keys_;
+    }
+    ListValue modern_keys;
+    CEL_RETURN_IF_ERROR(value_.ListKeys(descriptor_pool_, message_factory_,
+                                        arena, &modern_keys));
+    if (auto legacy_list = AsLegacyListValue(modern_keys);
+        legacy_list.has_value()) {
+      return legacy_list->cel_list();
+    }
+    if (auto custom_list = modern_keys.AsCustom(); custom_list.has_value()) {
+      return MakeCompatListValue(*custom_list, descriptor_pool_,
+                                 message_factory_, arena);
+    }
+    return absl::InternalError("failed to convert list keys to legacy list");
+  }
+
+ protected:
+  absl::StatusOr<bool> Find(
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      Value* absl_nonnull result) const override {
+    return value_.Find(key, descriptor_pool, message_factory, arena, result);
+  }
+
+  absl::StatusOr<bool> Has(
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena) const override {
+    Value result;
+    CEL_RETURN_IF_ERROR(
+        value_.Has(key, descriptor_pool, message_factory, arena, &result));
+    if (result.IsBool()) {
+      return result.GetBool().NativeValue();
+    }
+    if (result.IsError()) {
+      return result.GetError().NativeValue();
+    }
+    return false;
+  }
+
+ private:
+  const CustomMapValue value_;
+  const google::protobuf::DescriptorPool* absl_nonnull const descriptor_pool_;
+  google::protobuf::MessageFactory* absl_nonnull const message_factory_;
+  google::protobuf::Arena* absl_nonnull const arena_;
+  mutable absl::once_flag keys_once_;
+  mutable absl::StatusOr<const CelList*> keys_;
+};
+
 CelValue LegacyTrivialStructValue(google::protobuf::Arena* absl_nonnull arena,
                                   const Value& value) {
   if (auto legacy_struct_value = common_internal::AsLegacyStructValue(value);
@@ -367,6 +844,50 @@ LegacyStructValue MakeLegacyStructValue(
 
 }  // namespace
 
+const CompatListValue* absl_nonnull EmptyCompatListValue() {
+  return &EmptyCompatListValueImpl::Get();
+}
+
+absl::StatusOr<const CompatListValue* absl_nonnull> MakeCompatListValue(
+    const CustomListValue& value,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  ABSL_DCHECK(descriptor_pool != nullptr);
+  ABSL_DCHECK(message_factory != nullptr);
+  ABSL_DCHECK(arena != nullptr);
+  if (value.IsEmpty()) {
+    return EmptyCompatListValue();
+  }
+  if (value.GetTypeId() == NativeTypeId::For<CompatListValue>()) {
+    return cel::internal::down_cast<const CompatListValue*>(value.interface());
+  }
+  return google::protobuf::Arena::Create<CompatListValueImpl>(
+      arena, value, descriptor_pool, message_factory, arena);
+}
+
+const CompatMapValue* absl_nonnull EmptyCompatMapValue() {
+  return &EmptyCompatMapValueImpl::Get();
+}
+
+absl::StatusOr<const CompatMapValue* absl_nonnull> MakeCompatMapValue(
+    const CustomMapValue& value,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) {
+  ABSL_DCHECK(descriptor_pool != nullptr);
+  ABSL_DCHECK(message_factory != nullptr);
+  ABSL_DCHECK(arena != nullptr);
+  if (value.IsEmpty()) {
+    return EmptyCompatMapValue();
+  }
+  if (NativeTypeId::Of(value) == NativeTypeId::For<CompatMapValue>()) {
+    return cel::internal::down_cast<const CompatMapValue*>(value.interface());
+  }
+  return google::protobuf::Arena::Create<CompatMapValueImpl>(
+      arena, value, descriptor_pool, message_factory, arena);
+}
+
 google::api::expr::runtime::CelValue UnsafeLegacyValue(
     const Value& value, bool stable, google::protobuf::Arena* absl_nonnull arena) {
   switch (value.kind()) {
@@ -407,15 +928,18 @@ google::api::expr::runtime::CelValue UnsafeLegacyValue(
   }
 }
 
-std::string LegacyListValue::DebugString() const {
-  return CelValue::CreateList(impl_).DebugString();
+namespace {
+
+std::string LegacyListDebugString(
+    const CelList* absl_nullability_unknown impl) {
+  return CelValue::CreateList(impl).DebugString();
 }
 
-// See `ValueInterface::SerializeTo`.
-absl::Status LegacyListValue::SerializeTo(
+absl::Status LegacyListSerializeTo(
+    const CelList* absl_nullability_unknown impl,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) const {
+    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) {
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(output != nullptr);
@@ -430,7 +954,7 @@ absl::Status LegacyListValue::SerializeTo(
 
   google::protobuf::Arena arena;
   const google::protobuf::Message* wrapped = MaybeWrapValueToMessage(
-      descriptor, message_factory, CelValue::CreateList(impl_), &arena);
+      descriptor, message_factory, CelValue::CreateList(impl), &arena);
   if (wrapped == nullptr) {
     return absl::UnknownError("failed to convert legacy map to JSON");
   }
@@ -441,114 +965,110 @@ absl::Status LegacyListValue::SerializeTo(
   return absl::OkStatus();
 }
 
-absl::Status LegacyListValue::ConvertToJson(
+absl::Status LegacyListConvertToJson(
+    const CelList* absl_nullability_unknown impl,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Message* absl_nonnull json) const {
-  {
-    ABSL_DCHECK(descriptor_pool != nullptr);
-    ABSL_DCHECK(message_factory != nullptr);
-    ABSL_DCHECK(json != nullptr);
-    ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
-                   google::protobuf::Descriptor::WELLKNOWNTYPE_VALUE);
+    google::protobuf::Message* absl_nonnull json) {
+  ABSL_DCHECK(descriptor_pool != nullptr);
+  ABSL_DCHECK(message_factory != nullptr);
+  ABSL_DCHECK(json != nullptr);
+  ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
+                 google::protobuf::Descriptor::WELLKNOWNTYPE_VALUE);
 
-    google::protobuf::Arena arena;
-    const google::protobuf::Message* wrapped =
-        MaybeWrapValueToMessage(json->GetDescriptor(), message_factory,
-                                CelValue::CreateList(impl_), &arena);
-    if (wrapped == nullptr) {
-      return absl::UnknownError("failed to convert legacy list to JSON");
-    }
-
-    if (wrapped->GetDescriptor() == json->GetDescriptor()) {
-      // We can directly use google::protobuf::Message::Copy().
-      json->CopyFrom(*wrapped);
-    } else {
-      // Equivalent descriptors but not identical. Must serialize and
-      // deserialize.
-      absl::Cord serialized;
-      if (!wrapped->SerializePartialToString(&serialized)) {
-        return absl::UnknownError(absl::StrCat("failed to serialize message: ",
-                                               wrapped->GetTypeName()));
-      }
-      if (!json->ParsePartialFromString(serialized)) {
-        return absl::UnknownError(
-            absl::StrCat("failed to parsed message: ", json->GetTypeName()));
-      }
-    }
-    return absl::OkStatus();
+  google::protobuf::Arena arena;
+  const google::protobuf::Message* wrapped =
+      MaybeWrapValueToMessage(json->GetDescriptor(), message_factory,
+                              CelValue::CreateList(impl), &arena);
+  if (wrapped == nullptr) {
+    return absl::UnknownError("failed to convert legacy list to JSON");
   }
+
+  if (wrapped->GetDescriptor() == json->GetDescriptor()) {
+    json->CopyFrom(*wrapped);
+  } else {
+    absl::Cord serialized;
+    if (!wrapped->SerializePartialToString(&serialized)) {
+      return absl::UnknownError(absl::StrCat("failed to serialize message: ",
+                                             wrapped->GetTypeName()));
+    }
+    if (!json->ParsePartialFromString(serialized)) {
+      return absl::UnknownError(
+          absl::StrCat("failed to parsed message: ", json->GetTypeName()));
+    }
+  }
+  return absl::OkStatus();
 }
 
-absl::Status LegacyListValue::ConvertToJsonArray(
+absl::Status LegacyListConvertToJsonArray(
+    const CelList* absl_nullability_unknown impl,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Message* absl_nonnull json) const {
-  {
-    ABSL_DCHECK(descriptor_pool != nullptr);
-    ABSL_DCHECK(message_factory != nullptr);
-    ABSL_DCHECK(json != nullptr);
-    ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
-                   google::protobuf::Descriptor::WELLKNOWNTYPE_LISTVALUE);
+    google::protobuf::Message* absl_nonnull json) {
+  ABSL_DCHECK(descriptor_pool != nullptr);
+  ABSL_DCHECK(message_factory != nullptr);
+  ABSL_DCHECK(json != nullptr);
+  ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
+                 google::protobuf::Descriptor::WELLKNOWNTYPE_LISTVALUE);
 
-    google::protobuf::Arena arena;
-    const google::protobuf::Message* wrapped =
-        MaybeWrapValueToMessage(json->GetDescriptor(), message_factory,
-                                CelValue::CreateList(impl_), &arena);
-    if (wrapped == nullptr) {
-      return absl::UnknownError("failed to convert legacy list to JSON");
-    }
-
-    if (wrapped->GetDescriptor() == json->GetDescriptor()) {
-      // We can directly use google::protobuf::Message::Copy().
-      json->CopyFrom(*wrapped);
-    } else {
-      // Equivalent descriptors but not identical. Must serialize and
-      // deserialize.
-      absl::Cord serialized;
-      if (!wrapped->SerializePartialToString(&serialized)) {
-        return absl::UnknownError(absl::StrCat("failed to serialize message: ",
-                                               wrapped->GetTypeName()));
-      }
-      if (!json->ParsePartialFromString(serialized)) {
-        return absl::UnknownError(
-            absl::StrCat("failed to parsed message: ", json->GetTypeName()));
-      }
-    }
-    return absl::OkStatus();
+  google::protobuf::Arena arena;
+  const google::protobuf::Message* wrapped =
+      MaybeWrapValueToMessage(json->GetDescriptor(), message_factory,
+                              CelValue::CreateList(impl), &arena);
+  if (wrapped == nullptr) {
+    return absl::UnknownError("failed to convert legacy list to JSON");
   }
+
+  if (wrapped->GetDescriptor() == json->GetDescriptor()) {
+    json->CopyFrom(*wrapped);
+  } else {
+    absl::Cord serialized;
+    if (!wrapped->SerializePartialToString(&serialized)) {
+      return absl::UnknownError(absl::StrCat("failed to serialize message: ",
+                                             wrapped->GetTypeName()));
+    }
+    if (!json->ParsePartialFromString(serialized)) {
+      return absl::UnknownError(
+          absl::StrCat("failed to parsed message: ", json->GetTypeName()));
+    }
+  }
+  return absl::OkStatus();
 }
 
-bool LegacyListValue::IsEmpty() const { return impl_->empty(); }
-
-size_t LegacyListValue::Size() const {
-  return static_cast<size_t>(impl_->size());
+bool LegacyListIsEmpty(const CelList* absl_nullability_unknown impl) {
+  return impl->empty();
 }
 
-// See LegacyListValueInterface::Get for documentation.
-absl::Status LegacyListValue::Get(
-    size_t index, const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+size_t LegacyListSize(const CelList* absl_nullability_unknown impl) {
+  return static_cast<size_t>(impl->size());
+}
+
+absl::Status LegacyListGet(
+    const CelList* absl_nullability_unknown impl, size_t index,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  if (ABSL_PREDICT_FALSE(index < 0 || index >= impl_->size())) {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
+  if (ABSL_PREDICT_FALSE(impl->size() < 0 ||
+                         index >= static_cast<size_t>(impl->size()))) {
     *result = ErrorValue::From(
         absl::InvalidArgumentError("index out of bounds"), arena);
     return absl::OkStatus();
   }
   CEL_RETURN_IF_ERROR(
-      ModernValue(arena, impl_->Get(arena, static_cast<int>(index)), *result));
+      ModernValue(arena, impl->Get(arena, static_cast<int>(index)), *result));
   return absl::OkStatus();
 }
 
-absl::Status LegacyListValue::ForEach(
-    ForEachWithIndexCallback callback,
+absl::Status LegacyListForEach(
+    const CelList* absl_nullability_unknown impl,
+    CustomListValueInterface::ForEachWithIndexCallback callback,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) const {
-  const auto size = impl_->size();
+    google::protobuf::Arena* absl_nonnull arena) {
+  const auto size = impl->size();
   Value element;
   for (int index = 0; index < size; ++index) {
-    CEL_RETURN_IF_ERROR(ModernValue(arena, impl_->Get(arena, index), element));
+    CEL_RETURN_IF_ERROR(ModernValue(arena, impl->Get(arena, index), element));
     CEL_ASSIGN_OR_RETURN(auto ok, callback(index, Value(element)));
     if (!ok) {
       break;
@@ -557,20 +1077,19 @@ absl::Status LegacyListValue::ForEach(
   return absl::OkStatus();
 }
 
-absl::StatusOr<absl_nonnull ValueIteratorPtr> LegacyListValue::NewIterator()
-    const {
-  return std::make_unique<CelListIterator>(impl_);
+absl::StatusOr<absl_nonnull ValueIteratorPtr> LegacyListNewIterator(
+    const CelList* absl_nullability_unknown impl) {
+  return std::make_unique<CelListIterator>(impl);
 }
 
-absl::Status LegacyListValue::Contains(
-    const Value& other,
+absl::Status LegacyListContains(
+    const CelList* absl_nullability_unknown impl, const Value& other,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
   CEL_ASSIGN_OR_RETURN(auto legacy_other, LegacyValue(arena, other));
-  const auto* cel_list = impl_;
-  for (int i = 0; i < cel_list->size(); ++i) {
-    auto element = cel_list->Get(arena, i);
+  for (int i = 0; i < impl->size(); ++i) {
+    auto element = impl->Get(arena, i);
     absl::optional<bool> equal =
         interop_internal::CelValueEqualImpl(element, legacy_other);
     // Heterogeneous equality behavior is to just return false if equality
@@ -584,14 +1103,28 @@ absl::Status LegacyListValue::Contains(
   return absl::OkStatus();
 }
 
-std::string LegacyMapValue::DebugString() const {
-  return CelValue::CreateMap(impl_).DebugString();
+constexpr LegacyListValueDispatcher kLegacyListValueDispatcher = {
+    /*debug_string=*/&LegacyListDebugString,
+    /*serialize_to=*/&LegacyListSerializeTo,
+    /*convert_to_json=*/&LegacyListConvertToJson,
+    /*convert_to_json_array=*/&LegacyListConvertToJsonArray,
+    /*is_empty=*/&LegacyListIsEmpty,
+    /*size=*/&LegacyListSize,
+    /*get=*/&LegacyListGet,
+    /*for_each=*/&LegacyListForEach,
+    /*new_iterator=*/&LegacyListNewIterator,
+    /*contains=*/&LegacyListContains,
+};
+
+std::string LegacyMapDebugString(const CelMap* absl_nullability_unknown impl) {
+  return CelValue::CreateMap(impl).DebugString();
 }
 
-absl::Status LegacyMapValue::SerializeTo(
+absl::Status LegacyMapSerializeTo(
+    const CelMap* absl_nullability_unknown impl,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) const {
+    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) {
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(output != nullptr);
@@ -605,7 +1138,7 @@ absl::Status LegacyMapValue::SerializeTo(
 
   google::protobuf::Arena arena;
   const google::protobuf::Message* wrapped = MaybeWrapValueToMessage(
-      descriptor, message_factory, CelValue::CreateMap(impl_), &arena);
+      descriptor, message_factory, CelValue::CreateMap(impl), &arena);
   if (wrapped == nullptr) {
     return absl::UnknownError("failed to convert legacy map to JSON");
   }
@@ -616,10 +1149,11 @@ absl::Status LegacyMapValue::SerializeTo(
   return absl::OkStatus();
 }
 
-absl::Status LegacyMapValue::ConvertToJson(
+absl::Status LegacyMapConvertToJson(
+    const CelMap* absl_nullability_unknown impl,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Message* absl_nonnull json) const {
+    google::protobuf::Message* absl_nonnull json) {
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(json != nullptr);
@@ -629,16 +1163,14 @@ absl::Status LegacyMapValue::ConvertToJson(
   google::protobuf::Arena arena;
   const google::protobuf::Message* wrapped =
       MaybeWrapValueToMessage(json->GetDescriptor(), message_factory,
-                              CelValue::CreateMap(impl_), &arena);
+                              CelValue::CreateMap(impl), &arena);
   if (wrapped == nullptr) {
     return absl::UnknownError("failed to convert legacy map to JSON");
   }
 
   if (wrapped->GetDescriptor() == json->GetDescriptor()) {
-    // We can directly use google::protobuf::Message::Copy().
     json->CopyFrom(*wrapped);
   } else {
-    // Equivalent descriptors but not identical. Must serialize and deserialize.
     absl::Cord serialized;
     if (!wrapped->SerializePartialToString(&serialized)) {
       return absl::UnknownError(absl::StrCat("failed to serialize message: ",
@@ -652,10 +1184,11 @@ absl::Status LegacyMapValue::ConvertToJson(
   return absl::OkStatus();
 }
 
-absl::Status LegacyMapValue::ConvertToJsonObject(
+absl::Status LegacyMapConvertToJsonObject(
+    const CelMap* absl_nullability_unknown impl,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Message* absl_nonnull json) const {
+    google::protobuf::Message* absl_nonnull json) {
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(json != nullptr);
@@ -665,16 +1198,14 @@ absl::Status LegacyMapValue::ConvertToJsonObject(
   google::protobuf::Arena arena;
   const google::protobuf::Message* wrapped =
       MaybeWrapValueToMessage(json->GetDescriptor(), message_factory,
-                              CelValue::CreateMap(impl_), &arena);
+                              CelValue::CreateMap(impl), &arena);
   if (wrapped == nullptr) {
     return absl::UnknownError("failed to convert legacy map to JSON");
   }
 
   if (wrapped->GetDescriptor() == json->GetDescriptor()) {
-    // We can directly use google::protobuf::Message::Copy().
     json->CopyFrom(*wrapped);
   } else {
-    // Equivalent descriptors but not identical. Must serialize and deserialize.
     absl::Cord serialized;
     if (!wrapped->SerializePartialToString(&serialized)) {
       return absl::UnknownError(absl::StrCat("failed to serialize message: ",
@@ -688,17 +1219,19 @@ absl::Status LegacyMapValue::ConvertToJsonObject(
   return absl::OkStatus();
 }
 
-bool LegacyMapValue::IsEmpty() const { return impl_->empty(); }
-
-size_t LegacyMapValue::Size() const {
-  return static_cast<size_t>(impl_->size());
+bool LegacyMapIsEmpty(const CelMap* absl_nullability_unknown impl) {
+  return impl->empty();
 }
 
-absl::Status LegacyMapValue::Get(
-    const Value& key,
+size_t LegacyMapSize(const CelMap* absl_nullability_unknown impl) {
+  return static_cast<size_t>(impl->size());
+}
+
+absl::Status LegacyMapGet(
+    const CelMap* absl_nullability_unknown impl, const Value& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
   switch (key.kind()) {
     case ValueKind::kError:
       ABSL_FALLTHROUGH_INTENDED;
@@ -718,7 +1251,7 @@ absl::Status LegacyMapValue::Get(
       return absl::OkStatus();
   }
   CEL_ASSIGN_OR_RETURN(auto cel_key, LegacyValue(arena, key));
-  auto cel_value = impl_->Get(arena, cel_key);
+  auto cel_value = impl->Get(arena, cel_key);
   if (!cel_value.has_value()) {
     *result = NoSuchKeyError(key.DebugString(), arena);
     return absl::OkStatus();
@@ -727,11 +1260,11 @@ absl::Status LegacyMapValue::Get(
   return absl::OkStatus();
 }
 
-absl::StatusOr<bool> LegacyMapValue::Find(
-    const Value& key,
+absl::StatusOr<bool> LegacyMapFind(
+    const CelMap* absl_nullability_unknown impl, const Value& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
   switch (key.kind()) {
     case ValueKind::kError:
       ABSL_FALLTHROUGH_INTENDED;
@@ -750,7 +1283,7 @@ absl::StatusOr<bool> LegacyMapValue::Find(
       *result = ErrorValue::From(InvalidMapKeyTypeError(key.kind()), arena);
   }
   CEL_ASSIGN_OR_RETURN(auto cel_key, LegacyValue(arena, key));
-  auto cel_value = impl_->Get(arena, cel_key);
+  auto cel_value = impl->Get(arena, cel_key);
   if (!cel_value.has_value()) {
     *result = NullValue{};
     return false;
@@ -759,11 +1292,11 @@ absl::StatusOr<bool> LegacyMapValue::Find(
   return true;
 }
 
-absl::Status LegacyMapValue::Has(
-    const Value& key,
+absl::Status LegacyMapHas(
+    const CelMap* absl_nullability_unknown impl, const Value& key,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
   switch (key.kind()) {
     case ValueKind::kError:
       ABSL_FALLTHROUGH_INTENDED;
@@ -783,7 +1316,7 @@ absl::Status LegacyMapValue::Has(
       return absl::OkStatus();
   }
   CEL_ASSIGN_OR_RETURN(auto cel_key, LegacyValue(arena, key));
-  absl::StatusOr<bool> has = impl_->Has(cel_key);
+  absl::StatusOr<bool> has = impl->Has(cel_key);
   if (!has.ok()) {
     *result = ErrorValue::From(std::move(has).status(), arena);
     return absl::OkStatus();
@@ -793,29 +1326,34 @@ absl::Status LegacyMapValue::Has(
   return absl::OkStatus();
 }
 
-absl::Status LegacyMapValue::ListKeys(
+absl::Status LegacyMapListKeys(
+    const CelMap* absl_nullability_unknown impl,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, ListValue* absl_nonnull result) const {
-  CEL_ASSIGN_OR_RETURN(auto keys, impl_->ListKeys(arena));
+    google::protobuf::Arena* absl_nonnull arena, ListValue* absl_nonnull result) {
+  CEL_ASSIGN_OR_RETURN(auto keys, impl->ListKeys(arena));
   *result = ListValue{common_internal::LegacyListValue(keys)};
   return absl::OkStatus();
 }
 
-absl::Status LegacyMapValue::ForEach(
-    ForEachCallback callback,
+absl::Status LegacyMapForEach(
+    const CelMap* absl_nullability_unknown impl,
+    CustomMapValueInterface::ForEachCallback callback,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) const {
-  CEL_ASSIGN_OR_RETURN(auto keys, impl_->ListKeys(arena));
+    google::protobuf::Arena* absl_nonnull arena) {
+  CEL_ASSIGN_OR_RETURN(auto keys, impl->ListKeys(arena));
   const auto size = keys->size();
   Value key;
   Value value;
   for (int index = 0; index < size; ++index) {
     auto cel_key = keys->Get(arena, index);
-    auto cel_value = *impl_->Get(arena, cel_key);
+    absl::optional<CelValue> cel_value = impl->Get(arena, cel_key);
+    if (!cel_value.has_value()) {
+      return absl::NotFoundError("Key from ListKeys not found in CelMap");
+    }
     CEL_RETURN_IF_ERROR(ModernValue(arena, cel_key, key));
-    CEL_RETURN_IF_ERROR(ModernValue(arena, cel_value, value));
+    CEL_RETURN_IF_ERROR(ModernValue(arena, *cel_value, value));
     CEL_ASSIGN_OR_RETURN(auto ok, callback(key, value));
     if (!ok) {
       break;
@@ -824,87 +1362,115 @@ absl::Status LegacyMapValue::ForEach(
   return absl::OkStatus();
 }
 
-absl::StatusOr<absl_nonnull ValueIteratorPtr> LegacyMapValue::NewIterator()
-    const {
-  return std::make_unique<CelMapIterator>(impl_);
+absl::StatusOr<absl_nonnull ValueIteratorPtr> LegacyMapNewIterator(
+    const CelMap* absl_nullability_unknown impl) {
+  return std::make_unique<CelMapIterator>(impl);
 }
 
-absl::string_view LegacyStructValue::GetTypeName() const {
-  auto message_wrapper = AsMessageWrapper(message_ptr_, legacy_type_info_);
+constexpr LegacyMapValueDispatcher kLegacyMapValueDispatcher = {
+    /*debug_string=*/&LegacyMapDebugString,
+    /*serialize_to=*/&LegacyMapSerializeTo,
+    /*convert_to_json=*/&LegacyMapConvertToJson,
+    /*convert_to_json_object=*/&LegacyMapConvertToJsonObject,
+    /*is_empty=*/&LegacyMapIsEmpty,
+    /*size=*/&LegacyMapSize,
+    /*get=*/&LegacyMapGet,
+    /*find=*/&LegacyMapFind,
+    /*has=*/&LegacyMapHas,
+    /*list_keys=*/&LegacyMapListKeys,
+    /*for_each=*/&LegacyMapForEach,
+    /*new_iterator=*/&LegacyMapNewIterator,
+};
+
+absl::string_view LegacyStructGetTypeName(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info) {
+  auto message_wrapper = AsMessageWrapper(message_ptr, legacy_type_info);
   return message_wrapper.legacy_type_info()->GetTypename(message_wrapper);
 }
 
-std::string LegacyStructValue::DebugString() const {
-  auto message_wrapper = AsMessageWrapper(message_ptr_, legacy_type_info_);
+std::string LegacyStructDebugString(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info) {
+  auto message_wrapper = AsMessageWrapper(message_ptr, legacy_type_info);
   return message_wrapper.legacy_type_info()->DebugString(message_wrapper);
 }
 
-absl::Status LegacyStructValue::SerializeTo(
+absl::Status LegacyStructSerializeTo(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) const {
+    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) {
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(output != nullptr);
 
   if (ABSL_PREDICT_TRUE(
-          message_ptr_->SerializePartialToZeroCopyStream(output))) {
+          message_ptr->SerializePartialToZeroCopyStream(output))) {
     return absl::OkStatus();
   }
   return absl::UnknownError("failed to serialize protocol buffer message");
 }
 
-absl::Status LegacyStructValue::ConvertToJson(
+absl::Status LegacyStructConvertToJson(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Message* absl_nonnull json) const {
-  ABSL_DCHECK(message_ptr_ != nullptr);
+    google::protobuf::Message* absl_nonnull json) {
+  ABSL_DCHECK(message_ptr != nullptr);
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(json != nullptr);
   ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
                  google::protobuf::Descriptor::WELLKNOWNTYPE_VALUE);
 
-  return internal::MessageToJson(*message_ptr_, descriptor_pool,
-                                 message_factory, json);
+  return internal::MessageToJson(*message_ptr, descriptor_pool, message_factory,
+                                 json);
 }
 
-absl::Status LegacyStructValue::ConvertToJsonObject(
+absl::Status LegacyStructConvertToJsonObject(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Message* absl_nonnull json) const {
-  ABSL_DCHECK(message_ptr_ != nullptr);
+    google::protobuf::Message* absl_nonnull json) {
+  ABSL_DCHECK(message_ptr != nullptr);
   ABSL_DCHECK(descriptor_pool != nullptr);
   ABSL_DCHECK(message_factory != nullptr);
   ABSL_DCHECK(json != nullptr);
   ABSL_DCHECK_EQ(json->GetDescriptor()->well_known_type(),
                  google::protobuf::Descriptor::WELLKNOWNTYPE_STRUCT);
 
-  return internal::MessageToJson(*message_ptr_, descriptor_pool,
-                                 message_factory, json);
+  return internal::MessageToJson(*message_ptr, descriptor_pool, message_factory,
+                                 json);
 }
 
-absl::Status LegacyStructValue::Equal(
+absl::Status LegacyStructEqual(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
     const Value& other,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  ABSL_DCHECK(message_ptr_ != nullptr);
-  if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
+  ABSL_DCHECK(message_ptr != nullptr);
+  if (ABSL_PREDICT_FALSE(legacy_type_info == TrivialTypeInfo::GetInstance())) {
     return absl::UnimplementedError(
-        absl::StrCat("legacy access APIs missing for ", GetTypeName()));
+        absl::StrCat("legacy access APIs missing for ",
+                     LegacyStructGetTypeName(message_ptr, legacy_type_info)));
   }
-  auto modern_value = UnsafeParsedMessageValue(message_ptr_);
+  auto modern_value = UnsafeParsedMessageValue(message_ptr);
 
   // Unwrap the rhs if it's a legacy struct so the normal implementation
   // doesn't hit the fallback abstract struct comparison.
   if (auto other_legacy = common_internal::AsLegacyStructValue(other);
       other_legacy) {
-    if (other_legacy->legacy_type_info_ == TrivialTypeInfo::GetInstance()) {
+    if (other_legacy->legacy_type_info() == TrivialTypeInfo::GetInstance()) {
       return absl::UnimplementedError(absl::StrCat(
           "legacy access APIs missing for ", other_legacy->GetTypeName()));
     }
-    auto other_message = UnsafeParsedMessageValue(other_legacy->message_ptr_);
+    auto other_message = UnsafeParsedMessageValue(other_legacy->message_ptr());
     return modern_value.Equal(other_message, descriptor_pool, message_factory,
                               arena, result);
   }
@@ -913,25 +1479,29 @@ absl::Status LegacyStructValue::Equal(
                             result);
 }
 
-bool LegacyStructValue::IsZeroValue() const {
-  ABSL_DCHECK(message_ptr_ != nullptr);
-  if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
+bool LegacyStructIsZeroValue(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info) {
+  ABSL_DCHECK(message_ptr != nullptr);
+  if (ABSL_PREDICT_FALSE(legacy_type_info == TrivialTypeInfo::GetInstance())) {
     return false;
   }
-  return UnsafeParsedMessageValue(message_ptr_).IsZeroValue();
+  return UnsafeParsedMessageValue(message_ptr).IsZeroValue();
 }
 
-absl::Status LegacyStructValue::GetFieldByName(
+absl::Status LegacyStructGetFieldByName(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
     absl::string_view name, ProtoWrapperTypeOptions unboxing_options,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
+  if (ABSL_PREDICT_FALSE(legacy_type_info == TrivialTypeInfo::GetInstance())) {
     *result = NoSuchFieldError(name, arena);
     return absl::OkStatus();
   }
 
-  ParsedMessageValue parsed_message = UnsafeParsedMessageValue(message_ptr_);
+  ParsedMessageValue parsed_message = UnsafeParsedMessageValue(message_ptr);
   const auto* descriptor = parsed_message.GetDescriptor();
   const auto* field = descriptor->FindFieldByName(name);
   if (field == nullptr) {
@@ -944,60 +1514,72 @@ absl::Status LegacyStructValue::GetFieldByName(
   }
 
   return interop_internal::WrapLegacyMessageField(
-      message_ptr_, field, unboxing_options, descriptor_pool, message_factory,
+      message_ptr, field, unboxing_options, descriptor_pool, message_factory,
       arena, result);
 }
 
-absl::Status LegacyStructValue::GetFieldByNumber(
+absl::Status LegacyStructGetFieldByNumber(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
     int64_t number, ProtoWrapperTypeOptions unboxing_options,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) {
   return absl::UnimplementedError(
       "access to fields by numbers is not available for legacy structs");
 }
 
-absl::StatusOr<bool> LegacyStructValue::HasFieldByName(
-    absl::string_view name) const {
-  ABSL_DCHECK(message_ptr_ != nullptr);
-  if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
+absl::StatusOr<bool> LegacyStructHasFieldByName(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+    absl::string_view name) {
+  ABSL_DCHECK(message_ptr != nullptr);
+  if (ABSL_PREDICT_FALSE(legacy_type_info == TrivialTypeInfo::GetInstance())) {
     return common_internal::MakeNoSuchFieldError(name);
   }
-  return UnsafeParsedMessageValue(message_ptr_).HasFieldByName(name);
+  return UnsafeParsedMessageValue(message_ptr).HasFieldByName(name);
 }
 
-absl::StatusOr<bool> LegacyStructValue::HasFieldByNumber(int64_t number) const {
-  ABSL_DCHECK(message_ptr_ != nullptr);
-  if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
+absl::StatusOr<bool> LegacyStructHasFieldByNumber(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+    int64_t number) {
+  ABSL_DCHECK(message_ptr != nullptr);
+  if (ABSL_PREDICT_FALSE(legacy_type_info == TrivialTypeInfo::GetInstance())) {
     return common_internal::MakeNoSuchFieldError(absl::StrCat(number));
   }
-  return UnsafeParsedMessageValue(message_ptr_).HasFieldByNumber(number);
+  return UnsafeParsedMessageValue(message_ptr).HasFieldByNumber(number);
 }
 
-absl::Status LegacyStructValue::ForEachField(
-    ForEachFieldCallback callback,
+absl::Status LegacyStructForEachField(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
+    CustomStructValueInterface::ForEachFieldCallback callback,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) const {
-  ABSL_DCHECK(message_ptr_ != nullptr);
-  if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
+    google::protobuf::Arena* absl_nonnull arena) {
+  ABSL_DCHECK(message_ptr != nullptr);
+  if (ABSL_PREDICT_FALSE(legacy_type_info == TrivialTypeInfo::GetInstance())) {
     return absl::UnimplementedError(
-        absl::StrCat("legacy access APIs missing for ", GetTypeName()));
+        absl::StrCat("legacy access APIs missing for ",
+                     LegacyStructGetTypeName(message_ptr, legacy_type_info)));
   }
-  return UnsafeParsedMessageValue(message_ptr_)
+  return UnsafeParsedMessageValue(message_ptr)
       .ForEachField(callback, descriptor_pool, message_factory, arena);
 }
 
-absl::Status LegacyStructValue::Qualify(
+absl::Status LegacyStructQualify(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info,
     absl::Span<const SelectQualifier> qualifiers, bool presence_test,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
     google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result,
-    int* absl_nonnull count) const {
+    int* absl_nonnull count) {
   if (ABSL_PREDICT_FALSE(qualifiers.empty())) {
     return absl::InvalidArgumentError("invalid select qualifier path.");
   }
-  if (ABSL_PREDICT_FALSE(legacy_type_info_ == TrivialTypeInfo::GetInstance())) {
+  if (ABSL_PREDICT_FALSE(legacy_type_info == TrivialTypeInfo::GetInstance())) {
     absl::string_view field_name = absl::visit(
         absl::Overload(
             [](const FieldSpecifier& field) -> absl::string_view {
@@ -1012,7 +1594,7 @@ absl::Status LegacyStructValue::Qualify(
     return absl::OkStatus();
   }
 
-  ParsedMessageValue parsed_message = UnsafeParsedMessageValue(message_ptr_);
+  ParsedMessageValue parsed_message = UnsafeParsedMessageValue(message_ptr);
   CEL_RETURN_IF_ERROR(parsed_message.Qualify(qualifiers, presence_test,
                                              descriptor_pool, message_factory,
                                              arena, result, count));
@@ -1020,6 +1602,57 @@ absl::Status LegacyStructValue::Qualify(
   interop_internal::WrapLegacyFieldAccessResult(arena, result);
   return absl::OkStatus();
 }
+
+const google::protobuf::Message* absl_nullable LegacyStructGetLegacyMessage(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info) {
+  if (message_ptr == nullptr || legacy_type_info == nullptr ||
+      legacy_type_info == TrivialTypeInfo::GetInstance()) {
+    return nullptr;
+  }
+  // This should not be possible using the normal public APIs, but possible
+  // if someone used the MessageWrapper class directly.
+  if (IsWellKnownMessageType(message_ptr->GetDescriptor())) {
+    return nullptr;
+  }
+  return message_ptr;
+}
+
+constexpr LegacyStructValueDispatcher kLegacyStructValueDispatcher = {
+    /*get_type_name=*/&LegacyStructGetTypeName,
+    /*debug_string=*/&LegacyStructDebugString,
+    /*serialize_to=*/&LegacyStructSerializeTo,
+    /*convert_to_json=*/&LegacyStructConvertToJson,
+    /*convert_to_json_object=*/&LegacyStructConvertToJsonObject,
+    /*equal=*/&LegacyStructEqual,
+    /*is_zero_value=*/&LegacyStructIsZeroValue,
+    /*get_field_by_name=*/&LegacyStructGetFieldByName,
+    /*get_field_by_number=*/&LegacyStructGetFieldByNumber,
+    /*has_field_by_name=*/&LegacyStructHasFieldByName,
+    /*has_field_by_number=*/&LegacyStructHasFieldByNumber,
+    /*for_each_field=*/&LegacyStructForEachField,
+    /*qualify=*/&LegacyStructQualify,
+    /*get_legacy_message=*/&LegacyStructGetLegacyMessage,
+    /*wrap_legacy_message_field=*/&interop_internal::WrapLegacyMessageField,
+};
+
+}  // namespace
+
+LegacyListValue::LegacyListValue(
+    const google::api::expr::runtime::CelList* absl_nullability_unknown impl)
+    : dispatcher_(&kLegacyListValueDispatcher), impl_(impl) {}
+
+LegacyMapValue::LegacyMapValue(
+    const google::api::expr::runtime::CelMap* absl_nullability_unknown impl)
+    : dispatcher_(&kLegacyMapValueDispatcher), impl_(impl) {}
+
+LegacyStructValue::LegacyStructValue(
+    const google::protobuf::Message* absl_nullability_unknown message_ptr,
+    const google::api::expr::runtime::
+        LegacyTypeInfoApis* absl_nullability_unknown legacy_type_info)
+    : dispatcher_(&kLegacyStructValueDispatcher),
+      message_ptr_(message_ptr),
+      legacy_type_info_(legacy_type_info) {}
 
 }  // namespace common_internal
 
@@ -1288,6 +1921,12 @@ void WrapLegacyFieldAccessResult(google::protobuf::Arena* absl_nonnull arena,
     *result = WrapLegacyParsedMapField(result->GetParsedMapField(), arena);
   } else if (result->IsParsedJsonMap()) {
     *result = WrapLegacyParsedJsonMap(result->GetParsedJsonMap(), arena);
+  } else if (result->IsCustomList() && result->GetCustomList().interface() ==
+                                           CustomListValue().interface()) {
+    *result = CustomListValue(common_internal::EmptyCompatListValue(), arena);
+  } else if (result->IsCustomMap() && result->GetCustomMap().interface() ==
+                                          CustomMapValue().interface()) {
+    *result = CustomMapValue(common_internal::EmptyCompatMapValue(), arena);
   }
 }
 

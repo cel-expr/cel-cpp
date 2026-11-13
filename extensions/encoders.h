@@ -17,28 +17,15 @@
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
-#include "checker/type_checker_builder.h"
-#include "compiler/compiler.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_options.h"
-#include "runtime/function_registry.h"
-#include "runtime/runtime_options.h"
+#include "extensions/encoders_modern.h"  // IWYU pragma: export
 
 namespace cel::extensions {
-
-// Register encoders functions.
-absl::Status RegisterEncodersFunctions(FunctionRegistry& registry,
-                                       const RuntimeOptions& options);
 
 absl::Status RegisterEncodersFunctions(
     google::api::expr::runtime::CelFunctionRegistry* absl_nonnull registry,
     const google::api::expr::runtime::InterpreterOptions& options);
-
-// Declarations for the encoders extension library.
-CheckerLibrary EncodersCheckerLibrary();
-
-// Compiler library for the encoders extension.
-CompilerLibrary EncodersCompilerLibrary();
 
 }  // namespace cel::extensions
 
