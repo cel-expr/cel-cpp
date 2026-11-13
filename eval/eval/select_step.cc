@@ -281,6 +281,48 @@ bool SupportsCachedFieldDescriptor(
   return true;
 }
 
+// Attempts to unwrap `arg` into a `ParsedMessageValue` matching `descriptor`
+// and `field_descriptor`. Sets `is_legacy` to true when `arg` is a legacy
+// `CelValue` message wrapper so field wrapping preserves legacy interop.
+absl::optional<cel::ParsedMessageValue> TryUnwrapTypedMessage(
+    const Value& arg, const google::protobuf::Descriptor* descriptor,
+    const google::protobuf::FieldDescriptor* field_descriptor, bool& is_legacy) {
+  if (auto unwrapped = arg.AsParsedMessage();
+      unwrapped.has_value() &&
+      SupportsCachedFieldDescriptor(*unwrapped, descriptor, field_descriptor)) {
+    is_legacy = false;
+    return *unwrapped;
+  }
+  if (const google::protobuf::Message* legacy_message =
+          cel::interop_internal::GetLegacyMessage(arg);
+      legacy_message != nullptr) {
+    cel::ParsedMessageValue parsed_message =
+        cel::UnsafeParsedMessageValue(legacy_message);
+    if (SupportsCachedFieldDescriptor(parsed_message, descriptor,
+                                      field_descriptor)) {
+      is_legacy = true;
+      return parsed_message;
+    }
+  }
+  return absl::nullopt;
+}
+
+absl::Status GetTypedMessageField(
+    const cel::ParsedMessageValue& parsed_message, bool is_legacy,
+    const google::protobuf::FieldDescriptor* field_descriptor,
+    ProtoWrapperTypeOptions unboxing_option, ExecutionFrame* frame,
+    Value* result) {
+  if (is_legacy) {
+    return cel::interop_internal::WrapLegacyMessageField(
+        parsed_message.message(), field_descriptor, unboxing_option,
+        frame->descriptor_pool(), frame->message_factory(), frame->arena(),
+        result);
+  }
+  return parsed_message.GetField(
+      field_descriptor, unboxing_option, frame->descriptor_pool(),
+      frame->message_factory(), frame->arena(), result);
+}
+
 class ProtoSelectStep : public SelectStep {
  public:
   ProtoSelectStep(absl::string_view value,
@@ -304,71 +346,67 @@ class ProtoSelectStep : public SelectStep {
     }
 
     const Value& arg = frame->value_stack().Peek();
-    if (auto unwrapped = arg.AsParsedMessage();
-        unwrapped.has_value() &&
-        SupportsCachedFieldDescriptor(*unwrapped, descriptor_,
-                                      field_descriptor_)) {
-      EvaluateMessageFieldGet(frame, *unwrapped);
+    bool is_legacy = false;
+    if (auto parsed_message = TryUnwrapTypedMessage(
+            arg, descriptor_, field_descriptor_, is_legacy);
+        parsed_message.has_value()) {
+      if (CheckAttributeTrail(field_, frame)) {
+        return;
+      }
+      if (absl::Status status = GetTypedMessageField(
+              *parsed_message, is_legacy, field_descriptor_, unboxing_option_,
+              frame, &frame->value_stack().Peek());
+          !status.ok()) {
+        frame->Abort(std::move(status));
+      }
       return;
-    } else if (const google::protobuf::Message* legacy_message =
-                   cel::interop_internal::GetLegacyMessage(arg);
-               legacy_message != nullptr) {
-      auto parsed_message = cel::UnsafeParsedMessageValue(legacy_message);
-      // A little unfortunate, but need to special case for legacy values so we
-      // can minimize back and forth interop conversions.
-      if (SupportsCachedFieldDescriptor(parsed_message, descriptor_,
-                                        field_descriptor_)) {
-        EvaluateMessageFieldGet(frame, legacy_message);
+    }
+
+    if (enable_optional_types_ && arg.IsOptional()) {
+      const OptionalValue& optional_arg = arg.GetOptional();
+      if (!optional_arg.HasValue()) {
+        if (CheckAttributeTrail(field_, frame)) {
+          return;
+        }
+        frame->value_stack().Peek() = OptionalValue::None();
+        return;
+      }
+      Value unwrapped_opt;
+      optional_arg.Value(&unwrapped_opt);
+      if (auto parsed_message = TryUnwrapTypedMessage(
+              unwrapped_opt, descriptor_, field_descriptor_, is_legacy);
+          parsed_message.has_value()) {
+        if (CheckAttributeTrail(field_, frame)) {
+          return;
+        }
+        if (!parsed_message->HasField(field_descriptor_)) {
+          frame->value_stack().Peek() = OptionalValue::None();
+          return;
+        }
+        Value field_result;
+        if (absl::Status status = GetTypedMessageField(
+                *parsed_message, is_legacy, field_descriptor_, unboxing_option_,
+                frame, &field_result);
+            !status.ok()) {
+          frame->Abort(std::move(status));
+          return;
+        }
+        ABSL_DCHECK(!field_result.IsUnknown());
+        frame->value_stack().Peek() =
+            OptionalValue::Of(std::move(field_result), frame->arena());
         return;
       }
     }
+
     // If we get an unexpected value type, fall back to the generic
     // implementation.
     SelectStep::Evaluate(frame);
   }
 
  private:
-  void EvaluateMessageFieldGet(
-      ExecutionFrame* frame,
-      const cel::ParsedMessageValue& parsed_message) const;
-  void EvaluateMessageFieldGet(
-      ExecutionFrame* frame,
-      const google::protobuf::Message* absl_nonnull legacy_message) const;
-
   const google::protobuf::Descriptor* descriptor_;
   const google::protobuf::FieldDescriptor* field_descriptor_;
 };
-
-void ProtoSelectStep::EvaluateMessageFieldGet(
-    ExecutionFrame* frame,
-    const cel::ParsedMessageValue& parsed_message) const {
-  if (CheckAttributeTrail(field_, frame)) {
-    return;
-  }
-  if (absl::Status status = parsed_message.GetField(
-          field_descriptor_, unboxing_option_, frame->descriptor_pool(),
-          frame->message_factory(), frame->arena(),
-          &frame->value_stack().Peek());
-      !status.ok()) {
-    frame->Abort(std::move(status));
-  }
-}
-
-void ProtoSelectStep::EvaluateMessageFieldGet(
-    ExecutionFrame* frame,
-    const google::protobuf::Message* absl_nonnull legacy_message) const {
-  ABSL_DCHECK(legacy_message != nullptr);
-  if (CheckAttributeTrail(field_, frame)) {
-    return;
-  }
-  if (absl::Status status = cel::interop_internal::WrapLegacyMessageField(
-          legacy_message, field_descriptor_, unboxing_option_,
-          frame->descriptor_pool(), frame->message_factory(), frame->arena(),
-          &frame->value_stack().Peek());
-      !status.ok()) {
-    frame->Abort(std::move(status));
-  }
-}
 
 class ProtoHasStep : public SelectStep {
  public:
@@ -391,23 +429,33 @@ class ProtoHasStep : public SelectStep {
     }
 
     const Value& arg = frame->value_stack().Peek();
-    if (auto unwrapped = arg.AsParsedMessage();
-        unwrapped.has_value() &&
-        SupportsCachedFieldDescriptor(*unwrapped, descriptor_,
-                                      field_descriptor_)) {
-      EvaluateHas(frame, *unwrapped);
+    bool is_legacy = false;
+    if (auto parsed_message = TryUnwrapTypedMessage(
+            arg, descriptor_, field_descriptor_, is_legacy);
+        parsed_message.has_value()) {
+      EvaluateHas(frame, *parsed_message);
       return;
-    } else if (const google::protobuf::Message* legacy_message =
-                   cel::interop_internal::GetLegacyMessage(arg);
-               legacy_message != nullptr) {
-      cel::ParsedMessageValue parsed_message =
-          cel::UnsafeParsedMessageValue(legacy_message);
-      if (SupportsCachedFieldDescriptor(parsed_message, descriptor_,
-                                        field_descriptor_)) {
-        EvaluateHas(frame, parsed_message);
+    }
+
+    if (enable_optional_types_ && arg.IsOptional()) {
+      const OptionalValue& optional_arg = arg.GetOptional();
+      if (!optional_arg.HasValue()) {
+        if (CheckAttributeTrail(field_, frame)) {
+          return;
+        }
+        frame->value_stack().Peek() = cel::FalseValue();
+        return;
+      }
+      Value unwrapped_opt;
+      optional_arg.Value(&unwrapped_opt);
+      if (auto parsed_message = TryUnwrapTypedMessage(
+              unwrapped_opt, descriptor_, field_descriptor_, is_legacy);
+          parsed_message.has_value()) {
+        EvaluateHas(frame, *parsed_message);
         return;
       }
     }
+
     // If we get an unexpected value type, fall back to the generic
     // implementation.
     SelectStep::Evaluate(frame);
@@ -447,17 +495,15 @@ absl::StatusOr<std::unique_ptr<ExpressionStepLogic>> CreateTypedSelectStep(
     absl::string_view field, cel::StructType resolved_operand_type,
     cel::StructTypeField resolved_field, bool test_only,
     bool enable_wrapper_type_null_unboxing, bool enable_optional_types) {
-  if (!resolved_operand_type.IsMessage()) {
+  if (!resolved_operand_type.IsMessage() || !resolved_field.IsMessage()) {
     // The specialization only supports messages. Fallback to the generic
     // implementation for other types.
-    // TODO(uncreated-issue/89): support optional select and chaining.
     return CreateSelectStep(field, test_only, enable_wrapper_type_null_unboxing,
                             enable_optional_types);
   }
   const google::protobuf::Descriptor* descriptor =
       resolved_operand_type.GetMessage().descriptor();
 
-  ABSL_DCHECK(resolved_field.IsMessage());
   const google::protobuf::FieldDescriptor* field_descriptor =
       resolved_field.GetMessage().descriptor();
 
