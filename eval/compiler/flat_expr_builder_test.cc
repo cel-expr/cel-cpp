@@ -3844,6 +3844,199 @@ TEST(FlatExprBuilderTest, BindInlinesConstantAndFoldsMainExpression) {
   ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr->Evaluate(activation, &arena));
   EXPECT_THAT(result, test::IsCelInt64(16));
 }
+
+class OptionalWrapFunction final : public cel::Function {
+ public:
+  explicit OptionalWrapFunction(bool empty) : empty_(empty) {}
+
+  absl::StatusOr<cel::Value> Invoke(
+      absl::Span<const cel::Value> args,
+      const InvokeContext& context) const override {
+    if (empty_) {
+      return cel::OptionalValue::None();
+    }
+    return cel::OptionalValue::Of(args[0], context.arena());
+  }
+
+ private:
+  bool empty_;
+};
+
+class OptionalUnwrapOrSentinelFunction final : public cel::Function {
+ public:
+  absl::StatusOr<cel::Value> Invoke(
+      absl::Span<const cel::Value> args,
+      const InvokeContext& context) const override {
+    if (!args[0].IsOptional()) {
+      return args[0];
+    }
+    const cel::OptionalValue& opt = args[0].GetOptional();
+    if (!opt.HasValue()) {
+      return cel::StringValue::Literal("optional.none");
+    }
+    return opt.Value();
+  }
+};
+
+TEST(FlatExprBuilderTest, ChainedTypedSelectOptionalAndHas) {
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  cel::RuntimeOptions options;
+  options.enable_typed_field_access = true;
+  CelExpressionBuilderFlatImpl builder(env, options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+  ASSERT_THAT(builder.GetRegistry()->Register(
+                  cel::FunctionDescriptor("make_opt", false, {cel::Kind::kAny}),
+                  std::make_unique<OptionalWrapFunction>(/*empty=*/false)),
+              IsOk());
+  ASSERT_THAT(builder.GetRegistry()->Register(
+                  cel::FunctionDescriptor("make_none", false, {}),
+                  std::make_unique<OptionalWrapFunction>(/*empty=*/true)),
+              IsOk());
+  ASSERT_THAT(
+      builder.GetRegistry()->Register(
+          cel::FunctionDescriptor("unwrap_opt", false, {cel::Kind::kAny}),
+          std::make_unique<OptionalUnwrapOrSentinelFunction>()),
+      IsOk());
+  builder.flat_expr_builder().enable_optional_types();
+
+  auto make_optional_msg_type = [](std::string msg_name) {
+    return cel::TypeSpec(cel::AbstractType(
+        "optional_type",
+        {cel::TypeSpec(cel::MessageTypeSpec(std::move(msg_name)))}));
+  };
+
+  auto build_select_chain =
+      [&](bool start_with_none,
+          bool test_only) -> absl::StatusOr<FlatExpression> {
+    cel::Expr ident_or_call;
+    if (start_with_none) {
+      ident_or_call.set_id(1);
+      ident_or_call.mutable_call_expr().set_function("make_none");
+    } else {
+      ident_or_call.set_id(1);
+      auto& call = ident_or_call.mutable_call_expr();
+      call.set_function("make_opt");
+      auto& arg = call.mutable_args().emplace_back();
+      arg.set_id(10);
+      arg.mutable_ident_expr().set_name("message");
+    }
+
+    cel::Expr select1;
+    select1.set_id(2);
+    select1.mutable_select_expr().set_field("single_nested_message");
+    select1.mutable_select_expr().set_operand(std::move(ident_or_call));
+
+    cel::Expr select2;
+    select2.set_id(3);
+    select2.mutable_select_expr().set_field("bb");
+    select2.mutable_select_expr().set_test_only(test_only);
+    select2.mutable_select_expr().set_operand(std::move(select1));
+
+    cel::Expr root;
+    if (test_only) {
+      root = std::move(select2);
+    } else {
+      root.set_id(4);
+      root.mutable_call_expr().set_function("unwrap_opt");
+      root.mutable_call_expr().mutable_args().push_back(std::move(select2));
+    }
+
+    cel::Ast::TypeMap type_map;
+    type_map[1] =
+        make_optional_msg_type("cel.expr.conformance.proto3.TestAllTypes");
+    type_map[2] = make_optional_msg_type(
+        "cel.expr.conformance.proto3.TestAllTypes.NestedMessage");
+    if (!start_with_none) {
+      type_map[10] = cel::TypeSpec(
+          cel::MessageTypeSpec("cel.expr.conformance.proto3.TestAllTypes"));
+    }
+    if (test_only) {
+      type_map[3] = cel::TypeSpec(cel::PrimitiveType::kBool);
+    } else {
+      type_map[3] = cel::TypeSpec(cel::AbstractType(
+          "optional_type", {cel::TypeSpec(cel::PrimitiveType::kInt64)}));
+    }
+
+    auto ast = std::make_unique<cel::Ast>(std::move(root), cel::SourceInfo(),
+                                          cel::Ast::ReferenceMap(),
+                                          std::move(type_map), "0");
+    return builder.flat_expr_builder().CreateExpressionImpl(std::move(ast),
+                                                            nullptr);
+  };
+
+  google::protobuf::Arena arena;
+  {
+    ASSERT_OK_AND_ASSIGN(FlatExpression flat_expr,
+                         build_select_chain(/*start_with_none=*/false,
+                                            /*test_only=*/false));
+    CelExpressionFlatImpl cel_expr(env, std::move(flat_expr));
+
+    cel::expr::conformance::proto3::TestAllTypes message;
+    {
+      Activation activation;
+      activation.InsertValue("message",
+                             CelProtoWrapper::CreateMessage(&message, &arena));
+      ASSERT_OK_AND_ASSIGN(CelValue result,
+                           cel_expr.Evaluate(activation, &arena));
+      EXPECT_THAT(result, test::IsCelString("optional.none"));
+    }
+    message.mutable_single_nested_message()->set_bb(55);
+    {
+      Activation activation;
+      activation.InsertValue("message",
+                             CelProtoWrapper::CreateMessage(&message, &arena));
+      ASSERT_OK_AND_ASSIGN(CelValue result,
+                           cel_expr.Evaluate(activation, &arena));
+      EXPECT_THAT(result, test::IsCelInt64(55));
+    }
+  }
+  {
+    ASSERT_OK_AND_ASSIGN(FlatExpression flat_expr,
+                         build_select_chain(/*start_with_none=*/true,
+                                            /*test_only=*/false));
+    CelExpressionFlatImpl cel_expr(env, std::move(flat_expr));
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena));
+    EXPECT_THAT(result, test::IsCelString("optional.none"));
+  }
+  {
+    ASSERT_OK_AND_ASSIGN(FlatExpression flat_expr,
+                         build_select_chain(/*start_with_none=*/false,
+                                            /*test_only=*/true));
+    CelExpressionFlatImpl cel_expr(env, std::move(flat_expr));
+
+    cel::expr::conformance::proto3::TestAllTypes message;
+    {
+      Activation activation;
+      activation.InsertValue("message",
+                             CelProtoWrapper::CreateMessage(&message, &arena));
+      ASSERT_OK_AND_ASSIGN(CelValue result,
+                           cel_expr.Evaluate(activation, &arena));
+      EXPECT_THAT(result, test::IsCelBool(false));
+    }
+    message.mutable_single_nested_message()->set_bb(55);
+    {
+      Activation activation;
+      activation.InsertValue("message",
+                             CelProtoWrapper::CreateMessage(&message, &arena));
+      ASSERT_OK_AND_ASSIGN(CelValue result,
+                           cel_expr.Evaluate(activation, &arena));
+      EXPECT_THAT(result, test::IsCelBool(true));
+    }
+  }
+  {
+    ASSERT_OK_AND_ASSIGN(FlatExpression flat_expr,
+                         build_select_chain(/*start_with_none=*/true,
+                                            /*test_only=*/true));
+    CelExpressionFlatImpl cel_expr(env, std::move(flat_expr));
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena));
+    EXPECT_THAT(result, test::IsCelBool(false));
+  }
+}
 }  // namespace
 
 }  // namespace google::api::expr::runtime
