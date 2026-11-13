@@ -17,6 +17,7 @@
 
 #include <ostream>
 #include <string>
+#include <vector>
 
 #include "absl/status/statusor.h"
 #include "env/config.h"
@@ -28,6 +29,21 @@ struct EnvConfigFromYamlOptions {
   // `Config::ExtensionConfig::kLatest` instead of version 0.
   // Temporary rollout option; will be removed once callers migrate.
   bool legacy_default_extension_version_latest = false;
+
+  // If not null, receives one message for each field in the config that the
+  // parser does not handle. Such fields are ignored. They are either unknown
+  // (for example, misspelled) or are supported by other CEL implementations
+  // but not by cel-cpp: `imports`, `limits`, `validators` and `features`. In
+  // the latter case the resulting environment may differ from the one that
+  // cel-go or cel-java builds from the same config.
+  //
+  // Not written to if parsing fails. The pointer must remain valid for the
+  // duration of the call.
+  std::vector<std::string>* warnings = nullptr;
+
+  // Whether to fail if the config has any field that the parser does not
+  // handle. The error lists every such field.
+  bool strict = false;
 };
 
 // EnvConfigFromYaml creates an environment configuration from a YAML string.

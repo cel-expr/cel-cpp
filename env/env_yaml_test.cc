@@ -37,8 +37,10 @@
 namespace cel {
 namespace {
 
+using ::absl_testing::IsOk;
 using ::absl_testing::StatusIs;
 using ::testing::AllOf;
+using ::testing::ElementsAre;
 using ::testing::ElementsAreArray;
 using ::testing::Field;
 using ::testing::HasSubstr;
@@ -2052,6 +2054,150 @@ std::vector<std::string> GetSignatureRoundTripTestCases() {
 INSTANTIATE_TEST_SUITE_P(EnvYamlSignatureRoundTripTest,
                          EnvYamlSignatureRoundTripTest,
                          ::testing::ValuesIn(GetSignatureRoundTripTestCases()));
+
+TEST(EnvYamlTest, UnhandledFieldsAreIgnoredWithWarnings) {
+  std::vector<std::string> warnings;
+  ASSERT_OK_AND_ASSIGN(
+      Config config,
+      EnvConfigFromYaml("name: test\n"
+                        "imports:\n"
+                        "  - name: google.protobuf.Timestamp\n"
+                        "limits:\n"
+                        "  - name: cel.limit.expression_code_points\n"
+                        "    value: 10\n"
+                        "validators:\n"
+                        "  - name: cel.validator.duration\n"
+                        "features:\n"
+                        "  - name: cel.feature.macro_call_tracking\n"
+                        "    enabled: true\n"
+                        "not_a_field: true\n"
+                        "variables:\n"
+                        "  - name: x\n"
+                        "    type_name: int\n"
+                        "    typ: int\n",
+                        {.warnings = &warnings}));
+
+  EXPECT_EQ(config.GetName(), "test");
+  EXPECT_THAT(config.GetVariableConfigs(), SizeIs(1));
+  EXPECT_THAT(warnings,
+              ElementsAre("2:1: Field 'imports' is not supported",
+                          "4:1: Field 'limits' is not supported",
+                          "7:1: Field 'validators' is not supported",
+                          "9:1: Field 'features' is not supported",
+                          "12:1: Unknown field 'not_a_field' in config",
+                          "16:5: Unknown field 'typ' in variable"));
+}
+
+TEST(EnvYamlTest, UnhandledFieldsAreIgnoredWithoutWarningsOutput) {
+  EXPECT_THAT(EnvConfigFromYaml("limits: []\nnot_a_field: true\n"), IsOk());
+}
+
+TEST(EnvYamlTest, NoWarningsWhenAllFieldsAreHandled) {
+  std::vector<std::string> warnings;
+  EXPECT_THAT(EnvConfigFromYaml("name: test\n"
+                                "description: a description\n"
+                                "stdlib:\n"
+                                "  disable: true\n",
+                                {.warnings = &warnings}),
+              IsOk());
+  EXPECT_THAT(warnings, IsEmpty());
+}
+
+TEST(EnvYamlTest, StrictReturnsAllWarningsAsOneError) {
+  std::vector<std::string> warnings;
+  absl::StatusOr<Config> config = EnvConfigFromYaml(
+      "limits: []\n"
+      "not_a_field: true\n"
+      "extensions:\n"
+      "  - name: math\n"
+      "    versions: 1\n",
+      {.warnings = &warnings, .strict = true});
+
+  EXPECT_THAT(config, StatusIs(absl::StatusCode::kInvalidArgument,
+                               "Unhandled fields in CEL environment config:\n"
+                               "1:1: Field 'limits' is not supported\n"
+                               "2:1: Unknown field 'not_a_field' in config\n"
+                               "5:5: Unknown field 'versions' in extension"));
+  EXPECT_THAT(warnings, IsEmpty());
+}
+
+TEST(EnvYamlTest, StrictReportsParseErrorsBeforeUnhandledFields) {
+  EXPECT_THAT(
+      EnvConfigFromYaml("not_a_field: true\nvariables: 1\n", {.strict = true}),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("Node 'variables' is not a sequence")));
+}
+
+struct StrictTestCase {
+  std::string yaml;
+  std::string expected_error;
+};
+
+class EnvYamlStrictTest : public testing::TestWithParam<StrictTestCase> {};
+
+TEST_P(EnvYamlStrictTest, RejectsUnhandledField) {
+  const StrictTestCase& param = GetParam();
+  // The config is accepted unless strict is set.
+  EXPECT_THAT(EnvConfigFromYaml(param.yaml), IsOk());
+  EXPECT_THAT(EnvConfigFromYaml(param.yaml, {.strict = true}),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr(param.expected_error)));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EnvYamlStrictTest, EnvYamlStrictTest,
+    testing::ValuesIn(std::vector<StrictTestCase>{
+        {"imports:\n  - name: a.B\n", "1:1: Field 'imports' is not supported"},
+        {"name: test\nlimits: []\n", "2:1: Field 'limits' is not supported"},
+        {"validators: []\n", "1:1: Field 'validators' is not supported"},
+        {"features: []\n", "1:1: Field 'features' is not supported"},
+        {"not_a_field: true\n", "1:1: Unknown field 'not_a_field' in config"},
+        {"container:\n  name: a\n  alias: b\n",
+         "3:3: Unknown field 'alias' in container"},
+        {"container:\n  aliases:\n    - alias: a\n      qualified_name: b\n"
+         "      name: c\n",
+         "5:7: Unknown field 'name' in alias"},
+        {"extensions:\n  - name: math\n    versions: 1\n",
+         "3:5: Unknown field 'versions' in extension"},
+        {"stdlib:\n  disable_macro: true\n",
+         "2:3: Unknown field 'disable_macro' in stdlib"},
+        {"stdlib:\n  exclude_functions:\n    - name: matches\n"
+         "      overload: a\n",
+         "4:7: Unknown field 'overload' in function selector"},
+        {"stdlib:\n  exclude_functions:\n    - name: matches\n"
+         "      overloads:\n        - id: a\n          name: b\n",
+         "6:11: Unknown field 'name' in overload selector"},
+        {"context_variable:\n  type_name: a.B\n  name: c\n",
+         "3:3: Unknown field 'name' in context_variable"},
+        {"variables:\n  - name: x\n    type_name: int\n    typ: int\n",
+         "4:5: Unknown field 'typ' in variable"},
+        {"variables:\n  - name: x\n    type:\n      type_name: list\n"
+         "      params:\n        - type_name: int\n          name: y\n",
+         "7:11: Unknown field 'name' in type"},
+        {"functions:\n  - name: f\n    overload: []\n",
+         "3:5: Unknown field 'overload' in function"},
+        {"functions:\n  - name: f\n    overloads:\n      - id: f_int\n"
+         "        arg: []\n        return:\n          type_name: int\n",
+         "5:9: Unknown field 'arg' in overload"},
+        {"functions:\n  - name: f\n    overloads:\n      - id: f_int\n"
+         "        args:\n          - type_name: int\n            name: x\n"
+         "        return:\n          type_name: int\n",
+         "7:13: Unknown field 'name' in type"},
+    }));
+
+TEST(EnvYamlTest, StrictAcceptsSupportedFields) {
+  for (const std::string& yaml : GetStructuredRoundTripTestCases()) {
+    EXPECT_THAT(EnvConfigFromYaml(yaml, {.strict = true}), IsOk()) << yaml;
+  }
+  for (const std::string& yaml : GetSignatureRoundTripTestCases()) {
+    EXPECT_THAT(EnvConfigFromYaml(yaml, {.strict = true}), IsOk()) << yaml;
+  }
+  EXPECT_THAT(EnvConfigFromYaml("description: a description\n"
+                                "stdlib:\n"
+                                "  disable: true\n",
+                                {.strict = true}),
+              IsOk());
+}
 
 }  // namespace
 }  // namespace cel

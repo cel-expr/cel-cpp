@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <map>
 #include <ostream>
 #include <string>
@@ -34,8 +35,10 @@
 #include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
+#include "absl/types/span.h"
 #include "common/ast.h"
 #include "common/constant.h"
 #include "common/signature.h"
@@ -151,6 +154,73 @@ YAML::Node GetContextNodeForKeyValue(const YAML::Node& node,
   return value_node;
 }
 
+// Fields handled by the parser, for each kind of map node in the config.
+constexpr absl::string_view kConfigFields[] = {
+    "name",   "description",      "container", "extensions",
+    "stdlib", "context_variable", "variables", "functions"};
+// Fields that other CEL implementations support but cel-cpp does not.
+constexpr absl::string_view kUnsupportedConfigFields[] = {
+    "imports", "limits", "validators", "features"};
+constexpr absl::string_view kContainerFields[] = {"name", "abbreviations",
+                                                  "aliases"};
+constexpr absl::string_view kAliasFields[] = {"alias", "qualified_name"};
+constexpr absl::string_view kExtensionFields[] = {"name", "version"};
+constexpr absl::string_view kStandardLibraryFields[] = {
+    "disabled",       "disable",           "disable_macros",   "include_macros",
+    "exclude_macros", "include_functions", "exclude_functions"};
+constexpr absl::string_view kFunctionSelectorFields[] = {"name", "overloads"};
+constexpr absl::string_view kOverloadSelectorFields[] = {"id"};
+constexpr absl::string_view kContextVariableFields[] = {"type_name", "type"};
+constexpr absl::string_view kTypeFields[] = {"type", "type_name",
+                                             "is_type_param", "params"};
+// A variable may specify its type inline, so the type fields are included.
+constexpr absl::string_view kVariableFields[] = {
+    "name",      "description",   "value", "type",
+    "type_name", "is_type_param", "params"};
+constexpr absl::string_view kFunctionFields[] = {"name", "description",
+                                                 "overloads"};
+constexpr absl::string_view kOverloadFields[] = {
+    "id", "examples", "signature", "target", "args", "return"};
+
+// Collects a warning for each field that the parser does not handle.
+class UnhandledFieldReporter {
+ public:
+  // Adds a warning for each key of the map `node` that is not in `handled`.
+  // Keys in `unsupported` are reported as recognized but not supported.
+  // Does nothing if `node` is not a map. Child nodes are not visited.
+  void Check(const YAML::Node& node, absl::string_view context,
+             absl::Span<const absl::string_view> handled,
+             absl::Span<const absl::string_view> unsupported = {}) {
+    if (!node.IsDefined() || !node.IsMap()) {
+      return;
+    }
+    for (const auto& kv : node) {
+      if (!kv.first.IsScalar()) {
+        continue;
+      }
+      const std::string& key = kv.first.Scalar();
+      if (absl::c_linear_search(handled, key)) {
+        continue;
+      }
+      const YAML::Mark mark = kv.first.Mark();
+      if (absl::c_linear_search(unsupported, key)) {
+        warnings_.push_back(absl::StrCat(mark.line + 1, ":", mark.column + 1,
+                                         ": Field '", key,
+                                         "' is not supported"));
+      } else {
+        warnings_.push_back(absl::StrCat(mark.line + 1, ":", mark.column + 1,
+                                         ": Unknown field '", key, "' in ",
+                                         context));
+      }
+    }
+  }
+
+  std::vector<std::string>& warnings() { return warnings_; }
+
+ private:
+  std::vector<std::string> warnings_;
+};
+
 absl::Status ParseName(Config& config, absl::string_view yaml,
                        const YAML::Node& root) {
   const YAML::Node name = root["name"];
@@ -164,7 +234,8 @@ absl::Status ParseName(Config& config, absl::string_view yaml,
 }
 
 absl::Status ParseContainerConfig(Config& config, absl::string_view yaml,
-                                  const YAML::Node& root) {
+                                  const YAML::Node& root,
+                                  UnhandledFieldReporter& reporter) {
   const YAML::Node container = root["container"];
   if (!container.IsDefined()) {
     return absl::OkStatus();
@@ -180,6 +251,7 @@ absl::Status ParseContainerConfig(Config& config, absl::string_view yaml,
                      "Node 'container' is neither a string nor a map");
   }
 
+  reporter.Check(container, "container", kContainerFields);
   Config::ContainerConfig container_config;
 
   const YAML::Node name = container["name"];
@@ -213,6 +285,7 @@ absl::Status ParseContainerConfig(Config& config, absl::string_view yaml,
       if (!alias_node.IsMap()) {
         return YamlError(yaml, alias_node, "Alias entry is not a map");
       }
+      reporter.Check(alias_node, "alias", kAliasFields);
       const YAML::Node alias_key = alias_node["alias"];
       const YAML::Node qualified_name_key = alias_node["qualified_name"];
 
@@ -237,7 +310,8 @@ absl::Status ParseContainerConfig(Config& config, absl::string_view yaml,
 
 absl::Status ParseExtensionConfigs(Config& config, absl::string_view yaml,
                                    const YAML::Node& root,
-                                   const EnvConfigFromYamlOptions& options) {
+                                   const EnvConfigFromYamlOptions& options,
+                                   UnhandledFieldReporter& reporter) {
   const YAML::Node extensions = root["extensions"];
   if (!extensions.IsDefined()) {
     return absl::OkStatus();
@@ -250,6 +324,7 @@ absl::Status ParseExtensionConfigs(Config& config, absl::string_view yaml,
     if (!extension || !extension.IsMap()) {
       return YamlError(yaml, extension, "Extension is not a map");
     }
+    reporter.Check(extension, "extension", kExtensionFields);
     const YAML::Node name = extension["name"];
     if (!name || !name.IsScalar()) {
       return YamlError(yaml, name, "Extension name is not a string");
@@ -314,7 +389,7 @@ absl::StatusOr<absl::flat_hash_set<std::string>> ParseMacroList(
 
 absl::StatusOr<absl::flat_hash_set<std::pair<std::string, std::string>>>
 ParseFunctionList(absl::string_view yaml, const YAML::Node& standard_library,
-                  absl::string_view key) {
+                  absl::string_view key, UnhandledFieldReporter& reporter) {
   absl::flat_hash_set<std::pair<std::string, std::string>> function_set;
   const YAML::Node functions = standard_library[std::string(key)];
   if (!functions.IsDefined()) {
@@ -329,6 +404,7 @@ ParseFunctionList(absl::string_view yaml, const YAML::Node& standard_library,
       return YamlError(yaml, function,
                        absl::StrCat("Entry in '", key, "' is not a map"));
     }
+    reporter.Check(function, "function selector", kFunctionSelectorFields);
     const YAML::Node name = function["name"];
     if (!name.IsDefined()) {
       return YamlError(
@@ -356,6 +432,7 @@ ParseFunctionList(absl::string_view yaml, const YAML::Node& standard_library,
               yaml, overload,
               absl::StrCat("Overload in '", key, "' entry is not a map"));
         }
+        reporter.Check(overload, "overload selector", kOverloadSelectorFields);
         const YAML::Node id = overload["id"];
         if (!id || !id.IsScalar()) {
           return YamlError(
@@ -370,7 +447,8 @@ ParseFunctionList(absl::string_view yaml, const YAML::Node& standard_library,
 }
 
 absl::Status ParseStandardLibraryConfig(Config& config, absl::string_view yaml,
-                                        const YAML::Node& root) {
+                                        const YAML::Node& root,
+                                        UnhandledFieldReporter& reporter) {
   const YAML::Node standard_library = root["stdlib"];
   if (!standard_library.IsDefined()) {
     return absl::OkStatus();
@@ -381,6 +459,7 @@ absl::Status ParseStandardLibraryConfig(Config& config, absl::string_view yaml,
                      "Standard library config ('stdlib') is not a map");
   }
 
+  reporter.Check(standard_library, "stdlib", kStandardLibraryFields);
   Config::StandardLibraryConfig standard_library_config;
 
   // `disabled` is the key used by the other CEL implementations.
@@ -430,17 +509,23 @@ absl::Status ParseStandardLibraryConfig(Config& config, absl::string_view yaml,
 
   CEL_ASSIGN_OR_RETURN(
       standard_library_config.included_functions,
-      ParseFunctionList(yaml, standard_library, "include_functions"));
+      ParseFunctionList(yaml, standard_library, "include_functions", reporter));
 
   CEL_ASSIGN_OR_RETURN(
       standard_library_config.excluded_functions,
-      ParseFunctionList(yaml, standard_library, "exclude_functions"));
+      ParseFunctionList(yaml, standard_library, "exclude_functions", reporter));
 
   return config.SetStandardLibraryConfig(standard_library_config);
 }
 
-absl::StatusOr<Config::TypeInfo> ParseTypeInfo(const YAML::Node& node,
-                                               absl::string_view yaml) {
+absl::StatusOr<Config::TypeInfo> ParseTypeInfo(
+    const YAML::Node& node, absl::string_view yaml,
+    UnhandledFieldReporter& reporter);
+
+// Parses the type fields of `node` without checking for unhandled fields.
+absl::StatusOr<Config::TypeInfo> ParseTypeInfoFields(
+    const YAML::Node& node, absl::string_view yaml,
+    UnhandledFieldReporter& reporter) {
   Config::TypeInfo type_config;
   const YAML::Node type = node["type"];
   const YAML::Node type_name = node["type_name"];
@@ -485,11 +570,18 @@ absl::StatusOr<Config::TypeInfo> ParseTypeInfo(const YAML::Node& node,
   }
   for (const YAML::Node& param : params) {
     CEL_ASSIGN_OR_RETURN(Config::TypeInfo param_config,
-                         ParseTypeInfo(param, yaml));
+                         ParseTypeInfo(param, yaml, reporter));
     type_config.params.push_back(param_config);
   }
 
   return type_config;
+}
+
+absl::StatusOr<Config::TypeInfo> ParseTypeInfo(
+    const YAML::Node& node, absl::string_view yaml,
+    UnhandledFieldReporter& reporter) {
+  reporter.Check(node, "type", kTypeFields);
+  return ParseTypeInfoFields(node, yaml, reporter);
 }
 
 bool CompareTypeInfo(const Config::TypeInfo& a, const Config::TypeInfo& b) {
@@ -612,7 +704,8 @@ absl::StatusOr<Constant> ParseConstantValue(absl::string_view yaml,
 }
 
 absl::Status ParseVariableConfigs(Config& config, absl::string_view yaml,
-                                  const YAML::Node& root) {
+                                  const YAML::Node& root,
+                                  UnhandledFieldReporter& reporter) {
   const YAML::Node variables = root["variables"];
   if (!variables.IsDefined()) {
     return absl::OkStatus();
@@ -626,6 +719,7 @@ absl::Status ParseVariableConfigs(Config& config, absl::string_view yaml,
     if (!variable || !variable.IsMap()) {
       return YamlError(yaml, variable, "Variable is not a map");
     }
+    reporter.Check(variable, "variable", kVariableFields);
     const YAML::Node name = variable["name"];
     if (!name || !name.IsScalar()) {
       return YamlError(yaml, name, "Variable name is not a string");
@@ -643,9 +737,11 @@ absl::Status ParseVariableConfigs(Config& config, absl::string_view yaml,
     Config::TypeInfo type_info;
     if (type.IsDefined() && !type.IsScalar()) {
       // Old format, type spec is in 'type' instead of directly embedded.
-      CEL_ASSIGN_OR_RETURN(type_info, ParseTypeInfo(variable["type"], yaml));
+      CEL_ASSIGN_OR_RETURN(type_info,
+                           ParseTypeInfo(variable["type"], yaml, reporter));
     } else {
-      CEL_ASSIGN_OR_RETURN(type_info, ParseTypeInfo(variable, yaml));
+      CEL_ASSIGN_OR_RETURN(type_info,
+                           ParseTypeInfoFields(variable, yaml, reporter));
     }
     ConstantKindCase constant_kind_case = GetConstantKindCase(type_info.name);
     std::string value_str;
@@ -684,11 +780,12 @@ absl::Status ParseVariableConfigs(Config& config, absl::string_view yaml,
 
 absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
     absl::string_view yaml, const YAML::Node& overload,
-    absl::string_view function_name) {
+    absl::string_view function_name, UnhandledFieldReporter& reporter) {
   Config::FunctionOverloadConfig overload_config;
   if (!overload || !overload.IsMap()) {
     return YamlError(yaml, overload, "Function overload is not a map");
   }
+  reporter.Check(overload, "overload", kOverloadFields);
   const YAML::Node id = overload["id"];
   if (id.IsDefined()) {
     if (!id.IsScalar()) {
@@ -761,7 +858,7 @@ absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
         return YamlError(yaml, target, "Function overload target is not a map");
       }
       CEL_ASSIGN_OR_RETURN(Config::TypeInfo type_info,
-                           ParseTypeInfo(target, yaml));
+                           ParseTypeInfo(target, yaml, reporter));
       overload_config.is_member_function = true;
       overload_config.parameters.push_back(type_info);
     }
@@ -776,7 +873,7 @@ absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
           return YamlError(yaml, arg, "Function overload arg is not a map");
         }
         CEL_ASSIGN_OR_RETURN(Config::TypeInfo type_info,
-                             ParseTypeInfo(arg, yaml));
+                             ParseTypeInfo(arg, yaml, reporter));
         overload_config.parameters.push_back(type_info);
       }
     }
@@ -790,7 +887,7 @@ absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
                            TypeSpecToTypeInfo(type_spec));
     } else if (return_type.IsMap()) {
       CEL_ASSIGN_OR_RETURN(overload_config.return_type,
-                           ParseTypeInfo(return_type, yaml));
+                           ParseTypeInfo(return_type, yaml, reporter));
     } else {
       return YamlError(
           yaml, return_type,
@@ -801,7 +898,8 @@ absl::StatusOr<Config::FunctionOverloadConfig> ParseFunctionOverloadConfig(
 }
 
 absl::Status ParseFunctionConfigs(Config& config, absl::string_view yaml,
-                                  const YAML::Node& root) {
+                                  const YAML::Node& root,
+                                  UnhandledFieldReporter& reporter) {
   const YAML::Node functions = root["functions"];
   if (!functions.IsDefined()) {
     return absl::OkStatus();
@@ -815,6 +913,7 @@ absl::Status ParseFunctionConfigs(Config& config, absl::string_view yaml,
     if (!function || !function.IsMap()) {
       return YamlError(yaml, function, "Function is not a map");
     }
+    reporter.Check(function, "function", kFunctionFields);
     const YAML::Node name = function["name"];
     if (!name || !name.IsScalar()) {
       return YamlError(yaml, name, "Function name is not a string");
@@ -838,7 +937,8 @@ absl::Status ParseFunctionConfigs(Config& config, absl::string_view yaml,
       for (const YAML::Node& overload : overloads) {
         CEL_ASSIGN_OR_RETURN(
             Config::FunctionOverloadConfig overload_config,
-            ParseFunctionOverloadConfig(yaml, overload, function_config.name));
+            ParseFunctionOverloadConfig(yaml, overload, function_config.name,
+                                        reporter));
         function_config.overload_configs.push_back(std::move(overload_config));
       }
     }
@@ -1280,7 +1380,8 @@ void EmitFunctionConfigs(const Config& env_config, YAML::Emitter& out,
 }
 
 absl::Status ParseContextVariableConfig(Config& config, absl::string_view yaml,
-                                        const YAML::Node& root) {
+                                        const YAML::Node& root,
+                                        UnhandledFieldReporter& reporter) {
   const YAML::Node context_variable = root["context_variable"];
   if (!context_variable.IsDefined()) {
     return absl::OkStatus();
@@ -1290,6 +1391,7 @@ absl::Status ParseContextVariableConfig(Config& config, absl::string_view yaml,
                      "Node 'context_variable' is not a map");
   }
 
+  reporter.Check(context_variable, "context_variable", kContextVariableFields);
   const YAML::Node type_name = context_variable["type_name"];
   const YAML::Node type = context_variable["type"];
   const YAML::Node* type_node = nullptr;
@@ -1321,13 +1423,28 @@ absl::StatusOr<Config> EnvConfigFromYaml(
         yaml, "Invalid CEL environment config YAML", root.Mark()));
   }
 
+  UnhandledFieldReporter reporter;
+  reporter.Check(root, "config", kConfigFields, kUnsupportedConfigFields);
   CEL_RETURN_IF_ERROR(ParseName(config, yaml, root));
-  CEL_RETURN_IF_ERROR(ParseContainerConfig(config, yaml, root));
-  CEL_RETURN_IF_ERROR(ParseExtensionConfigs(config, yaml, root, options));
-  CEL_RETURN_IF_ERROR(ParseStandardLibraryConfig(config, yaml, root));
-  CEL_RETURN_IF_ERROR(ParseContextVariableConfig(config, yaml, root));
-  CEL_RETURN_IF_ERROR(ParseVariableConfigs(config, yaml, root));
-  CEL_RETURN_IF_ERROR(ParseFunctionConfigs(config, yaml, root));
+  CEL_RETURN_IF_ERROR(ParseContainerConfig(config, yaml, root, reporter));
+  CEL_RETURN_IF_ERROR(
+      ParseExtensionConfigs(config, yaml, root, options, reporter));
+  CEL_RETURN_IF_ERROR(ParseStandardLibraryConfig(config, yaml, root, reporter));
+  CEL_RETURN_IF_ERROR(ParseContextVariableConfig(config, yaml, root, reporter));
+  CEL_RETURN_IF_ERROR(ParseVariableConfigs(config, yaml, root, reporter));
+  CEL_RETURN_IF_ERROR(ParseFunctionConfigs(config, yaml, root, reporter));
+
+  std::vector<std::string>& warnings = reporter.warnings();
+  if (options.strict && !warnings.empty()) {
+    return absl::InvalidArgumentError(
+        absl::StrCat("Unhandled fields in CEL environment config:\n",
+                     absl::StrJoin(warnings, "\n")));
+  }
+  if (options.warnings != nullptr) {
+    options.warnings->insert(options.warnings->end(),
+                             std::make_move_iterator(warnings.begin()),
+                             std::make_move_iterator(warnings.end()));
+  }
   return config;
 }
 
