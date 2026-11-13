@@ -835,8 +835,10 @@ absl::Status OptimizedSelectImpl::ApplySelect(ExecutionFrameBase& frame,
   }
   const google::protobuf::Message* current_message = nullptr;
   bool is_unsafe = false;
+  // Declared outside the branch so it outlives `current_message`.
+  ParsedMessageValue parsed_message;
   if (result_in_out.IsParsedMessage()) {
-    ParsedMessageValue parsed_message = result_in_out.GetParsedMessage();
+    parsed_message = result_in_out.GetParsedMessage();
     current_message = &(*parsed_message);
     is_unsafe =
         cel::interop_internal::IsUnsafeParsedMessageValue(parsed_message);
