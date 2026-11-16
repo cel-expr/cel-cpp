@@ -43,13 +43,14 @@ class FlatExprBuilder {
  public:
   FlatExprBuilder(
       absl_nonnull std::shared_ptr<const cel::runtime_internal::RuntimeEnv> env,
-      const cel::RuntimeOptions& options, bool use_legacy_type_provider = false)
+      const cel::RuntimeOptions& options,
+      const cel::TypeReflector* absl_nullable custom_type_reflector = nullptr)
       : env_(std::move(env)),
         options_(options),
         container_(options.container),
         function_registry_(env_->function_registry),
         type_registry_(env_->type_registry),
-        use_legacy_type_provider_(use_legacy_type_provider) {}
+        custom_type_reflector_(custom_type_reflector) {}
 
   void AddAstTransform(std::unique_ptr<AstTransform> transform) {
     ast_transforms_.push_back(std::move(transform));
@@ -99,7 +100,7 @@ class FlatExprBuilder {
   // allow built expressions to keep the registries alive.
   const cel::FunctionRegistry& function_registry_;
   const cel::TypeRegistry& type_registry_;
-  bool use_legacy_type_provider_;
+  const cel::TypeReflector* absl_nullable custom_type_reflector_;
   std::vector<std::unique_ptr<AstTransform>> ast_transforms_;
   std::vector<ProgramOptimizerFactory> program_optimizers_;
 };

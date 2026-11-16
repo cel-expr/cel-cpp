@@ -16,25 +16,11 @@
 #define THIRD_PARTY_CEL_CPP_EXTENSIONS_SETS_FUNCTIONS_H_
 
 #include "absl/status/status.h"
-#include "checker/type_checker_builder.h"
-#include "compiler/compiler.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_options.h"
-#include "runtime/function_registry.h"
-#include "runtime/runtime_options.h"
+#include "extensions/sets_functions_modern.h"  // IWYU pragma: export
 
 namespace cel::extensions {
-
-// Declarations for the sets functions.
-CheckerLibrary SetsCheckerLibrary();
-
-inline CompilerLibrary SetsCompilerLibrary() {
-  return CompilerLibrary::FromCheckerLibrary(SetsCheckerLibrary());
-}
-
-// Register set functions.
-absl::Status RegisterSetsFunctions(FunctionRegistry& registry,
-                                   const RuntimeOptions& options);
 
 absl::Status RegisterSetsFunctions(
     google::api::expr::runtime::CelFunctionRegistry* registry,

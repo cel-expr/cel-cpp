@@ -24,12 +24,14 @@
 #include "absl/strings/string_view.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
+#include "common/native_type.h"
 #include "common/value.h"
 #include "eval/public/cel_value.h"
 #include "internal/status_macros.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
 
 namespace cel {
 
@@ -47,6 +49,44 @@ absl::StatusOr<google::api::expr::runtime::CelValue> LegacyValue(
     google::protobuf::Arena* arena, const Value& modern_value);
 
 namespace common_internal {
+
+class CompatListValue : public CustomListValueInterface,
+                        public google::api::expr::runtime::CelList {
+ public:
+  virtual google::protobuf::Arena* GetOwningArena() const = 0;
+
+ private:
+  NativeTypeId GetNativeTypeId() const final {
+    return NativeTypeId::For<CompatListValue>();
+  }
+};
+
+const CompatListValue* absl_nonnull EmptyCompatListValue();
+
+absl::StatusOr<const CompatListValue* absl_nonnull> MakeCompatListValue(
+    const CustomListValue& value,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena);
+
+class CompatMapValue : public CustomMapValueInterface,
+                       public google::api::expr::runtime::CelMap {
+ public:
+  virtual google::protobuf::Arena* GetOwningArena() const = 0;
+
+ private:
+  NativeTypeId GetNativeTypeId() const final {
+    return NativeTypeId::For<CompatMapValue>();
+  }
+};
+
+const CompatMapValue* absl_nonnull EmptyCompatMapValue();
+
+absl::StatusOr<const CompatMapValue* absl_nonnull> MakeCompatMapValue(
+    const CustomMapValue& value,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena);
 
 // Convert a `cel::Value` to `google::api::expr::runtime::CelValue`, using
 // `arena` to make memory allocations if necessary. `stable` indicates whether

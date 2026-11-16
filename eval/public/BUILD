@@ -617,7 +617,7 @@ cc_library(
         "//extensions:select_optimization",
         "//internal:noop_delete",
         "//runtime:runtime_options",
-        "//runtime/internal:runtime_env",
+        "//runtime/internal:legacy_runtime_env",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/log:absl_log",

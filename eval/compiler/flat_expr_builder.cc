@@ -92,7 +92,6 @@ using ::cel::AstTraverse;
 using ::cel::RuntimeIssue;
 using ::cel::Value;
 using ::cel::runtime_internal::ConvertConstant;
-using ::cel::runtime_internal::GetLegacyRuntimeTypeProvider;
 using ::cel::runtime_internal::GetRuntimeTypeProvider;
 using ::cel::runtime_internal::IssueCollector;
 
@@ -963,6 +962,10 @@ class FlatExprVisitor : public cel::AstVisitor {
     if (options_.enable_typed_field_access) {
       std::optional<cel::Type> operand_type =
           extension_context_.GetResolvedType(select_expr.operand().id());
+      if (enable_optional_types_ && operand_type.has_value() &&
+          operand_type->IsOptional()) {
+        operand_type = operand_type->GetOptional().GetParameter();
+      }
       if (operand_type.has_value() && operand_type->IsStruct()) {
         struct_type = operand_type->GetStruct();
         if (struct_type.has_value()) {
@@ -2468,9 +2471,8 @@ absl::StatusOr<FlatExpression> FlatExprBuilder::CreateExpressionImpl(
                         std::move(identifiers), value_stack_size);
 }
 const cel::TypeProvider& FlatExprBuilder::GetTypeProvider() const {
-  return use_legacy_type_provider_
-             ? static_cast<const cel::TypeProvider&>(
-                   GetLegacyRuntimeTypeProvider(type_registry_))
+  return custom_type_reflector_ != nullptr
+             ? *custom_type_reflector_
              : GetRuntimeTypeProvider(type_registry_);
 }
 
