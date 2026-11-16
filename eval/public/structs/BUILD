@@ -128,6 +128,7 @@ cc_library(
     ],
     deps = [
         "//eval/public:cel_value",
+        "//internal:json",
         "//internal:overflow",
         "//internal:proto_time_encoding",
         "//internal:status_macros",
