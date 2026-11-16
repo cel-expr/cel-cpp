@@ -13,10 +13,14 @@
 // limitations under the License.
 #include "runtime/standard/regex_functions.h"
 
+#include <memory>
+
 #include "absl/status/status.h"
-#include "absl/strings/string_view.h"
+#include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "base/builtins.h"
-#include "base/function_adapter.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
 #include "common/value.h"
 #include "internal/re2_options.h"
 #include "internal/status_macros.h"
@@ -26,29 +30,43 @@
 #include "re2/re2.h"
 
 namespace cel {
-namespace {}  // namespace
+namespace {
+
+class RegexMatchFunction final : public Function {
+ public:
+  explicit RegexMatchFunction(int max_size) : max_size_(max_size) {}
+
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext& context) const override {
+    if (args.size() != 2) {
+      return absl::InvalidArgumentError(
+          "unexpected number of arguments for binary function");
+    }
+    if (!args[0].IsString() || !args[1].IsString()) {
+      return absl::InvalidArgumentError("expected string value");
+    }
+    RE2 re2(args[1].GetString().ToString(), cel::internal::MakeRE2Options());
+    CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, max_size_))
+        .With(ErrorValueReturn(context.arena()));
+    return BoolValue(RE2::PartialMatch(args[0].GetString().ToString(), re2));
+  }
+
+ private:
+  int max_size_;
+};
+
+}  // namespace
 
 absl::Status RegisterRegexFunctions(FunctionRegistry& registry,
                                     const RuntimeOptions& options) {
   if (options.enable_regex) {
-    auto regex_matches = [max_size = options.regex_max_program_size](
-                             const StringValue& target,
-                             const StringValue& regex,
-                             const Function::InvokeContext& context) -> Value {
-      RE2 re2(regex.ToString(), cel::internal::MakeRE2Options());
-      CEL_RETURN_IF_ERROR(cel::internal::CheckRE2(re2, max_size))
-          .With(ErrorValueReturn(context.arena()));
-      return BoolValue(RE2::PartialMatch(target.ToString(), re2));
-    };
-
     // bind str.matches(re) and matches(str, re)
     for (bool receiver_style : {true, false}) {
-      using MatchFnAdapter =
-          BinaryFunctionAdapter<Value, const StringValue&, const StringValue&>;
-      CEL_RETURN_IF_ERROR(
-          registry.Register(MatchFnAdapter::CreateDescriptor(
-                                cel::builtin::kRegexMatch, receiver_style),
-                            MatchFnAdapter::WrapFunction(regex_matches)));
+      CEL_RETURN_IF_ERROR(registry.Register(
+          FunctionDescriptor(cel::builtin::kRegexMatch, receiver_style,
+                             {Kind::kString, Kind::kString}),
+          std::make_unique<RegexMatchFunction>(
+              options.regex_max_program_size)));
     }
   }  // if options.enable_regex
 
