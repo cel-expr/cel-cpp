@@ -204,9 +204,10 @@ cc_library(
     ],
     deps = [
         ":activation",
+        "//common:value",
         "//eval/public/containers:field_access",
-        "//eval/public/containers:field_backed_list_impl",
         "//eval/public/containers:field_backed_map_impl",
+        "//internal:status_macros",
         "@com_google_absl//absl/status",
     ],
 )
@@ -793,11 +794,24 @@ cc_test(
     deps = [
         ":activation",
         ":activation_bind_helper",
+        ":builtin_func_registrar",
+        ":cel_expr_builder_factory",
+        ":cel_expression",
+        ":cel_function",
+        ":cel_options",
+        ":cel_value",
         "//eval/testutil:test_message_cc_proto",
         "//internal:status_macros",
         "//internal:testing",
+        "//parser",
         "//testutil:util",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+        "@com_google_cel_spec//proto/cel/expr:syntax_cc_proto",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 

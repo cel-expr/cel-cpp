@@ -249,7 +249,7 @@ absl::Status ParsedRepeatedFieldValue::Get(
     *result = IndexOutOfBoundsError(index, arena);
     return absl::OkStatus();
   }
-  if (arena_ == nullptr) {
+  if (is_unsafe()) {
     *result = Value::WrapRepeatedFieldUnsafe(static_cast<int>(index), message_,
                                              field_, descriptor_pool,
                                              message_factory, arena);
@@ -274,7 +274,8 @@ absl::Status ParsedRepeatedFieldValue::ForEach(
   const int size = reflection->FieldSize(*message_, field_);
   if (size > 0) {
     CEL_ASSIGN_OR_RETURN(auto accessor,
-                         common_internal::RepeatedFieldAccessorFor(field_));
+                         common_internal::RepeatedFieldAccessorFor(
+                             field_, /*unsafe=*/is_unsafe()));
     Value scratch;
     for (int i = 0; i < size; ++i) {
       (*accessor)(i, message_, field_, reflection, descriptor_pool,
@@ -377,8 +378,8 @@ ParsedRepeatedFieldValue::NewIterator() const {
   if (ABSL_PREDICT_FALSE(field_ == nullptr)) {
     return NewEmptyValueIterator();
   }
-  CEL_ASSIGN_OR_RETURN(auto accessor,
-                       common_internal::RepeatedFieldAccessorFor(field_));
+  CEL_ASSIGN_OR_RETURN(auto accessor, common_internal::RepeatedFieldAccessorFor(
+                                          field_, /*unsafe=*/is_unsafe()));
   return std::make_unique<ParsedRepeatedFieldValueIterator>(message_, field_,
                                                             accessor);
 }
@@ -397,7 +398,8 @@ absl::Status ParsedRepeatedFieldValue::Contains(
   const int size = reflection->FieldSize(*message_, field_);
   if (size > 0) {
     CEL_ASSIGN_OR_RETURN(auto accessor,
-                         common_internal::RepeatedFieldAccessorFor(field_));
+                         common_internal::RepeatedFieldAccessorFor(
+                             field_, /*unsafe=*/is_unsafe()));
     Value scratch;
     for (int i = 0; i < size; ++i) {
       (*accessor)(i, message_, field_, reflection, descriptor_pool,
