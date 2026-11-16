@@ -58,6 +58,7 @@
 #include "common/expr.h"
 #include "common/kind.h"
 #include "common/type.h"
+#include "common/type_reflector.h"
 #include "common/value.h"
 #include "eval/compiler/check_ast_extensions.h"
 #include "eval/compiler/flat_expr_builder_extensions.h"
@@ -1400,8 +1401,16 @@ class FlatExprVisitor : public cel::AstVisitor {
         num_fields <= static_cast<size_t>(std::numeric_limits<int64_t>::max())
             ? 1 - static_cast<int64_t>(num_fields)
             : std::numeric_limits<int16_t>::max();
-    AddStep(CreateCreateStructStep(std::move(resolved_name), std::move(fields),
-                                   MakeOptionalIndicesSet(struct_expr)),
+    cel::TypeReflector::ValueBuilderFactory builder_factory;
+    if (options_.enable_eager_struct_resolution) {
+      // Resolve the descriptor and prototype once at plan time instead of on
+      // every evaluation.
+      builder_factory = type_provider_.NewValueBuilderFactory(
+          resolved_name, extension_context_.MutableMessageFactory());
+    }
+    AddStep(CreateCreateStructStep(
+                std::move(resolved_name), std::move(builder_factory),
+                std::move(fields), MakeOptionalIndicesSet(struct_expr)),
             expr.id(), stack_delta);
   }
 

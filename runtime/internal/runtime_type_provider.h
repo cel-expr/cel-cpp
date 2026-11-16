@@ -15,6 +15,7 @@
 #ifndef THIRD_PARTY_CEL_CPP_RUNTIME_INTERNAL_RUNTIME_TYPE_PROVIDER_H_
 #define THIRD_PARTY_CEL_CPP_RUNTIME_INTERNAL_RUNTIME_TYPE_PROVIDER_H_
 
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/container/flat_hash_map.h"
 #include "absl/status/status.h"
@@ -44,6 +45,14 @@ class RuntimeTypeProvider final : public TypeReflector {
       absl::string_view name,
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena) const override;
+
+  // Resolves the descriptor and prototype for `name` once. The returned factory
+  // builds values directly from the prototype as long as it is called with the
+  // same `message_factory`, and falls back to `NewValueBuilder` otherwise.
+  ValueBuilderFactory NewValueBuilderFactory(
+      absl::string_view name,
+      google::protobuf::MessageFactory* absl_nonnull message_factory) const
+      ABSL_ATTRIBUTE_LIFETIME_BOUND override;
 
  protected:
   absl::StatusOr<absl::optional<Type>> FindTypeImpl(

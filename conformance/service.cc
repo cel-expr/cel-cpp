@@ -295,6 +295,7 @@ class LegacyConformanceServiceImpl : public ConformanceServiceInterface {
       options.constant_folding = true;
       options.constant_arena = constant_arena;
       options.enable_typed_field_access = true;
+      options.enable_eager_struct_resolution = true;
     }
 
     if (extended_optimizations) {
@@ -506,6 +507,7 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
     options.container = std::string(container);
     if (enable_optimizations_) {
       options.enable_typed_field_access = true;
+      options.enable_eager_struct_resolution = true;
     }
     CEL_ASSIGN_OR_RETURN(
         auto builder, CreateStandardRuntimeBuilder(

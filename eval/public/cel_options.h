@@ -232,6 +232,15 @@ struct InterpreterOptions {
   //
   // Note: Enabling this option may change observed expression tracing behavior.
   bool enable_subexpression_inlining = false;
+
+  // When enabled, the planner resolves the message type of struct creation
+  // expressions (descriptor and prototype lookups) at plan time, instead of
+  // looking up the type by name every time the expression is evaluated.
+  //
+  // Only takes effect for a `cel::Runtime` configured with these options (see
+  // `ConvertToRuntimeOptions`). Expressions created with `CelExpressionBuilder`
+  // still look up the type on every evaluation.
+  bool enable_eager_struct_resolution = false;
 };
 // LINT.ThenChange(//depot/google3/runtime/runtime_options.h)
 
