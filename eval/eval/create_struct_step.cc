@@ -20,6 +20,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/nullability.h"
 #include "absl/container/flat_hash_set.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -27,6 +28,7 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "common/internal/attribute_trail.h"
+#include "common/type_reflector.h"
 #include "common/value.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
@@ -44,10 +46,13 @@ using ::cel::Value;
 // `CreateStruct` implementation for message/struct.
 class CreateStructStepForStruct final : public ExpressionStepBase {
  public:
-  CreateStructStepForStruct(std::string name, std::vector<std::string> entries,
-                            absl::flat_hash_set<int32_t> optional_indices)
+  CreateStructStepForStruct(
+      std::string name, cel::TypeReflector::ValueBuilderFactory builder_factory,
+      std::vector<std::string> entries,
+      absl::flat_hash_set<int32_t> optional_indices)
       : ExpressionStepBase(),
         name_(std::move(name)),
+        builder_factory_(std::move(builder_factory)),
         entries_(std::move(entries)),
         optional_indices_(std::move(optional_indices)) {}
 
@@ -56,7 +61,19 @@ class CreateStructStepForStruct final : public ExpressionStepBase {
  private:
   absl::StatusOr<Value> DoEvaluate(ExecutionFrame* frame) const;
 
+  absl::StatusOr<absl_nullable cel::ValueBuilderPtr> NewValueBuilder(
+      ExecutionFrame* frame) const {
+    if (builder_factory_) {
+      return builder_factory_(frame->message_factory(), frame->arena());
+    }
+    return frame->type_provider().NewValueBuilder(
+        name_, frame->message_factory(), frame->arena());
+  }
+
   std::string name_;
+  // Resolved at plan time, if eager struct resolution is enabled. Otherwise
+  // empty, and the type is looked up by name on every evaluation.
+  cel::TypeReflector::ValueBuilderFactory builder_factory_;
   std::vector<std::string> entries_;
   absl::flat_hash_set<int32_t> optional_indices_;
 };
@@ -82,9 +99,7 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
     }
   }
 
-  CEL_ASSIGN_OR_RETURN(auto builder,
-                       frame->type_provider().NewValueBuilder(
-                           name_, frame->message_factory(), frame->arena()));
+  CEL_ASSIGN_OR_RETURN(auto builder, NewValueBuilder(frame));
   if (builder == nullptr) {
     return ErrorValue::From(
         absl::NotFoundError(absl::StrCat("Unable to find builder: ", name_)),
@@ -148,6 +163,16 @@ std::unique_ptr<ExpressionStepLogic> CreateCreateStructStep(
     absl::flat_hash_set<int32_t> optional_indices) {
   // MakeOptionalIndicesSet(create_struct_expr)
   return std::make_unique<CreateStructStepForStruct>(
-      std::move(name), std::move(field_keys), std::move(optional_indices));
+      std::move(name), /*builder_factory=*/nullptr, std::move(field_keys),
+      std::move(optional_indices));
+}
+
+std::unique_ptr<ExpressionStepLogic> CreateCreateStructStep(
+    std::string name, cel::TypeReflector::ValueBuilderFactory builder_factory,
+    std::vector<std::string> field_keys,
+    absl::flat_hash_set<int32_t> optional_indices) {
+  return std::make_unique<CreateStructStepForStruct>(
+      std::move(name), std::move(builder_factory), std::move(field_keys),
+      std::move(optional_indices));
 }
 }  // namespace google::api::expr::runtime

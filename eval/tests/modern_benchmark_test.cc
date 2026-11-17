@@ -987,6 +987,53 @@ void BM_ProtoListAccess(benchmark::State& state) {
 
 BENCHMARK(BM_ProtoListAccess);
 
+// Evaluates the struct creation expression `expr`. The benchmark argument
+// toggles `RuntimeOptions::enable_eager_struct_resolution`.
+void RunCreateStructBenchmark(
+    benchmark::State& state,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    absl::string_view expr) {
+  RuntimeOptions options = GetOptions();
+  options.enable_eager_struct_resolution = state.range(0) != 0;
+  auto runtime = StandardRuntimeOrDie(options, descriptor_pool);
+
+  ASSERT_OK_AND_ASSIGN(auto builder, NewCompilerBuilder(descriptor_pool));
+  ASSERT_THAT(builder->AddLibrary(StandardCompilerLibrary()), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto compiler, builder->Build());
+  ASSERT_OK_AND_ASSIGN(ValidationResult validation_result,
+                       compiler->Compile(expr));
+  ASSERT_TRUE(validation_result.IsValid());
+  ASSERT_OK_AND_ASSIGN(auto ast, validation_result.ReleaseAst());
+
+  ASSERT_OK_AND_ASSIGN(auto cel_expr, runtime->CreateProgram(std::move(ast)));
+
+  for (auto _ : state) {
+    google::protobuf::Arena arena;
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(cel::Value result,
+                         cel_expr->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.IsParsedMessage());
+  }
+}
+
+void BM_CreateGeneratedMessage(benchmark::State& state) {
+  RunCreateStructBenchmark(state, google::protobuf::DescriptorPool::generated_pool(),
+                           R"cel(
+      google.api.expr.runtime.RequestContext{ip: '192.168.0.1', path: '/root'}
+   )cel");
+}
+
+BENCHMARK(BM_CreateGeneratedMessage)->Arg(0)->Arg(1);
+
+void BM_CreateDynamicMessage(benchmark::State& state) {
+  RunCreateStructBenchmark(state, internal::GetTestingDescriptorPool(),
+                           R"cel(
+      cel.expr.conformance.proto3.TestAllTypes.NestedMessage{bb: 1}
+   )cel");
+}
+
+BENCHMARK(BM_CreateDynamicMessage)->Arg(0)->Arg(1);
+
 // This expression has no equivalent CEL expression.
 // Sum a square with a nested comprehension
 constexpr char kNestedListSum[] = R"(

@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
+#include "common/type_reflector.h"
 #include "eval/eval/expression_step_logic.h"
 
 namespace google::api::expr::runtime {
@@ -29,6 +30,14 @@ namespace google::api::expr::runtime {
 // message/struct.
 std::unique_ptr<ExpressionStepLogic> CreateCreateStructStep(
     std::string name, std::vector<std::string> field_keys,
+    absl::flat_hash_set<int32_t> optional_indices);
+
+// Like above, but creates the value builder with `builder_factory` (resolved at
+// plan time) instead of looking up the type `name` on every evaluation. If
+// `builder_factory` is empty, this is equivalent to the overload above.
+std::unique_ptr<ExpressionStepLogic> CreateCreateStructStep(
+    std::string name, cel::TypeReflector::ValueBuilderFactory builder_factory,
+    std::vector<std::string> field_keys,
     absl::flat_hash_set<int32_t> optional_indices);
 
 }  // namespace google::api::expr::runtime
