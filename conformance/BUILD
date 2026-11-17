@@ -52,6 +52,8 @@ cc_library(
         "//extensions:math_ext",
         "//extensions:math_ext_decls",
         "//extensions:math_ext_macros",
+        "//extensions:network_ext",
+        "//extensions:network_ext_decls",
         "//extensions:proto_ext",
         "//extensions:select_optimization",
         "//extensions:set_membership_optimization",
@@ -153,6 +155,7 @@ _ALL_TESTS = [
     "@cel_conformance//tests/simple:testdata/macros2.textproto",
     "@cel_conformance//tests/simple:testdata/math_ext.textproto",
     "@cel_conformance//tests/simple:testdata/namespace.textproto",
+    "@cel_conformance//tests/simple:testdata/network_ext.textproto",
     "@cel_conformance//tests/simple:testdata/optionals.textproto",
     "@cel_conformance//tests/simple:testdata/parse.textproto",
     "@cel_conformance//tests/simple:testdata/plumbing.textproto",
@@ -214,6 +217,10 @@ _TESTS_TO_SKIP = [
     # precision to preserve value. Not available on older compilers where we just use absl::Format.
     # We should probably update the spec to allow different formats that parse to the same value.
     "conversions/string/double_hard",
+
+    # SimpleTest specifies eval_error while disable_check is false, but this triggers a
+    # compile-time type-check error before evaluation.
+    "network_ext/ip_type/is_ip_cidr_compile_error",
 ]
 
 _TESTS_TO_SKIP_PARSE_ONLY = [
@@ -235,6 +242,10 @@ _TESTS_TO_SKIP_MODERN_DASHBOARD = [
     # TODO(issues/119): Strong typing support for enums, specified but not implemented.
     "enums/strong_proto2",
     "enums/strong_proto3",
+
+    # SimpleTest specifies eval_error while disable_check is false, but this triggers a
+    # compile-time type-check error before evaluation.
+    "network_ext/ip_type/is_ip_cidr_compile_error",
 ]
 
 _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP + [
@@ -255,6 +266,9 @@ _TESTS_TO_SKIP_LEGACY = _TESTS_TO_SKIP + [
 
     # lists_ext not implemented for legacy evaluator
     "lists_ext",
+
+    # network_ext requires OpaqueValue which is unsupported in legacy evaluator.
+    "network_ext",
 ]
 
 _TESTS_TO_SKIP_LEGACY_DASHBOARD = [
@@ -265,6 +279,9 @@ _TESTS_TO_SKIP_LEGACY_DASHBOARD = [
 
     # Legacy value does not support optional_type.
     "optionals/optionals",
+
+    # network_ext requires OpaqueValue which is unsupported in legacy evaluator.
+    "network_ext",
 ]
 
 # Generates a bunch of `cc_test` whose names follow the pattern

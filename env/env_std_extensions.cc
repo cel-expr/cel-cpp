@@ -22,6 +22,7 @@
 #include "extensions/encoders.h"
 #include "extensions/lists_functions.h"
 #include "extensions/math_ext_decls.h"
+#include "extensions/network_ext_decls.h"
 #include "extensions/proto_ext.h"
 #include "extensions/regex_ext.h"
 #include "extensions/sets_functions.h"
@@ -71,6 +72,12 @@ void RegisterStandardExtensions(Env& env) {
   env.RegisterCompilerLibrary("cel.lib.ext.regex", "regex", 0, []() {
     return extensions::RegexExtCompilerLibrary();
   });
+  for (int version = 0; version <= extensions::kNetworkExtensionLatestVersion;
+       ++version) {
+    env.RegisterCompilerLibrary(
+        "cel.lib.ext.network", "network", version,
+        [version]() { return extensions::NetworkCompilerLibrary(version); });
+  }
 }
 
 }  // namespace cel
