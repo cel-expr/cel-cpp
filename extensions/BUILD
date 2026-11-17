@@ -961,3 +961,51 @@ cc_test(
         "@com_google_protobuf//:protobuf",
     ],
 )
+
+cc_library(
+    name = "network_ext_decls",
+    srcs = ["network_ext_decls.cc"],
+    hdrs = ["network_ext_decls.h"],
+    deps = [
+        "//checker:type_checker_builder",
+        "//checker/internal:builtins_arena",
+        "//common:constant",
+        "//common:decl",
+        "//common:expr",
+        "//common:navigable_ast",
+        "//common:standard_definitions",
+        "//common:type",
+        "//compiler",
+        "//internal:network_addr",
+        "//internal:status_macros",
+        "//validator",
+        "@com_google_absl//absl/base:no_destructor",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "network_ext_decls_test",
+    srcs = ["network_ext_decls_test.cc"],
+    deps = [
+        ":network_ext_decls",
+        "//checker:standard_library",
+        "//checker:validation_result",
+        "//common:ast",
+        "//common:decl",
+        "//common:source",
+        "//common:type",
+        "//compiler",
+        "//compiler:compiler_factory",
+        "//internal:status_macros",
+        "//internal:testing",
+        "//internal:testing_descriptor_pool",
+        "//validator",
+        "@com_google_absl//absl/status:status_matchers",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
