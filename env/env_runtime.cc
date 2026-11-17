@@ -55,7 +55,9 @@ absl::StatusOr<RuntimeBuilder> EnvRuntime::CreateRuntimeBuilder(
     if (extension_config.name == "optional") {
       optional_extension_config = &extension_config;
       runtime_options.enable_qualified_type_identifiers = true;
-      break;
+    } else if (extension_config.name == "network" ||
+               extension_config.name == "cel.lib.ext.network") {
+      runtime_options.enable_qualified_type_identifiers = true;
     }
   }
 
