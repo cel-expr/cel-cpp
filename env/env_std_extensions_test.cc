@@ -114,6 +114,15 @@ INSTANTIATE_TEST_SUITE_P(
         TestCase{
             .extension = "regex",
             .expr = "regex.replace('abc', '$', '_end')",
+        },
+        TestCase{
+            .extension = "cel.lib.ext.network",
+            .expr = "type(ip('192.168.0.1')) == net.IP && "
+                    "cidr('10.0.0.0/8').containsIP('10.0.0.1')",
+        },
+        TestCase{
+            .extension = "network",
+            .expr = "cidr('192.168.0.1/24').masked() == cidr('192.168.0.0/24')",
         }));
 
 }  // namespace
