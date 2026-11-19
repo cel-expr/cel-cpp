@@ -153,6 +153,22 @@ std::vector<TestCase> GetEnvRuntimeTestCases() {
                   "1 + 2 == 3",
           .expected_to_fail = true,
       },
+      TestCase{
+          .config_yaml = R"yaml(
+                extensions:
+                - name: "network"
+              )yaml",
+          .expr = "type(ip('192.168.0.1')) == net.IP && "
+                  "cidr('10.0.0.0/8').containsIP('10.0.0.1')",
+      },
+      TestCase{
+          .config_yaml = R"yaml(
+                extensions:
+                - name: "cel.lib.ext.network"
+                  version: 1
+              )yaml",
+          .expr = "cidr('192.168.0.1/24').masked() == cidr('192.168.0.0/24')",
+      },
   };
 }
 
