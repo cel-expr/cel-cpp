@@ -1,6 +1,7 @@
 #ifndef THIRD_PARTY_CEL_CPP_EVAL_PUBLIC_ACTIVATION_BIND_HELPER_H_
 #define THIRD_PARTY_CEL_CPP_EVAL_PUBLIC_ACTIVATION_BIND_HELPER_H_
 
+#include "absl/types/span.h"
 #include "eval/public/activation.h"
 
 namespace google {
@@ -50,6 +51,15 @@ enum class ProtoUnsetFieldOptions {
 absl::Status BindProtoToActivation(
     const google::protobuf::Message* message, google::protobuf::Arena* arena,
     Activation* activation,
+    ProtoUnsetFieldOptions options = ProtoUnsetFieldOptions::kSkip);
+
+// Same as above, but binds only |fields|, which must be non-null, non-extension
+// fields of the message. |arena| must be non-null. Useful when only a few
+// fields of a large message are needed.
+absl::Status BindProtoToActivation(
+    const google::protobuf::Message* message, google::protobuf::Arena* arena,
+    Activation* activation,
+    absl::Span<const google::protobuf::FieldDescriptor* const> fields,
     ProtoUnsetFieldOptions options = ProtoUnsetFieldOptions::kSkip);
 
 }  // namespace runtime

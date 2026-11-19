@@ -208,6 +208,8 @@ cc_library(
         "//eval/public/containers:field_backed_list_impl",
         "//eval/public/containers:field_backed_map_impl",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/types:span",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 
@@ -793,11 +795,13 @@ cc_test(
     deps = [
         ":activation",
         ":activation_bind_helper",
+        "//eval/testutil:test_extensions_cc_proto",
         "//eval/testutil:test_message_cc_proto",
         "//internal:status_macros",
         "//internal:testing",
         "//testutil:util",
         "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:status_matchers",
     ],
 )
 
