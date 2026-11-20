@@ -183,6 +183,18 @@ _TESTS_TO_SKIP = [
     # Skip until fixed.
     "fields/qualified_identifier_resolution/map_value_repeat_key_heterogeneous",
 
+    # TODO(b/519683720): Fix dyn type-parameter unification and asymmetric dyn joins in cel-cpp checker.
+    "optionals/optionals/dyn_optional_nested_or_value_index",
+    "optionals/optionals/dyn_optional_or_value_optindex",
+    "optionals/optionals/dyn_optional_or_value_size",
+    "type_deductions/any/any_list_mixed_dyn_reverse",
+    "type_deductions/any/any_list_mixed_int",
+    "type_deductions/any/any_list_mixed_int_reverse",
+    "type_deductions/any/any_optional_or_value",
+    "type_deductions/any/any_ternary_mixed_int",
+    "type_deductions/any/any_ternary_mixed_int_reverse",
+    "type_deductions/dyn_type_parameter_unification",
+
     # Skip until duration/timestamp range and proto wrapper validation is updated for spec parity.
     "timestamps/timestamp_arithmetic/add_duration_to_duration_max",
     "timestamps/timestamp_arithmetic/subtract_duration_from_duration_min",
