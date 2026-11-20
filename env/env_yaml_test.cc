@@ -2199,5 +2199,36 @@ TEST(EnvYamlTest, StrictAcceptsSupportedFields) {
               IsOk());
 }
 
+TEST(EnvYamlTest, RejectsDuplicateKeys) {
+  EXPECT_THAT(EnvConfigFromYaml("variables:\n"
+                                "  - name: x\n"
+                                "    type: bool\n"
+                                "    type: int\n"),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("4:5: Duplicate key 'type'")));
+  EXPECT_THAT(EnvConfigFromYaml("name: a\n"
+                                "name: b\n"),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("2:1: Duplicate key 'name'")));
+}
+
+TEST(EnvYamlTest, RejectsExcessiveNestingDepth) {
+  std::string deep_yaml = std::string(102, '[') + std::string(102, ']');
+  EXPECT_THAT(EnvConfigFromYaml(deep_yaml),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("YAML nesting depth exceeds maximum")));
+}
+
+TEST(EnvYamlTest, RejectsExcessiveNodeCount) {
+  std::string alias_bomb = "a0: &a0 [1, 1]\n";
+  for (int i = 1; i <= 20; ++i) {
+    absl::StrAppendFormat(&alias_bomb, "a%d: &a%d [*a%d, *a%d]\n", i, i, i - 1,
+                          i - 1);
+  }
+  EXPECT_THAT(EnvConfigFromYaml(alias_bomb),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("YAML node count exceeds maximum")));
+}
+
 }  // namespace
 }  // namespace cel

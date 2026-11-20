@@ -80,19 +80,58 @@ std::string FormatYamlErrorMessage(absl::string_view yaml,
   return message;
 }
 
-absl::StatusOr<YAML::Node> LoadYaml(const std::string& yaml) {
-  try {
-    return YAML::Load(yaml);
-  } catch (YAML::ParserException& e) {
-    return absl::InvalidArgumentError(
-        FormatYamlErrorMessage(yaml, e.msg, e.mark));
-  }
-}
+constexpr int kMaxYamlDepth = 100;
+constexpr int kMaxYamlNodes = 1000000;
 
 absl::Status YamlError(absl::string_view yaml, const YAML::Node& node,
                        absl::string_view error) {
   return absl::InvalidArgumentError(
       FormatYamlErrorMessage(yaml, error, node.Mark()));
+}
+
+absl::Status ValidateNoDuplicateKeys(absl::string_view yaml,
+                                     const YAML::Node& node, int depth,
+                                     int& remaining_nodes) {
+  if (depth > kMaxYamlDepth) {
+    return YamlError(yaml, node, "YAML nesting depth exceeds maximum");
+  }
+  if (--remaining_nodes < 0) {
+    return YamlError(yaml, node, "YAML node count exceeds maximum");
+  }
+  if (node.IsMap()) {
+    absl::flat_hash_set<std::string> seen_keys;
+    for (const auto& kv : node) {
+      if (kv.first.IsScalar()) {
+        const std::string& key = kv.first.Scalar();
+        if (!seen_keys.insert(key).second) {
+          return YamlError(yaml, kv.first,
+                           absl::StrCat("Duplicate key '", key, "'"));
+        }
+      }
+      CEL_RETURN_IF_ERROR(
+          ValidateNoDuplicateKeys(yaml, kv.second, depth + 1, remaining_nodes));
+    }
+  } else if (node.IsSequence()) {
+    for (const YAML::Node& element : node) {
+      CEL_RETURN_IF_ERROR(
+          ValidateNoDuplicateKeys(yaml, element, depth + 1, remaining_nodes));
+    }
+  }
+  return absl::OkStatus();
+}
+
+absl::StatusOr<YAML::Node> LoadYaml(const std::string& yaml) {
+  YAML::Node root;
+  try {
+    root = YAML::Load(yaml);
+  } catch (YAML::ParserException& e) {
+    return absl::InvalidArgumentError(
+        FormatYamlErrorMessage(yaml, e.msg, e.mark));
+  }
+  int remaining_nodes = kMaxYamlNodes;
+  CEL_RETURN_IF_ERROR(
+      ValidateNoDuplicateKeys(yaml, root, /*depth=*/0, remaining_nodes));
+  return root;
 }
 
 std::string GetString(absl::string_view yaml, const YAML::Node& node) {

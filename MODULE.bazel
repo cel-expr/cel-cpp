@@ -75,7 +75,7 @@ bazel_dep(
 # TODO(b/582952496): Remove git_override once cel-conformance is published on BCR.
 git_override(
     module_name = "cel-conformance",
-    commit = "8d64ec2a2938204e388fc02e8e5102dc8ca16e83",
+    commit = "f2745046262d57f8abfa571684093448a5f98f20",
     remote = "https://github.com/cel-expr/cel-conformance",
 )
 
