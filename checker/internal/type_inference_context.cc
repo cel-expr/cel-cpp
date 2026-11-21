@@ -327,6 +327,8 @@ bool TypeInferenceContext::IsAssignableInternal(
       // that has a prospective type assignment.
       to.kind() == TypeKind::kTypeParam &&
       prospective_substitutions.contains(to.GetTypeParam().name())) {
+    TypeParamType to_param = to.GetTypeParam();
+    absl::string_view to_name = to_param.name();
     // Types have special unification: type(A) and type(B) unify to type(dyn)
     // if A and B are not co-assignable (at any depth, e.g. list(type(int)) and
     // list(type(uint)) unify to list(type(dyn))). This is the only widening
@@ -334,9 +336,8 @@ bool TypeInferenceContext::IsAssignableInternal(
     SubstitutionMap join_subs = prospective_substitutions;
     if (std::optional<Type> joined =
             JoinTypeTypes(from_subs, to_subs, join_subs);
-        joined.has_value() &&
-        !OccursWithin(to.GetTypeParam().name(), *joined, join_subs)) {
-      join_subs[to.GetTypeParam().name()] = *std::move(joined);
+        joined.has_value() && !OccursWithin(to_name, *joined, join_subs)) {
+      join_subs[to_name] = *std::move(joined);
       prospective_substitutions = std::move(join_subs);
       return true;
     }
@@ -344,13 +345,12 @@ bool TypeInferenceContext::IsAssignableInternal(
     if (CompareGenerality(from_subs, to_subs, prospective_subs_cpy) ==
         RelativeGenerality::kMoreGeneral) {
       if (IsAssignableInternal(to_subs, from_subs, prospective_subs_cpy) &&
-          !OccursWithin(to.GetTypeParam().name(), from_subs,
-                        prospective_subs_cpy)) {
-        prospective_subs_cpy[to.GetTypeParam().name()] = from_subs;
+          !OccursWithin(to_name, from_subs, prospective_subs_cpy)) {
+        prospective_subs_cpy[to_name] = from_subs;
         prospective_substitutions = std::move(prospective_subs_cpy);
         return true;
-        // otherwise, continue with normal assignability check.
       }
+      // otherwise, continue with normal assignability check.
     }
   }
 
@@ -637,9 +637,12 @@ bool TypeInferenceContext::IsAssignableWithConstraints(
     SubstitutionMap& prospective_substitutions) {
   if (to.kind() == TypeKind::kTypeParam &&
       from.kind() == TypeKind::kTypeParam) {
-    if (to.AsTypeParam()->name() != from.AsTypeParam()->name()) {
+    TypeParamType to_param = to.GetTypeParam();
+    TypeParamType from_param = from.GetTypeParam();
+    absl::string_view from_name = from_param.name();
+    if (to_param.name() != from_name) {
       // Simple case, bind from to 'to' if both are free.
-      prospective_substitutions[from.AsTypeParam()->name()] = to;
+      prospective_substitutions[from_name] = to;
     }
     return true;
   }
