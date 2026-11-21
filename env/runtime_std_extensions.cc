@@ -23,6 +23,8 @@
 #include "extensions/lists_functions.h"
 #include "extensions/math_ext.h"
 #include "extensions/math_ext_decls.h"
+#include "extensions/network_ext.h"
+#include "extensions/network_ext_decls.h"
 #include "extensions/regex_ext.h"
 #include "extensions/sets_functions.h"
 #include "extensions/strings.h"
@@ -128,6 +130,17 @@ void RegisterStandardExtensions(EnvRuntime& env_runtime) {
         return cel::extensions::RegisterRegexExtensionFunctions(
             runtime_builder);
       });
+
+  for (int version = 0; version <= extensions::kNetworkExtensionLatestVersion;
+       ++version) {
+    registry.AddFunctionRegistration(
+        "cel.lib.ext.network", "network", version,
+        [version](RuntimeBuilder& runtime_builder,
+                  const RuntimeOptions& runtime_options) -> absl::Status {
+          return cel::extensions::RegisterNetworkFunctions(runtime_builder,
+                                                           version);
+        });
+  }
 }
 
 }  // namespace cel
