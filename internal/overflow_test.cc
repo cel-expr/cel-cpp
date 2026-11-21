@@ -396,6 +396,16 @@ INSTANTIATE_TEST_SUITE_P(
            return CheckedAdd(absl::Nanoseconds(1), -absl::InfiniteDuration());
          },
          absl::OutOfRangeError("integer overflow")},
+        {"LargeDurationAddNegLargeDuration",
+         [] {
+           // ~317 years: a valid CEL duration (within the +-10,000 year
+           // protobuf range) but outside the int64 nanosecond range. The result
+           // must be an overflow error, not a value derived from a saturated
+           // absl::ToInt64Nanoseconds() conversion.
+           return CheckedAdd(absl::Seconds(int64_t{10000000000}),
+                             absl::Seconds(int64_t{-10000000000}));
+         },
+         absl::OutOfRangeError("integer overflow")},
 
         // Subtraction tests for duration - duration.
         {"OneSecondSubOneSecond",
@@ -426,6 +436,13 @@ INSTANTIATE_TEST_SUITE_P(
         {"OneNanoSubNegInfinity",
          [] {
            return CheckedSub(absl::Nanoseconds(1), -absl::InfiniteDuration());
+         },
+         absl::OutOfRangeError("integer overflow")},
+        {"LargeDurationSubOneSecond",
+         [] {
+           // ~317 year operand is outside the int64 nanosecond range.
+           return CheckedSub(absl::Seconds(int64_t{10000000000}),
+                             absl::Seconds(1));
          },
          absl::OutOfRangeError("integer overflow")},
 
@@ -491,6 +508,13 @@ INSTANTIATE_TEST_SUITE_P(
          absl::OutOfRangeError("integer overflow")},
         {"NegateNegInfiniteDuration",
          [] { return CheckedNegation(-absl::InfiniteDuration()); },
+         absl::OutOfRangeError("integer overflow")},
+        {"NegateLargeDuration",
+         [] {
+           // ~317 year operand is outside the int64 nanosecond range; negation
+           // must error rather than operate on a saturated conversion.
+           return CheckedNegation(absl::Seconds(int64_t{10000000000}));
+         },
          absl::OutOfRangeError("integer overflow")},
     }),
     [](const testing::TestParamInfo<CheckedDurationResultTest::ParamType>&

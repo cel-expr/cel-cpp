@@ -71,6 +71,23 @@ bool IsFinite(absl::Time t) {
   return t != absl::InfiniteFuture() && t != absl::InfinitePast();
 }
 
+// Converts a duration to its value in nanoseconds, returning an overflow error
+// when the duration lies outside the int64 nanosecond range.
+//
+// absl::ToInt64Nanoseconds() silently saturates to INT64_MIN/INT64_MAX for
+// durations beyond roughly +-292 years, but CEL durations follow the protobuf
+// range of +-10,000 years, so a value may be valid yet not representable as
+// int64 nanoseconds. Without this guard the duration arithmetic below would run
+// on the saturated value and return an incorrect result instead of the
+// conservative overflow error intended here.
+absl::StatusOr<int64_t> DurationToNanos(absl::Duration d) {
+  CEL_RETURN_IF_ERROR(CheckRange(IsFinite(d), "integer overflow"));
+  const int64_t nanos = absl::ToInt64Nanoseconds(d);
+  CEL_RETURN_IF_ERROR(
+      CheckRange(absl::Nanoseconds(nanos) == d, "integer overflow"));
+  return nanos;
+}
+
 }  // namespace
 
 absl::StatusOr<int64_t> CheckedAdd(int64_t x, int64_t y) {
@@ -201,8 +218,6 @@ absl::StatusOr<uint64_t> CheckedMod(uint64_t x, uint64_t y) {
 }
 
 absl::StatusOr<absl::Duration> CheckedAdd(absl::Duration x, absl::Duration y) {
-  CEL_RETURN_IF_ERROR(
-      CheckRange(IsFinite(x) && IsFinite(y), "integer overflow"));
   // absl::Duration can handle +- infinite durations, but the Go time.Duration
   // implementation caps the durations to those expressible within a single
   // int64 rather than (seconds int64, nanos int32).
@@ -213,25 +228,26 @@ absl::StatusOr<absl::Duration> CheckedAdd(absl::Duration x, absl::Duration y) {
   //
   // Since Go is the more conservative of the implementations and 290 year
   // durations seem quite reasonable, this code mirrors the conservative
-  // overflow behavior which would be observed in Go.
-  CEL_ASSIGN_OR_RETURN(int64_t nanos, CheckedAdd(absl::ToInt64Nanoseconds(x),
-                                                 absl::ToInt64Nanoseconds(y)));
+  // overflow behavior which would be observed in Go. DurationToNanos() rejects
+  // operands outside the int64 nanosecond range so that an overflow error is
+  // returned rather than a value computed from a saturated conversion.
+  CEL_ASSIGN_OR_RETURN(int64_t nanos_x, DurationToNanos(x));
+  CEL_ASSIGN_OR_RETURN(int64_t nanos_y, DurationToNanos(y));
+  CEL_ASSIGN_OR_RETURN(int64_t nanos, CheckedAdd(nanos_x, nanos_y));
   return absl::Nanoseconds(nanos);
 }
 
 absl::StatusOr<absl::Duration> CheckedSub(absl::Duration x, absl::Duration y) {
-  CEL_RETURN_IF_ERROR(
-      CheckRange(IsFinite(x) && IsFinite(y), "integer overflow"));
-  CEL_ASSIGN_OR_RETURN(int64_t nanos, CheckedSub(absl::ToInt64Nanoseconds(x),
-                                                 absl::ToInt64Nanoseconds(y)));
+  CEL_ASSIGN_OR_RETURN(int64_t nanos_x, DurationToNanos(x));
+  CEL_ASSIGN_OR_RETURN(int64_t nanos_y, DurationToNanos(y));
+  CEL_ASSIGN_OR_RETURN(int64_t nanos, CheckedSub(nanos_x, nanos_y));
   return absl::Nanoseconds(nanos);
 }
 
 absl::StatusOr<absl::Duration> CheckedNegation(absl::Duration v) {
-  CEL_RETURN_IF_ERROR(CheckRange(IsFinite(v), "integer overflow"));
-  CEL_ASSIGN_OR_RETURN(int64_t nanos,
-                       CheckedNegation(absl::ToInt64Nanoseconds(v)));
-  return absl::Nanoseconds(nanos);
+  CEL_ASSIGN_OR_RETURN(int64_t nanos, DurationToNanos(v));
+  CEL_ASSIGN_OR_RETURN(int64_t negated, CheckedNegation(nanos));
+  return absl::Nanoseconds(negated);
 }
 
 absl::StatusOr<absl::Time> CheckedAdd(absl::Time t, absl::Duration d) {
