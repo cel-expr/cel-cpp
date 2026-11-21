@@ -33,6 +33,7 @@
 #include "env/env_std_extensions.h"
 #include "extensions/lists_functions.h"
 #include "extensions/math_ext_decls.h"
+#include "extensions/network_ext_decls.h"
 #include "extensions/strings.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
@@ -218,6 +219,22 @@ std::vector<TestCase> GetRuntimeStdExtensionTestCases() {
           .extension_name = "cel.lib.ext.regex",
           .expr = "regex.replace('abc', '$', '_end') == 'abc_end'",
           .requires_optional_extension = true,
+      },
+      TestCase{
+          .extension_name = "cel.lib.ext.network",
+          .extension_versions = {0, 1},
+          .latest_extension_version =
+              extensions::kNetworkExtensionLatestVersion,
+          .expr = "type(ip('192.168.0.1')) == net.IP && "
+                  "ip.isCanonical('192.168.0.1') && "
+                  "cidr('10.0.0.0/8').containsIP('10.0.0.1')",
+      },
+      TestCase{
+          .extension_name = "network",
+          .extension_versions = {0, 1},
+          .latest_extension_version =
+              extensions::kNetworkExtensionLatestVersion,
+          .expr = "cidr('192.168.0.1/24').masked() == cidr('192.168.0.0/24')",
       },
   };
 }

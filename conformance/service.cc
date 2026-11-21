@@ -64,6 +64,8 @@
 #include "extensions/math_ext.h"
 #include "extensions/math_ext_decls.h"
 #include "extensions/math_ext_macros.h"
+#include "extensions/network_ext.h"
+#include "extensions/network_ext_decls.h"
 #include "extensions/proto_ext.h"
 #include "extensions/protobuf/enum_adapter.h"
 #include "extensions/select_optimization.h"
@@ -200,6 +202,8 @@ absl::Status CheckImpl(google::protobuf::Arena* arena,
         builder->AddLibrary(cel::extensions::ListsCheckerLibrary()));
     CEL_RETURN_IF_ERROR(
         builder->AddLibrary(cel::extensions::SetsCheckerLibrary()));
+    CEL_RETURN_IF_ERROR(
+        builder->AddLibrary(cel::extensions::NetworkCheckerLibrary()));
   }
 
   for (const auto& decl : request.type_env()) {
@@ -328,6 +332,8 @@ class LegacyConformanceServiceImpl : public ConformanceServiceInterface {
     CEL_RETURN_IF_ERROR(cel::extensions::RegisterMathExtensionFunctions(
         builder->GetRegistry(), options));
     CEL_RETURN_IF_ERROR(cel::extensions::RegisterSetsFunctions(
+        builder->GetRegistry(), options));
+    CEL_RETURN_IF_ERROR(cel::extensions::RegisterNetworkFunctions(
         builder->GetRegistry(), options));
 
     return absl::WrapUnique(new LegacyConformanceServiceImpl(
@@ -552,6 +558,7 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
         builder.function_registry(), options));
     CEL_RETURN_IF_ERROR(cel::extensions::RegisterSetsFunctions(
         builder.function_registry(), options));
+    CEL_RETURN_IF_ERROR(cel::extensions::RegisterNetworkFunctions(builder));
 
     return std::move(builder).Build();
   }
