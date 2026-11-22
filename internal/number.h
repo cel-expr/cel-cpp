@@ -17,8 +17,7 @@
 
 #include <cstdint>
 #include <limits>
-
-#include "absl/types/variant.h"
+#include <variant>
 
 namespace cel::internal {
 
@@ -45,7 +44,7 @@ constexpr double kMaxDoubleRepresentableAsUint =
 
 #define CEL_ABSL_VISIT_CONSTEXPR
 
-using NumberVariant = absl::variant<double, uint64_t, int64_t>;
+using NumberVariant = std::variant<double, uint64_t, int64_t>;
 
 enum class ComparisonResult {
   kLesser,
@@ -168,15 +167,15 @@ struct CompareVisitor {
   explicit constexpr CompareVisitor(NumberVariant rhs) : rhs(rhs) {}
 
   CEL_ABSL_VISIT_CONSTEXPR ComparisonResult operator()(double v) {
-    return absl::visit(DoubleCompareVisitor(v), rhs);
+    return std::visit(DoubleCompareVisitor(v), rhs);
   }
 
   CEL_ABSL_VISIT_CONSTEXPR ComparisonResult operator()(uint64_t v) {
-    return absl::visit(UintCompareVisitor(v), rhs);
+    return std::visit(UintCompareVisitor(v), rhs);
   }
 
   CEL_ABSL_VISIT_CONSTEXPR ComparisonResult operator()(int64_t v) {
-    return absl::visit(IntCompareVisitor(v), rhs);
+    return std::visit(IntCompareVisitor(v), rhs);
   }
   NumberVariant rhs;
 };
@@ -223,31 +222,31 @@ class Number {
 
   // Return a double representation of the value.
   CEL_ABSL_VISIT_CONSTEXPR double AsDouble() const {
-    return absl::visit(internal::ConversionVisitor<double>(), value_);
+    return std::visit(internal::ConversionVisitor<double>(), value_);
   }
 
   // Return signed int64 representation for the value.
   // Caller must guarantee the underlying value is representatble as an
   // int.
   CEL_ABSL_VISIT_CONSTEXPR int64_t AsInt() const {
-    return absl::visit(internal::ConversionVisitor<int64_t>(), value_);
+    return std::visit(internal::ConversionVisitor<int64_t>(), value_);
   }
 
   // Return unsigned int64 representation for the value.
   // Caller must guarantee the underlying value is representable as an
   // uint.
   CEL_ABSL_VISIT_CONSTEXPR uint64_t AsUint() const {
-    return absl::visit(internal::ConversionVisitor<uint64_t>(), value_);
+    return std::visit(internal::ConversionVisitor<uint64_t>(), value_);
   }
 
   // For key lookups, check if the conversion to signed int is lossless.
   CEL_ABSL_VISIT_CONSTEXPR bool LosslessConvertibleToInt() const {
-    return absl::visit(internal::LosslessConvertibleToIntVisitor(), value_);
+    return std::visit(internal::LosslessConvertibleToIntVisitor(), value_);
   }
 
   // For key lookups, check if the conversion to unsigned int is lossless.
   CEL_ABSL_VISIT_CONSTEXPR bool LosslessConvertibleToUint() const {
-    return absl::visit(internal::LosslessConvertibleToUintVisitor(), value_);
+    return std::visit(internal::LosslessConvertibleToUintVisitor(), value_);
   }
 
   CEL_ABSL_VISIT_CONSTEXPR bool operator<(Number other) const {
@@ -282,7 +281,7 @@ class Number {
   // or int64_t.
   template <typename T, typename Op>
   T visit(Op&& op) const {
-    return absl::visit(std::forward<Op>(op), value_);
+    return std::visit(std::forward<Op>(op), value_);
   }
 
  private:
@@ -290,7 +289,7 @@ class Number {
 
   CEL_ABSL_VISIT_CONSTEXPR internal::ComparisonResult Compare(
       Number other) const {
-    return absl::visit(internal::CompareVisitor(other.value_), value_);
+    return std::visit(internal::CompareVisitor(other.value_), value_);
   }
 };
 

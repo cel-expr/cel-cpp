@@ -20,6 +20,7 @@
 #include <string>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "google/protobuf/duration.pb.h"
@@ -40,7 +41,6 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_join.h"
 #include "absl/strings/string_view.h"
-#include "absl/types/variant.h"
 #include "extensions/protobuf/internal/map_reflection.h"
 #include "internal/status_macros.h"
 #include "internal/strings.h"
@@ -108,15 +108,14 @@ absl::Status SnakeCaseToCamelCaseImpl(Chars input,
 
 absl::Status SnakeCaseToCamelCase(const well_known_types::StringValue& input,
                                   std::string* absl_nonnull output) {
-  return absl::visit(absl::Overload(
-                         [&](absl::string_view string) -> absl::Status {
-                           return SnakeCaseToCamelCaseImpl(string, output);
-                         },
-                         [&](const absl::Cord& cord) -> absl::Status {
-                           return SnakeCaseToCamelCaseImpl(cord.Chars(),
-                                                           output);
-                         }),
-                     AsVariant(input));
+  return std::visit(absl::Overload(
+                        [&](absl::string_view string) -> absl::Status {
+                          return SnakeCaseToCamelCaseImpl(string, output);
+                        },
+                        [&](const absl::Cord& cord) -> absl::Status {
+                          return SnakeCaseToCamelCaseImpl(cord.Chars(), output);
+                        }),
+                    AsVariant(input));
 }
 
 class MessageToJsonState;
@@ -712,15 +711,15 @@ class MessageToJsonState {
     ABSL_DCHECK(!field->is_map() && field->is_repeated());
     ABSL_DCHECK_EQ(field->type(), FieldDescriptor::TYPE_BYTES);
     ABSL_DCHECK_EQ(field->cpp_type(), FieldDescriptor::CPPTYPE_STRING);
-    absl::visit(absl::Overload(
-                    [&](absl::string_view string) -> void {
-                      SetStringValueFromBytes(result, string);
-                    },
-                    [&](absl::Cord&& cord) -> void {
-                      SetStringValueFromBytes(result, cord);
-                    }),
-                AsVariant(GetRepeatedBytesField(reflection, message, field,
-                                                index, scratch_)));
+    std::visit(absl::Overload(
+                   [&](absl::string_view string) -> void {
+                     SetStringValueFromBytes(result, string);
+                   },
+                   [&](absl::Cord&& cord) -> void {
+                     SetStringValueFromBytes(result, cord);
+                   }),
+               AsVariant(GetRepeatedBytesField(reflection, message, field,
+                                               index, scratch_)));
     return absl::OkStatus();
   }
 
@@ -733,7 +732,7 @@ class MessageToJsonState {
     ABSL_DCHECK(!field->is_map() && field->is_repeated());
     ABSL_DCHECK_EQ(field->type(), FieldDescriptor::TYPE_STRING);
     ABSL_DCHECK_EQ(field->cpp_type(), FieldDescriptor::CPPTYPE_STRING);
-    absl::visit(
+    std::visit(
         absl::Overload(
             [&](absl::string_view string) -> void {
               SetStringValue(result, string);
@@ -927,24 +926,24 @@ class MessageToJsonState {
 
   void StringValueToJson(const well_known_types::StringValue& value,
                          google::protobuf::MessageLite* absl_nonnull result) const {
-    absl::visit(absl::Overload([&](absl::string_view string)
-                                   -> void { SetStringValue(result, string); },
-                               [&](const absl::Cord& cord) -> void {
-                                 SetStringValue(result, cord);
-                               }),
-                AsVariant(value));
+    std::visit(absl::Overload([&](absl::string_view string)
+                                  -> void { SetStringValue(result, string); },
+                              [&](const absl::Cord& cord) -> void {
+                                SetStringValue(result, cord);
+                              }),
+               AsVariant(value));
   }
 
   void BytesValueToJson(const well_known_types::BytesValue& value,
                         google::protobuf::MessageLite* absl_nonnull result) const {
-    absl::visit(absl::Overload(
-                    [&](absl::string_view string) -> void {
-                      SetStringValueFromBytes(result, string);
-                    },
-                    [&](const absl::Cord& cord) -> void {
-                      SetStringValueFromBytes(result, cord);
-                    }),
-                AsVariant(value));
+    std::visit(absl::Overload(
+                   [&](absl::string_view string) -> void {
+                     SetStringValueFromBytes(result, string);
+                   },
+                   [&](const absl::Cord& cord) -> void {
+                     SetStringValueFromBytes(result, cord);
+                   }),
+               AsVariant(value));
   }
 
   virtual void SetNullValue(
@@ -1398,21 +1397,21 @@ class JsonMapIterator final {
 
   Value Next(std::string& scratch ABSL_ATTRIBUTE_LIFETIME_BOUND) {
     Value result;
-    absl::visit(absl::Overload(
-                    [&](Generated& generated) -> void {
-                      result = std::pair{absl::string_view(generated->first),
-                                         &generated->second};
-                      ++generated;
-                    },
-                    [&](Dynamic& dynamic) -> void {
-                      const auto& key = dynamic.GetKey().GetStringValue();
-                      scratch.assign(key.data(), key.size());
-                      result =
-                          std::pair{absl::string_view(scratch),
-                                    &dynamic.GetValueRef().GetMessageValue()};
-                      ++dynamic;
-                    }),
-                variant_);
+    std::visit(absl::Overload(
+                   [&](Generated& generated) -> void {
+                     result = std::pair{absl::string_view(generated->first),
+                                        &generated->second};
+                     ++generated;
+                   },
+                   [&](Dynamic& dynamic) -> void {
+                     const auto& key = dynamic.GetKey().GetStringValue();
+                     scratch.assign(key.data(), key.size());
+                     result =
+                         std::pair{absl::string_view(scratch),
+                                   &dynamic.GetValueRef().GetMessageValue()};
+                     ++dynamic;
+                   }),
+               variant_);
     return result;
   }
 
@@ -1608,14 +1607,14 @@ class DynamicJsonAccessor final : public JsonAccessor {
 };
 
 std::string JsonStringDebugString(const well_known_types::StringValue& value) {
-  return absl::visit(absl::Overload(
-                         [&](absl::string_view string) -> std::string {
-                           return FormatStringLiteral(string);
-                         },
-                         [&](const absl::Cord& cord) -> std::string {
-                           return FormatStringLiteral(cord);
-                         }),
-                     well_known_types::AsVariant(value));
+  return std::visit(absl::Overload(
+                        [&](absl::string_view string) -> std::string {
+                          return FormatStringLiteral(string);
+                        },
+                        [&](const absl::Cord& cord) -> std::string {
+                          return FormatStringLiteral(cord);
+                        }),
+                    well_known_types::AsVariant(value));
 }
 
 std::string JsonNumberDebugString(double value) {
@@ -1852,20 +1851,20 @@ class JsonEqualsState final {
     for (int i = 0; i < lhs_size; ++i) {
       std::tie(lhs_key, lhs_value) = lhs_iterator.Next(lhs_key_scratch);
       if (const auto* rhs_value = rhs_accessor_->FindField(
-              rhs, absl::visit(
-                       absl::Overload(
-                           [](absl::string_view string) -> absl::string_view {
-                             return string;
-                           },
-                           [&lhs_key_scratch](
-                               const absl::Cord& cord) -> absl::string_view {
-                             if (auto flat = cord.TryFlat(); flat) {
-                               return *flat;
-                             }
-                             absl::CopyCordToString(cord, &lhs_key_scratch);
-                             return absl::string_view(lhs_key_scratch);
-                           }),
-                       AsVariant(lhs_key)));
+              rhs,
+              std::visit(absl::Overload(
+                             [](absl::string_view string) -> absl::string_view {
+                               return string;
+                             },
+                             [&lhs_key_scratch](
+                                 const absl::Cord& cord) -> absl::string_view {
+                               if (auto flat = cord.TryFlat(); flat) {
+                                 return *flat;
+                               }
+                               absl::CopyCordToString(cord, &lhs_key_scratch);
+                               return absl::string_view(lhs_key_scratch);
+                             }),
+                         AsVariant(lhs_key)));
           rhs_value == nullptr || !ValueEqual(*lhs_value, *rhs_value)) {
         return false;
       }
