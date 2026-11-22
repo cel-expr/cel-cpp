@@ -25,8 +25,6 @@
 #include "absl/base/thread_annotations.h"
 #include "absl/status/status.h"
 #include "absl/synchronization/mutex.h"
-#include "eval/public/cel_function_registry.h"
-#include "eval/public/cel_type_registry.h"
 #include "internal/well_known_types.h"
 #include "runtime/function_registry.h"
 #include "runtime/type_registry.h"
@@ -46,10 +44,28 @@ struct RuntimeEnv final {
                           message_factory = nullptr)
       : descriptor_pool(std::move(descriptor_pool)),
         message_factory(std::move(message_factory)),
-        legacy_type_registry(this->descriptor_pool.get(),
-                             this->message_factory.get()),
-        type_registry(legacy_type_registry.InternalGetModernRegistry()),
-        function_registry(legacy_function_registry.InternalGetRegistry()) {
+        owned_type_registry_(std::make_unique<TypeRegistry>(
+            this->descriptor_pool.get(), this->message_factory.get())),
+        owned_function_registry_(std::make_unique<FunctionRegistry>()),
+        type_registry(*owned_type_registry_),
+        function_registry(*owned_function_registry_) {
+    if (this->message_factory != nullptr) {
+      message_factory_ptr.store(this->message_factory.get(),
+                                std::memory_order_seq_cst);
+    }
+  }
+
+  // Binds `RuntimeEnv` to caller-owned `TypeRegistry` and `FunctionRegistry`
+  // instances, which must outlive this `RuntimeEnv` (and its `keep_alives`).
+  RuntimeEnv(
+      absl_nonnull std::shared_ptr<const google::protobuf::DescriptorPool>
+          descriptor_pool,
+      absl_nullable std::shared_ptr<google::protobuf::MessageFactory> message_factory,
+      TypeRegistry& type_registry, FunctionRegistry& function_registry)
+      : descriptor_pool(std::move(descriptor_pool)),
+        message_factory(std::move(message_factory)),
+        type_registry(type_registry),
+        function_registry(function_registry) {
     if (this->message_factory != nullptr) {
       message_factory_ptr.store(this->message_factory.get(),
                                 std::memory_order_seq_cst);
@@ -104,14 +120,14 @@ struct RuntimeEnv final {
     std::deque<std::shared_ptr<const void>> deque;
   };
 
+  // Declared before `keep_alives` so `keep_alives` are destroyed before
+  // owned registries.
+  std::unique_ptr<TypeRegistry> owned_type_registry_;
+  std::unique_ptr<FunctionRegistry> owned_function_registry_;
+
   KeepAlives keep_alives;
 
  public:
-  // Because of legacy shenanigans, we use shared_ptr here. For legacy, this is
-  // an unowned shared_ptr (a noop deleter) pointing to the modern equivalent
-  // which is a member of the legacy variant.
-  google::api::expr::runtime::CelTypeRegistry legacy_type_registry;
-  google::api::expr::runtime::CelFunctionRegistry legacy_function_registry;
   TypeRegistry& type_registry;
   FunctionRegistry& function_registry;
 

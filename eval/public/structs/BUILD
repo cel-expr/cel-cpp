@@ -31,6 +31,7 @@ cc_library(
         ":cel_proto_wrap_value_to_message",
         ":proto_message_type_adapter",
         ":trivial_legacy_type_info_internal",
+        "//common:legacy_value",
         "//common:value",
         "//eval/public:cel_value",
         "//eval/public:message_wrapper",
@@ -128,6 +129,7 @@ cc_library(
     ],
     deps = [
         "//eval/public:cel_value",
+        "//internal:json",
         "//internal:overflow",
         "//internal:proto_time_encoding",
         "//internal:status_macros",
@@ -364,6 +366,7 @@ cc_test(
         ":proto_message_type_adapter",
         ":trivial_legacy_type_info",
         "//base:attributes",
+        "//common:legacy_value",
         "//common:value",
         "//common:value_testing",
         "//eval/public:cel_value",

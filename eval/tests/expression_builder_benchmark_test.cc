@@ -25,31 +25,39 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "common/minimal_descriptor_pool.h"
-#include "eval/public/builtin_func_registrar.h"
-#include "eval/public/cel_expr_builder_factory.h"
-#include "eval/public/cel_expression.h"
-#include "eval/public/cel_options.h"
-#include "eval/public/cel_type_registry.h"
 #include "eval/tests/request_context.pb.h"
+#include "extensions/protobuf/runtime_adapter.h"
 #include "internal/benchmark.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "parser/parser.h"
+#include "runtime/constant_folding.h"
+#include "runtime/regex_precompilation.h"
+#include "runtime/runtime.h"
+#include "runtime/runtime_options.h"
+#include "runtime/standard_runtime_builder_factory.h"
+#include "runtime/type_registry.h"
 #include "google/protobuf/arena.h"
+#include "google/protobuf/descriptor.h"
 
 namespace google::api::expr::runtime {
 
 namespace {
 
-using cel::expr::CheckedExpr;
-using cel::expr::ParsedExpr;
-using google::api::expr::parser::Parse;
+using ::cel::CreateStandardRuntimeBuilder;
+using ::cel::Runtime;
+using ::cel::RuntimeOptions;
+using ::cel::TypeRegistry;
+using ::cel::extensions::EnableConstantFolding;
+using ::cel::extensions::EnableRegexPrecompilation;
+using ::cel::extensions::ProtobufRuntimeAdapter;
+using ::cel::expr::CheckedExpr;
+using ::cel::expr::ParsedExpr;
+using ::google::api::expr::parser::Parse;
 
 enum BenchmarkParam : int {
   kDefault = 0,
   kFoldConstants = 1,
-  kRecursivePlanning = 2,
-  kRecursivePlanningWithConstantFolding = 3,
 };
 
 std::string LabelForParam(BenchmarkParam param) {
@@ -58,48 +66,37 @@ std::string LabelForParam(BenchmarkParam param) {
       return "default";
     case BenchmarkParam::kFoldConstants:
       return "fold_constants";
-    case BenchmarkParam::kRecursivePlanning:
-      return "recursive_planning";
-    case BenchmarkParam::kRecursivePlanningWithConstantFolding:
-      return "recursive_planning_with_constant_folding";
   }
   return "unknown";
 }
 
 void BM_RegisterBuiltins(benchmark::State& state) {
   for (auto _ : state) {
-    auto builder = CreateCelExpressionBuilder();
-    auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-    ASSERT_OK(reg_status);
+    ASSERT_OK_AND_ASSIGN(
+        auto builder,
+        CreateStandardRuntimeBuilder(google::protobuf::DescriptorPool::generated_pool(),
+                                     RuntimeOptions{}));
+    ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
+    benchmark::DoNotOptimize(runtime);
   }
 }
 
 BENCHMARK(BM_RegisterBuiltins);
 
-InterpreterOptions OptionsForParam(BenchmarkParam param, google::protobuf::Arena& arena) {
-  InterpreterOptions options;
-  switch (param) {
-    case BenchmarkParam::kFoldConstants:
-    case BenchmarkParam::kRecursivePlanningWithConstantFolding:
-      options.constant_arena = &arena;
-      options.constant_folding = true;
-      break;
-    case BenchmarkParam::kDefault:
-    case BenchmarkParam::kRecursivePlanning:
-      options.constant_folding = false;
-      break;
+absl::StatusOr<std::unique_ptr<Runtime>> MakeRuntimeForParam(
+    BenchmarkParam param, google::protobuf::Arena& arena,
+    bool enable_regex_precompilation = false) {
+  RuntimeOptions options;
+  CEL_ASSIGN_OR_RETURN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  if (param == BenchmarkParam::kFoldConstants) {
+    CEL_RETURN_IF_ERROR(EnableConstantFolding(builder, &arena));
   }
-  switch (param) {
-    case BenchmarkParam::kRecursivePlanning:
-    case BenchmarkParam::kRecursivePlanningWithConstantFolding:
-      options.max_recursion_depth = 48;
-      break;
-    case BenchmarkParam::kDefault:
-    case BenchmarkParam::kFoldConstants:
-      options.max_recursion_depth = 0;
-      break;
+  if (enable_regex_precompilation) {
+    CEL_RETURN_IF_ERROR(EnableRegexPrecompilation(builder));
   }
-  return options;
+  return std::move(builder).Build();
 }
 
 void BM_SymbolicPolicy(benchmark::State& state) {
@@ -115,121 +112,112 @@ void BM_SymbolicPolicy(benchmark::State& state) {
    ))cel"));
 
   google::protobuf::Arena arena;
-  InterpreterOptions options = OptionsForParam(param, arena);
-
-  auto builder = CreateCelExpressionBuilder(options);
-  auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-  ASSERT_OK(reg_status);
+  ASSERT_OK_AND_ASSIGN(auto runtime, MakeRuntimeForParam(param, arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
     arena.Reset();
   }
 }
 
 BENCHMARK(BM_SymbolicPolicy)
     ->Arg(BenchmarkParam::kDefault)
-    ->Arg(BenchmarkParam::kFoldConstants)
-    ->Arg(BenchmarkParam::kRecursivePlanning)
-    ->Arg(BenchmarkParam::kRecursivePlanningWithConstantFolding);
+    ->Arg(BenchmarkParam::kFoldConstants);
 
-absl::StatusOr<std::unique_ptr<CelExpressionBuilder>> MakeBuilderForEnums(
+absl::StatusOr<std::unique_ptr<Runtime>> MakeRuntimeForEnums(
     absl::string_view container, absl::string_view enum_type,
     int num_enum_values) {
-  auto builder =
-      CreateCelExpressionBuilder(cel::GetMinimalDescriptorPool(), nullptr, {});
-  builder->set_container(std::string(container));
-  CelTypeRegistry* type_registry = builder->GetTypeRegistry();
-  std::vector<CelTypeRegistry::Enumerator> enumerators;
+  RuntimeOptions options;
+  options.container = std::string(container);
+  CEL_ASSIGN_OR_RETURN(
+      auto builder,
+      CreateStandardRuntimeBuilder(cel::GetMinimalDescriptorPool(), options));
+  TypeRegistry& type_registry = builder.type_registry();
+  std::vector<TypeRegistry::Enumerator> enumerators;
   enumerators.reserve(num_enum_values);
   for (int i = 0; i < num_enum_values; ++i) {
     enumerators.push_back(
-        CelTypeRegistry::Enumerator{absl::StrCat("ENUM_VALUE_", i), i});
+        TypeRegistry::Enumerator{absl::StrCat("ENUM_VALUE_", i), i});
   }
-  type_registry->RegisterEnum(enum_type, std::move(enumerators));
+  type_registry.RegisterEnum(enum_type, std::move(enumerators));
 
-  CEL_RETURN_IF_ERROR(RegisterBuiltinFunctions(builder->GetRegistry()));
-  return builder;
+  return std::move(builder).Build();
 }
 
 void BM_EnumResolutionSimple(benchmark::State& state) {
-  static const CelExpressionBuilder* builder = []() {
-    auto builder = MakeBuilderForEnums("", "com.example.TestEnum", 4);
-    ABSL_CHECK_OK(builder.status());
-    return builder->release();
+  static const Runtime* runtime = []() {
+    auto runtime = MakeRuntimeForEnums("", "com.example.TestEnum", 4);
+    ABSL_CHECK_OK(runtime.status());
+    return runtime->release();
   }();
 
   ASSERT_OK_AND_ASSIGN(auto expr, Parse("com.example.TestEnum.ENUM_VALUE_0"));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
-    benchmark::DoNotOptimize(expression);
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
   }
 }
 
 BENCHMARK(BM_EnumResolutionSimple)->ThreadRange(1, 32);
 
 void BM_EnumResolutionContainer(benchmark::State& state) {
-  static const CelExpressionBuilder* builder = []() {
-    auto builder =
-        MakeBuilderForEnums("com.example", "com.example.TestEnum", 4);
-    ABSL_CHECK_OK(builder.status());
-    return builder->release();
+  static const Runtime* runtime = []() {
+    auto runtime =
+        MakeRuntimeForEnums("com.example", "com.example.TestEnum", 4);
+    ABSL_CHECK_OK(runtime.status());
+    return runtime->release();
   }();
 
   ASSERT_OK_AND_ASSIGN(auto expr, Parse("TestEnum.ENUM_VALUE_0"));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
-    benchmark::DoNotOptimize(expression);
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
   }
 }
 
 BENCHMARK(BM_EnumResolutionContainer)->ThreadRange(1, 32);
 
 void BM_EnumResolution32Candidate(benchmark::State& state) {
-  static const CelExpressionBuilder* builder = []() {
-    auto builder =
-        MakeBuilderForEnums("com.example.foo", "com.example.foo.TestEnum", 8);
-    ABSL_CHECK_OK(builder.status());
-    return builder->release();
+  static const Runtime* runtime = []() {
+    auto runtime =
+        MakeRuntimeForEnums("com.example.foo", "com.example.foo.TestEnum", 8);
+    ABSL_CHECK_OK(runtime.status());
+    return runtime->release();
   }();
 
   ASSERT_OK_AND_ASSIGN(auto expr,
                        Parse("com.example.foo.TestEnum.ENUM_VALUE_0"));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
-    benchmark::DoNotOptimize(expression);
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
   }
 }
 
 BENCHMARK(BM_EnumResolution32Candidate)->ThreadRange(1, 32);
 
 void BM_EnumResolution256Candidate(benchmark::State& state) {
-  static const CelExpressionBuilder* builder = []() {
-    auto builder =
-        MakeBuilderForEnums("com.example.foo", "com.example.foo.TestEnum", 64);
-    ABSL_CHECK_OK(builder.status());
-    return builder->release();
+  static const Runtime* runtime = []() {
+    auto runtime =
+        MakeRuntimeForEnums("com.example.foo", "com.example.foo.TestEnum", 64);
+    ABSL_CHECK_OK(runtime.status());
+    return runtime->release();
   }();
 
   ASSERT_OK_AND_ASSIGN(auto expr,
                        Parse("com.example.foo.TestEnum.ENUM_VALUE_0"));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
-    benchmark::DoNotOptimize(expression);
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
   }
 }
 
@@ -244,25 +232,19 @@ void BM_NestedComprehension(benchmark::State& state) {
   )"));
 
   google::protobuf::Arena arena;
-  InterpreterOptions options = OptionsForParam(param, arena);
-
-  auto builder = CreateCelExpressionBuilder(options);
-  auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-  ASSERT_OK(reg_status);
+  ASSERT_OK_AND_ASSIGN(auto runtime, MakeRuntimeForParam(param, arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
     arena.Reset();
   }
 }
 
 BENCHMARK(BM_NestedComprehension)
     ->Arg(BenchmarkParam::kDefault)
-    ->Arg(BenchmarkParam::kFoldConstants)
-    ->Arg(BenchmarkParam::kRecursivePlanning)
-    ->Arg(BenchmarkParam::kRecursivePlanningWithConstantFolding);
+    ->Arg(BenchmarkParam::kFoldConstants);
 
 void BM_Comparisons(benchmark::State& state) {
   auto param = static_cast<BenchmarkParam>(state.range(0));
@@ -276,25 +258,19 @@ void BM_Comparisons(benchmark::State& state) {
   )"));
 
   google::protobuf::Arena arena;
-  InterpreterOptions options = OptionsForParam(param, arena);
-
-  auto builder = CreateCelExpressionBuilder(options);
-  auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-  ASSERT_OK(reg_status);
+  ASSERT_OK_AND_ASSIGN(auto runtime, MakeRuntimeForParam(param, arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
     arena.Reset();
   }
 }
 
 BENCHMARK(BM_Comparisons)
     ->Arg(BenchmarkParam::kDefault)
-    ->Arg(BenchmarkParam::kFoldConstants)
-    ->Arg(BenchmarkParam::kRecursivePlanning)
-    ->Arg(BenchmarkParam::kRecursivePlanningWithConstantFolding);
+    ->Arg(BenchmarkParam::kFoldConstants);
 
 void BM_ComparisonsConcurrent(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(ParsedExpr expr, parser::Parse(R"(
@@ -304,19 +280,19 @@ void BM_ComparisonsConcurrent(benchmark::State& state) {
       && v11 != v12 && v12 != v13
   )"));
 
-  static const CelExpressionBuilder* builder = [] {
-    InterpreterOptions options;
-    auto builder = CreateCelExpressionBuilder(options);
-    auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-    ABSL_CHECK_OK(reg_status);
-    return builder.release();
+  static const Runtime* runtime = [] {
+    auto builder = CreateStandardRuntimeBuilder(
+        google::protobuf::DescriptorPool::generated_pool(), RuntimeOptions{});
+    ABSL_CHECK_OK(builder.status());
+    auto runtime = std::move(*builder).Build();
+    ABSL_CHECK_OK(runtime.status());
+    return runtime->release();
   }();
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
-    benchmark::DoNotOptimize(expression);
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
   }
 }
 
@@ -341,16 +317,14 @@ void RegexPrecompilationBench(bool enabled, benchmark::State& state) {
   (*checked_expr.mutable_reference_map())[11].add_overload_id("matches_string");
 
   google::protobuf::Arena arena;
-  InterpreterOptions options = OptionsForParam(param, arena);
-  options.enable_regex_precompilation = enabled;
-
-  auto builder = CreateCelExpressionBuilder(options);
-  auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-  ASSERT_OK(reg_status);
+  ASSERT_OK_AND_ASSIGN(
+      auto runtime, MakeRuntimeForParam(
+                        param, arena, /*enable_regex_precompilation=*/enabled));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(auto expression,
-                         builder->CreateExpression(&checked_expr));
+    ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                           *runtime, checked_expr));
+    benchmark::DoNotOptimize(program);
     arena.Reset();
   }
 }
@@ -361,9 +335,7 @@ void BM_RegexPrecompilationDisabled(benchmark::State& state) {
 
 BENCHMARK(BM_RegexPrecompilationDisabled)
     ->Arg(BenchmarkParam::kDefault)
-    ->Arg(BenchmarkParam::kFoldConstants)
-    ->Arg(BenchmarkParam::kRecursivePlanning)
-    ->Arg(BenchmarkParam::kRecursivePlanningWithConstantFolding);
+    ->Arg(BenchmarkParam::kFoldConstants);
 
 void BM_RegexPrecompilationEnabled(benchmark::State& state) {
   RegexPrecompilationBench(true, state);
@@ -371,9 +343,7 @@ void BM_RegexPrecompilationEnabled(benchmark::State& state) {
 
 BENCHMARK(BM_RegexPrecompilationEnabled)
     ->Arg(BenchmarkParam::kDefault)
-    ->Arg(BenchmarkParam::kFoldConstants)
-    ->Arg(BenchmarkParam::kRecursivePlanning)
-    ->Arg(BenchmarkParam::kRecursivePlanningWithConstantFolding);
+    ->Arg(BenchmarkParam::kFoldConstants);
 
 void BM_StringConcat(benchmark::State& state) {
   auto param = static_cast<BenchmarkParam>(state.range(0));
@@ -394,16 +364,12 @@ void BM_StringConcat(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(ParsedExpr expr, parser::Parse(source));
 
   google::protobuf::Arena arena;
-  InterpreterOptions options = OptionsForParam(param, arena);
-
-  auto builder = CreateCelExpressionBuilder(options);
-  auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-  ASSERT_OK(reg_status);
+  ASSERT_OK_AND_ASSIGN(auto runtime, MakeRuntimeForParam(param, arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
     arena.Reset();
   }
 }
@@ -418,17 +384,7 @@ BENCHMARK(BM_StringConcat)
     ->Args({BenchmarkParam::kFoldConstants, 4})
     ->Args({BenchmarkParam::kFoldConstants, 8})
     ->Args({BenchmarkParam::kFoldConstants, 16})
-    ->Args({BenchmarkParam::kFoldConstants, 32})
-    ->Args({BenchmarkParam::kRecursivePlanning, 2})
-    ->Args({BenchmarkParam::kRecursivePlanning, 4})
-    ->Args({BenchmarkParam::kRecursivePlanning, 8})
-    ->Args({BenchmarkParam::kRecursivePlanning, 16})
-    ->Args({BenchmarkParam::kRecursivePlanning, 32})
-    ->Args({BenchmarkParam::kRecursivePlanningWithConstantFolding, 2})
-    ->Args({BenchmarkParam::kRecursivePlanningWithConstantFolding, 4})
-    ->Args({BenchmarkParam::kRecursivePlanningWithConstantFolding, 8})
-    ->Args({BenchmarkParam::kRecursivePlanningWithConstantFolding, 16})
-    ->Args({BenchmarkParam::kRecursivePlanningWithConstantFolding, 32});
+    ->Args({BenchmarkParam::kFoldConstants, 32});
 
 void BM_StringConcat32Concurrent(benchmark::State& state) {
   std::string source = "'1234567890' + '1234567890'";
@@ -444,19 +400,19 @@ void BM_StringConcat32Concurrent(benchmark::State& state) {
 
   ASSERT_OK_AND_ASSIGN(ParsedExpr expr, parser::Parse(source));
 
-  static const CelExpressionBuilder* builder = [] {
-    InterpreterOptions options;
-    auto builder = CreateCelExpressionBuilder(options);
-    auto reg_status = RegisterBuiltinFunctions(builder->GetRegistry());
-    ABSL_CHECK_OK(reg_status);
-    return builder.release();
+  static const Runtime* runtime = [] {
+    auto builder = CreateStandardRuntimeBuilder(
+        google::protobuf::DescriptorPool::generated_pool(), RuntimeOptions{});
+    ABSL_CHECK_OK(builder.status());
+    auto runtime = std::move(*builder).Build();
+    ABSL_CHECK_OK(runtime.status());
+    return runtime->release();
   }();
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(
-        auto expression,
-        builder->CreateExpression(&expr.expr(), &expr.source_info()));
-    benchmark::DoNotOptimize(expression);
+    ASSERT_OK_AND_ASSIGN(auto program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    benchmark::DoNotOptimize(program);
   }
 }
 

@@ -106,6 +106,9 @@ class ParsedMessageValue final
   const google::protobuf::Message* absl_nonnull operator->() const { return value_; }
   const google::protobuf::Message* absl_nonnull message() const { return value_; }
 
+  // Internal: returns true if this value was created without an arena.
+  bool is_unsafe() const { return arena_ == nullptr; }
+
   bool IsZeroValue() const;
 
   std::string DebugString() const;
@@ -215,8 +218,6 @@ class ParsedMessageValue final
     }
     return absl::OkStatus();
   }
-
-  bool is_unsafe() const { return arena_ == nullptr; }
 
   const google::protobuf::Message* absl_nonnull value_;
 

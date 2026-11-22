@@ -20,41 +20,15 @@
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
 #include "common/native_type.h"
 #include "common/value.h"
-#include "eval/public/cel_value.h"
 #include "google/protobuf/arena.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/message.h"
 
 namespace cel {
 
 class ValueFactory;
 
 namespace common_internal {
-
-// Special implementation of list which is both a modern list and legacy list.
-// Do not try this at home. This should only be implemented in
-// `list_value_builder.cc`.
-class CompatListValue : public CustomListValueInterface,
-                        public google::api::expr::runtime::CelList {
- public:
-  virtual google::protobuf::Arena* GetOwningArena() const = 0;
-
- private:
-  NativeTypeId GetNativeTypeId() const final {
-    return NativeTypeId::For<CompatListValue>();
-  }
-};
-
-const CompatListValue* absl_nonnull EmptyCompatListValue();
-
-absl::StatusOr<const CompatListValue* absl_nonnull> MakeCompatListValue(
-    const CustomListValue& value,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena);
 
 // Extension of ParsedListValueInterface which is also mutable. Accessing this
 // like a normal list before all elements are finished being appended is a bug.
@@ -71,22 +45,6 @@ class MutableListValue : public CustomListValueInterface {
  private:
   NativeTypeId GetNativeTypeId() const override {
     return NativeTypeId::For<MutableListValue>();
-  }
-};
-
-// Special implementation of list which is both a modern list, legacy list, and
-// mutable.
-//
-// NOTE: We do not extend CompatListValue to avoid having to use virtual
-// inheritance and `dynamic_cast`.
-class MutableCompatListValue : public MutableListValue,
-                               public google::api::expr::runtime::CelList {
- public:
-  virtual google::protobuf::Arena* GetOwningArena() const = 0;
-
- private:
-  NativeTypeId GetNativeTypeId() const final {
-    return NativeTypeId::For<MutableCompatListValue>();
   }
 };
 

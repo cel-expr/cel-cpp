@@ -35,7 +35,7 @@
 #include "eval/public/cel_options.h"
 #include "extensions/select_optimization.h"
 #include "internal/noop_delete.h"
-#include "runtime/internal/runtime_env.h"
+#include "runtime/internal/legacy_runtime_env.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
@@ -51,7 +51,7 @@ using ::cel::extensions::kCelAttribute;
 using ::cel::extensions::kCelHasField;
 using ::cel::extensions::SelectOptimizationAstUpdater;
 using ::cel::runtime_internal::CreateConstantFoldingOptimizer;
-using ::cel::runtime_internal::RuntimeEnv;
+using ::cel::runtime_internal::LegacyRuntimeEnv;
 
 }  // namespace
 
@@ -72,18 +72,18 @@ std::unique_ptr<CelExpressionBuilder> CreateCelExpressionBuilder(
         message_factory,
         cel::internal::NoopDeleteFor<google::protobuf::MessageFactory>());
   }
-  auto env = std::make_shared<RuntimeEnv>(
+  auto env_or = LegacyRuntimeEnv::Create(
       std::shared_ptr<const google::protobuf::DescriptorPool>(
           descriptor_pool,
           cel::internal::NoopDeleteFor<const google::protobuf::DescriptorPool>()),
       shared_message_factory);
-  if (auto status = env->Initialize(); !status.ok()) {
+  if (!env_or.ok()) {
     ABSL_LOG(ERROR) << "Failed to validate standard message types: "
-                    << status.ToString();  // NOLINT: OSS compatibility
+                    << env_or.status().ToString();  // NOLINT: OSS compatibility
     return nullptr;
   }
   auto builder = std::make_unique<CelExpressionBuilderFlatImpl>(
-      std::move(env), runtime_options);
+      *std::move(env_or), runtime_options);
 
   FlatExprBuilder& flat_expr_builder = builder->flat_expr_builder();
 

@@ -362,6 +362,12 @@ std::vector<RegexExtTestCase> regexTestCases() {
        R"(regex.replace('123456789ABC',
        '(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\d)(\\w)(\\w)(\\w)',
        r'\1-\9-X', 1) == '1-9-X')"},
+      {EvaluationType::kBoolTrue,
+       "regex.replace('abc', '', '-', 2) == '-a-bc'"},
+      {EvaluationType::kBoolTrue,
+       "regex.replace('abc', '^', '>', 2) == '>abc'"},
+      {EvaluationType::kBoolTrue,
+       "regex.replace('abc', '$', '<', 2) == 'abc<'"},
 
       // Static Errors
       {EvaluationType::kUnknownStaticError, "regex.replace('abc', '^', 1)",
