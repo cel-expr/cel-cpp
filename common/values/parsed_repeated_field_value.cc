@@ -273,8 +273,9 @@ absl::Status ParsedRepeatedFieldValue::ForEach(
   const auto* reflection = message_->GetReflection();
   const int size = reflection->FieldSize(*message_, field_);
   if (size > 0) {
-    CEL_ASSIGN_OR_RETURN(auto accessor,
-                         common_internal::RepeatedFieldAccessorFor(field_));
+    CEL_ASSIGN_OR_RETURN(
+        auto accessor,
+        common_internal::RepeatedFieldAccessorFor(field_, arena_ == nullptr));
     Value scratch;
     for (int i = 0; i < size; ++i) {
       (*accessor)(i, message_, field_, reflection, descriptor_pool,
@@ -377,8 +378,8 @@ ParsedRepeatedFieldValue::NewIterator() const {
   if (ABSL_PREDICT_FALSE(field_ == nullptr)) {
     return NewEmptyValueIterator();
   }
-  CEL_ASSIGN_OR_RETURN(auto accessor,
-                       common_internal::RepeatedFieldAccessorFor(field_));
+  CEL_ASSIGN_OR_RETURN(auto accessor, common_internal::RepeatedFieldAccessorFor(
+                                          field_, arena_ == nullptr));
   return std::make_unique<ParsedRepeatedFieldValueIterator>(message_, field_,
                                                             accessor);
 }
@@ -396,8 +397,9 @@ absl::Status ParsedRepeatedFieldValue::Contains(
   const auto* reflection = message_->GetReflection();
   const int size = reflection->FieldSize(*message_, field_);
   if (size > 0) {
-    CEL_ASSIGN_OR_RETURN(auto accessor,
-                         common_internal::RepeatedFieldAccessorFor(field_));
+    CEL_ASSIGN_OR_RETURN(
+        auto accessor,
+        common_internal::RepeatedFieldAccessorFor(field_, /*unsafe=*/true));
     Value scratch;
     for (int i = 0; i < size; ++i) {
       (*accessor)(i, message_, field_, reflection, descriptor_pool,
