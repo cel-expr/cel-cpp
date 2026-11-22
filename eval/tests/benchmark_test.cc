@@ -1,5 +1,7 @@
 #include "internal/benchmark.h"
 
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -8,37 +10,38 @@
 #include "google/protobuf/struct.pb.h"
 #include "google/rpc/context/attribute_context.pb.h"
 #include "absl/base/attributes.h"
+#include "absl/base/nullability.h"
 #include "absl/container/btree_map.h"
 #include "absl/container/flat_hash_set.h"
-#include "absl/container/node_hash_set.h"
 #include "absl/flags/flag.h"
+#include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/match.h"
-#include "absl/types/span.h"
 #include "common/ast_proto.h"
 #include "common/decl.h"
+#include "common/native_type.h"
 #include "common/type.h"
+#include "common/value.h"
 #include "compiler/compiler.h"
 #include "compiler/compiler_factory.h"
 #include "compiler/standard_library.h"
-#include "eval/public/activation.h"
-#include "eval/public/builtin_func_registrar.h"
-#include "eval/public/cel_expr_builder_factory.h"
-#include "eval/public/cel_expression.h"
-#include "eval/public/cel_options.h"
-#include "eval/public/cel_value.h"
-#include "eval/public/containers/container_backed_list_impl.h"
-#include "eval/public/containers/container_backed_map_impl.h"
-#include "eval/public/structs/cel_proto_wrapper.h"
 #include "eval/tests/request_context.pb.h"
+#include "extensions/protobuf/runtime_adapter.h"
 #include "internal/status_macros.h"
 #include "internal/testing.h"
 #include "parser/parser.h"
+#include "runtime/activation.h"
+#include "runtime/constant_folding.h"
+#include "runtime/runtime.h"
+#include "runtime/runtime_options.h"
+#include "runtime/standard_runtime_builder_factory.h"
 #include "google/protobuf/arena.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
 
 ABSL_FLAG(bool, enable_optimizations, false, "enable const folding opt");
-ABSL_FLAG(bool, enable_recursive_planning, false, "enable recursive planning");
 ABSL_FLAG(bool, enable_typed_field_access, false, "enable typed field access");
 
 namespace google {
@@ -49,22 +52,30 @@ namespace runtime {
 namespace {
 
 using ::absl_testing::IsOk;
+using ::cel::Activation;
+using ::cel::BoolValue;
+using ::cel::CreateStandardRuntimeBuilder;
+using ::cel::CustomMapValue;
+using ::cel::CustomMapValueInterface;
+using ::cel::IntValue;
+using ::cel::ListValue;
+using ::cel::NativeTypeId;
+using ::cel::NewListValueBuilder;
+using ::cel::NewMapValueBuilder;
+using ::cel::Runtime;
+using ::cel::RuntimeOptions;
+using ::cel::StringValue;
+using ::cel::Value;
+using ::cel::ValueIteratorPtr;
+using ::cel::extensions::EnableConstantFolding;
+using ::cel::extensions::ProtobufRuntimeAdapter;
 using ::cel::expr::Expr;
 using ::cel::expr::ParsedExpr;
 using ::cel::expr::SourceInfo;
 using ::google::rpc::context::AttributeContext;
 
-InterpreterOptions GetOptions(google::protobuf::Arena& arena) {
-  InterpreterOptions options;
-
-  if (absl::GetFlag(FLAGS_enable_optimizations)) {
-    options.constant_arena = &arena;
-    options.constant_folding = true;
-  }
-
-  if (absl::GetFlag(FLAGS_enable_recursive_planning)) {
-    options.max_recursion_depth = -1;
-  }
+RuntimeOptions GetOptions() {
+  RuntimeOptions options;
 
   if (absl::GetFlag(FLAGS_enable_typed_field_access)) {
     options.enable_typed_field_access = true;
@@ -73,16 +84,25 @@ InterpreterOptions GetOptions(google::protobuf::Arena& arena) {
   return options;
 }
 
+absl::StatusOr<std::unique_ptr<Runtime>> CreateBenchmarkRuntime(
+    google::protobuf::Arena& arena, const RuntimeOptions& options = GetOptions(),
+    bool force_const_folding = false) {
+  CEL_ASSIGN_OR_RETURN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  if (force_const_folding || absl::GetFlag(FLAGS_enable_optimizations)) {
+    CEL_RETURN_IF_ERROR(EnableConstantFolding(
+        builder, &arena, google::protobuf::MessageFactory::generated_factory()));
+  }
+  return std::move(builder).Build();
+}
+
 // Benchmark test
 // Evaluates cel expression:
 // '1 + 1 + 1 .... +1'
 static void BM_Eval(benchmark::State& state) {
   google::protobuf::Arena arena;
-  InterpreterOptions options = GetOptions(arena);
-
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
   int len = state.range(0);
 
@@ -99,23 +119,25 @@ static void BM_Eval(benchmark::State& state) {
   cur_expr->mutable_const_expr()->set_int64_value(1);
 
   SourceInfo source_info;
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&root_expr, &source_info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, root_expr, &source_info));
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
+    google::protobuf::Arena eval_arena;
     Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsInt64());
-    ASSERT_TRUE(result.Int64OrDie() == len + 1);
+    ASSERT_OK_AND_ASSIGN(Value result,
+                         program->Evaluate(&eval_arena, activation));
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_TRUE(result.Get<IntValue>().NativeValue() == len + 1);
   }
 }
 
 BENCHMARK(BM_Eval)->Range(1, 10000);
 
-absl::Status EmptyCallback(int64_t expr_id, const CelValue& value,
-                           google::protobuf::Arena* arena) {
+absl::Status EmptyCallback(int64_t expr_id, const Value&,
+                           const google::protobuf::DescriptorPool* absl_nonnull,
+                           google::protobuf::MessageFactory* absl_nonnull,
+                           google::protobuf::Arena* absl_nonnull) {
   return absl::OkStatus();
 }
 
@@ -124,12 +146,7 @@ absl::Status EmptyCallback(int64_t expr_id, const CelValue& value,
 // '1 + 1 + 1 .... +1'
 static void BM_Eval_Trace(benchmark::State& state) {
   google::protobuf::Arena arena;
-  InterpreterOptions options = GetOptions(arena);
-  options.enable_recursive_tracing = true;
-
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
   int len = state.range(0);
 
@@ -146,16 +163,16 @@ static void BM_Eval_Trace(benchmark::State& state) {
   cur_expr->mutable_const_expr()->set_int64_value(1);
 
   SourceInfo source_info;
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&root_expr, &source_info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, root_expr, &source_info));
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
+    google::protobuf::Arena eval_arena;
     Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
-    ASSERT_TRUE(result.IsInt64());
-    ASSERT_TRUE(result.Int64OrDie() == len + 1);
+    ASSERT_OK_AND_ASSIGN(
+        Value result, program->Trace(&eval_arena, activation, EmptyCallback));
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_TRUE(result.Get<IntValue>().NativeValue() == len + 1);
   }
 }
 
@@ -168,11 +185,7 @@ BENCHMARK(BM_Eval_Trace)->Range(1, 10000);
 // '"a" + "a" + "a" .... + "a"'
 static void BM_EvalString(benchmark::State& state) {
   google::protobuf::Arena arena;
-  InterpreterOptions options = GetOptions(arena);
-
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
   int len = state.range(0);
 
@@ -189,16 +202,16 @@ static void BM_EvalString(benchmark::State& state) {
   cur_expr->mutable_const_expr()->set_string_value("a");
 
   SourceInfo source_info;
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&root_expr, &source_info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, root_expr, &source_info));
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
+    google::protobuf::Arena eval_arena;
     Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsString());
-    ASSERT_TRUE(result.StringOrDie().value().size() == len + 1);
+    ASSERT_OK_AND_ASSIGN(Value result,
+                         program->Evaluate(&eval_arena, activation));
+    ASSERT_TRUE(result.Is<StringValue>());
+    ASSERT_TRUE(result.Get<StringValue>().Size() == len + 1);
   }
 }
 
@@ -211,12 +224,7 @@ BENCHMARK(BM_EvalString)->Range(1, 10000);
 // '"a" + "a" + "a" .... + "a"'
 static void BM_EvalString_Trace(benchmark::State& state) {
   google::protobuf::Arena arena;
-  InterpreterOptions options = GetOptions(arena);
-  options.enable_recursive_tracing = true;
-
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
   int len = state.range(0);
 
@@ -233,16 +241,16 @@ static void BM_EvalString_Trace(benchmark::State& state) {
   cur_expr->mutable_const_expr()->set_string_value("a");
 
   SourceInfo source_info;
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&root_expr, &source_info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, root_expr, &source_info));
 
   for (auto _ : state) {
-    google::protobuf::Arena arena;
+    google::protobuf::Arena eval_arena;
     Activation activation;
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
-    ASSERT_TRUE(result.IsString());
-    ASSERT_TRUE(result.StringOrDie().value().size() == len + 1);
+    ASSERT_OK_AND_ASSIGN(
+        Value result, program->Trace(&eval_arena, activation, EmptyCallback));
+    ASSERT_TRUE(result.Is<StringValue>());
+    ASSERT_TRUE(result.Get<StringValue>().Size() == len + 1);
   }
 }
 
@@ -308,51 +316,94 @@ void BM_PolicySymbolic(benchmark::State& state) {
     ])
    ))cel"));
 
-  InterpreterOptions options = GetOptions(arena);
-  options.constant_folding = true;
-  options.constant_arena = &arena;
+  ASSERT_OK_AND_ASSIGN(auto runtime,
+                       CreateBenchmarkRuntime(arena, GetOptions(),
+                                              /*force_const_folding=*/true));
 
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
-
-  SourceInfo source_info;
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(
-                                          &parsed_expr.expr(), &source_info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
 
   Activation activation;
-  activation.InsertValue("ip", CelValue::CreateStringView(kIP));
-  activation.InsertValue("path", CelValue::CreateStringView(kPath));
-  activation.InsertValue("token", CelValue::CreateStringView(kToken));
+  activation.InsertOrAssignValue("ip", StringValue::WrapUnsafe(kIP));
+  activation.InsertOrAssignValue("path", StringValue::WrapUnsafe(kPath));
+  activation.InsertOrAssignValue("token", StringValue::WrapUnsafe(kToken));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
 BENCHMARK(BM_PolicySymbolic);
 
-class RequestMap : public CelMap {
+class RequestMap : public CustomMapValueInterface {
  public:
-  std::optional<CelValue> operator[](CelValue key) const override {
-    if (!key.IsString()) {
-      return {};
-    }
-    auto value = key.StringOrDie().value();
-    if (value == "ip") {
-      return CelValue::CreateStringView(kIP);
-    } else if (value == "path") {
-      return CelValue::CreateStringView(kPath);
-    } else if (value == "token") {
-      return CelValue::CreateStringView(kToken);
-    }
-    return {};
+  size_t Size() const override { return 3; }
+
+  absl::Status ListKeys(
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      ListValue* absl_nonnull result) const override {
+    return absl::UnimplementedError("ListKeys is not implemented");
   }
-  int size() const override { return 3; }
-  absl::StatusOr<const CelList*> ListKeys() const override {
-    return absl::UnimplementedError("CelMap::ListKeys is not implemented");
+
+  absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
+    return absl::UnimplementedError("NewIterator is not implemented");
+  }
+
+  std::string DebugString() const override { return "RequestMap"; }
+
+  absl::Status ConvertToJsonObject(
+      const google::protobuf::DescriptorPool* absl_nonnull,
+      google::protobuf::MessageFactory* absl_nonnull,
+      google::protobuf::Message* absl_nonnull) const override {
+    return absl::UnimplementedError("ConvertToJsonObject is not implemented");
+  }
+
+  CustomMapValue Clone(google::protobuf::Arena* absl_nonnull arena) const override {
+    return CustomMapValue(google::protobuf::Arena::Create<RequestMap>(arena), arena);
+  }
+
+ protected:
+  absl::StatusOr<bool> Find(
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena,
+      Value* absl_nonnull result) const override {
+    auto string_value = key.As<StringValue>();
+    if (!string_value) {
+      return false;
+    }
+    if (string_value->Equals("ip")) {
+      *result = StringValue::WrapUnsafe(kIP);
+    } else if (string_value->Equals("path")) {
+      *result = StringValue::WrapUnsafe(kPath);
+    } else if (string_value->Equals("token")) {
+      *result = StringValue::WrapUnsafe(kToken);
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  absl::StatusOr<bool> Has(
+      const Value& key,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena) const override {
+    auto string_value = key.As<StringValue>();
+    if (!string_value) {
+      return false;
+    }
+    return string_value->Equals("ip") || string_value->Equals("path") ||
+           string_value->Equals("token");
+  }
+
+ private:
+  NativeTypeId GetNativeTypeId() const override {
+    return NativeTypeId::For<RequestMap>();
   }
 };
 
@@ -367,24 +418,19 @@ void BM_PolicySymbolicMap(benchmark::State& state) {
      request.ip in ["10.0.1.1",  "10.0.1.2", "10.0.1.3"])
    ))cel"));
 
-  InterpreterOptions options = GetOptions(arena);
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
-
-  SourceInfo source_info;
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(
-                                          &parsed_expr.expr(), &source_info));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
 
   Activation activation;
-  RequestMap request;
-  activation.InsertValue("request", CelValue::CreateMap(&request));
+  activation.InsertOrAssignValue(
+      "request",
+      CustomMapValue(google::protobuf::Arena::Create<RequestMap>(&arena), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -417,25 +463,23 @@ void BM_PolicySymbolicProto(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
-
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   RequestContext request;
   request.set_ip(kIP);
   request.set_path(kPath);
   request.set_token(kToken);
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -498,28 +542,23 @@ void BM_Comprehension(benchmark::State& state) {
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kListSum, &expr));
 
   int len = state.range(0);
-  std::vector<CelValue> list;
-  list.reserve(len);
+  auto list_builder = NewListValueBuilder(&arena);
+  list_builder->Reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    ASSERT_THAT(list_builder->Add(IntValue(1)), IsOk());
   }
+  activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
 
-  ContainerBackedListImpl cel_list(std::move(list));
-  activation.InsertValue("list_var", CelValue::CreateList(&cel_list));
-
-  InterpreterOptions options = GetOptions(arena);
+  RuntimeOptions options = GetOptions();
   options.comprehension_max_iterations = 10000000;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena, options));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&expr, nullptr));
+  ASSERT_OK_AND_ASSIGN(auto program,
+                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsInt64());
-    ASSERT_EQ(result.Int64OrDie(), len);
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>().NativeValue(), len);
   }
 }
 
@@ -532,29 +571,24 @@ void BM_Comprehension_Trace(benchmark::State& state) {
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kListSum, &expr));
 
   int len = state.range(0);
-  std::vector<CelValue> list;
-  list.reserve(len);
+  auto list_builder = NewListValueBuilder(&arena);
+  list_builder->Reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    ASSERT_THAT(list_builder->Add(IntValue(1)), IsOk());
   }
+  activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
 
-  ContainerBackedListImpl cel_list(std::move(list));
-  activation.InsertValue("list_var", CelValue::CreateList(&cel_list));
-  InterpreterOptions options = GetOptions(arena);
-  options.enable_recursive_tracing = true;
-
+  RuntimeOptions options = GetOptions();
   options.comprehension_max_iterations = 10000000;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena, options));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&expr, nullptr));
+  ASSERT_OK_AND_ASSIGN(auto program,
+                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
-    ASSERT_TRUE(result.IsInt64());
-    ASSERT_EQ(result.Int64OrDie(), len);
+    ASSERT_OK_AND_ASSIGN(Value result,
+                         program->Trace(&arena, activation, EmptyCallback));
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>().NativeValue(), len);
   }
 }
 
@@ -566,24 +600,21 @@ void BM_HasMap(benchmark::State& state) {
   ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr,
                        parser::Parse("has(request.path) && !has(request.ip)"));
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
+
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
+
+  auto map_builder = NewMapValueBuilder(&arena);
+  ASSERT_THAT(map_builder->Put(StringValue::WrapUnsafe("path"),
+                               StringValue::WrapUnsafe("path")),
               IsOk());
-
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&parsed_expr.expr(), nullptr));
-
-  std::vector<std::pair<CelValue, CelValue>> map_pairs{
-      {CelValue::CreateStringView("path"), CelValue::CreateStringView("path")}};
-  auto cel_map = CreateContainerBackedMap(absl::MakeSpan(map_pairs));
-  activation.InsertValue("request", CelValue::CreateMap((*cel_map).get()));
+  activation.InsertOrAssignValue("request", std::move(*map_builder).Build());
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -611,25 +642,24 @@ void BM_HasProto(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   RequestContext request;
   request.set_path(kPath);
   request.set_token(kToken);
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -657,24 +687,23 @@ void BM_HasProtoMap(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   RequestContext request;
   request.mutable_headers()->insert({"create_time", "2021-01-01"});
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -702,24 +731,23 @@ void BM_ReadProtoMap(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   RequestContext request;
   request.mutable_headers()->insert({"create_time", "2021-01-01"});
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -747,24 +775,23 @@ void BM_NestedProtoFieldRead(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   RequestContext request;
   request.mutable_a()->mutable_b()->mutable_c()->mutable_d()->set_e(false);
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -792,23 +819,22 @@ void BM_NestedProtoFieldReadDefaults(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   RequestContext request;
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -837,26 +863,25 @@ void BM_ProtoStructAccess(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   AttributeContext::Request request;
   auto* auth = request.mutable_auth();
   (*auth->mutable_claims()->mutable_fields())["iss"].set_string_value(
       "accounts.google.com");
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -885,12 +910,10 @@ void BM_ProtoListAccess(benchmark::State& state) {
   cel::expr::CheckedExpr checked_expr;
   ASSERT_THAT(cel::AstToCheckedExpr(*ast, &checked_expr), IsOk());
 
-  InterpreterOptions options = GetOptions(arena);
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr, builder->CreateExpression(&checked_expr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, checked_expr));
 
   Activation activation;
   AttributeContext::Request request;
@@ -900,14 +923,15 @@ void BM_ProtoListAccess(benchmark::State& state) {
   auth->add_access_levels("//.../accessLevels/MY_LEVEL_2");
   auth->add_access_levels("//.../accessLevels/MY_LEVEL_3");
   auth->add_access_levels("//.../accessLevels/MY_LEVEL_4");
-  activation.InsertValue("request",
-                         CelProtoWrapper::CreateMessage(&request, &arena));
+  activation.InsertOrAssignValue(
+      "request",
+      Value::WrapMessage(&request, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsBool());
-    ASSERT_TRUE(result.BoolOrDie());
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<BoolValue>());
+    ASSERT_TRUE(result.Get<BoolValue>().NativeValue());
   }
 }
 
@@ -1014,28 +1038,24 @@ void BM_NestedComprehension(benchmark::State& state) {
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kNestedListSum, &expr));
 
   int len = state.range(0);
-  std::vector<CelValue> list;
-  list.reserve(len);
+  auto list_builder = NewListValueBuilder(&arena);
+  list_builder->Reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    ASSERT_THAT(list_builder->Add(IntValue(1)), IsOk());
   }
+  activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
 
-  ContainerBackedListImpl cel_list(std::move(list));
-  activation.InsertValue("list_var", CelValue::CreateList(&cel_list));
-  InterpreterOptions options = GetOptions(arena);
+  RuntimeOptions options = GetOptions();
   options.comprehension_max_iterations = 10000000;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena, options));
 
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&expr, nullptr));
+  ASSERT_OK_AND_ASSIGN(auto program,
+                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsInt64());
-    ASSERT_EQ(result.Int64OrDie(), len * len);
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>().NativeValue(), len * len);
   }
 }
 
@@ -1048,30 +1068,26 @@ void BM_NestedComprehension_Trace(benchmark::State& state) {
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kNestedListSum, &expr));
 
   int len = state.range(0);
-  std::vector<CelValue> list;
-  list.reserve(len);
+  auto list_builder = NewListValueBuilder(&arena);
+  list_builder->Reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    ASSERT_THAT(list_builder->Add(IntValue(1)), IsOk());
   }
+  activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
 
-  ContainerBackedListImpl cel_list(std::move(list));
-  activation.InsertValue("list_var", CelValue::CreateList(&cel_list));
-  InterpreterOptions options = GetOptions(arena);
+  RuntimeOptions options = GetOptions();
   options.comprehension_max_iterations = 10000000;
   options.enable_comprehension_list_append = true;
-  options.enable_recursive_tracing = true;
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena, options));
 
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
-  ASSERT_OK_AND_ASSIGN(auto cel_expr,
-                       builder->CreateExpression(&expr, nullptr));
+  ASSERT_OK_AND_ASSIGN(auto program,
+                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
-    ASSERT_TRUE(result.IsInt64());
-    ASSERT_EQ(result.Int64OrDie(), len * len);
+    ASSERT_OK_AND_ASSIGN(Value result,
+                         program->Trace(&arena, activation, EmptyCallback));
+    ASSERT_TRUE(result.Is<IntValue>());
+    ASSERT_EQ(result.Get<IntValue>().NativeValue(), len * len);
   }
 }
 
@@ -1084,28 +1100,26 @@ void BM_ListComprehension(benchmark::State& state) {
                        parser::Parse("list_var.map(x, x * 2)"));
 
   int len = state.range(0);
-  std::vector<CelValue> list;
-  list.reserve(len);
+  auto list_builder = NewListValueBuilder(&arena);
+  list_builder->Reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    ASSERT_THAT(list_builder->Add(IntValue(1)), IsOk());
   }
+  activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
 
-  ContainerBackedListImpl cel_list(std::move(list));
-  activation.InsertValue("list_var", CelValue::CreateList(&cel_list));
-  InterpreterOptions options = GetOptions(arena);
+  RuntimeOptions options = GetOptions();
   options.comprehension_max_iterations = 10000000;
   options.enable_comprehension_list_append = true;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
-  ASSERT_OK_AND_ASSIGN(
-      auto cel_expr, builder->CreateExpression(&(parsed_expr.expr()), nullptr));
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena, options));
+
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsList());
-    ASSERT_EQ(result.ListOrDie()->size(), len);
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<ListValue>());
+    ASSERT_THAT(result.Get<ListValue>().Size(),
+                ::absl_testing::IsOkAndHolds(len));
   }
 }
 
@@ -1118,30 +1132,27 @@ void BM_ListComprehension_Trace(benchmark::State& state) {
                        parser::Parse("list_var.map(x, x * 2)"));
 
   int len = state.range(0);
-  std::vector<CelValue> list;
-  list.reserve(len);
+  auto list_builder = NewListValueBuilder(&arena);
+  list_builder->Reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    ASSERT_THAT(list_builder->Add(IntValue(1)), IsOk());
   }
+  activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
 
-  ContainerBackedListImpl cel_list(std::move(list));
-  activation.InsertValue("list_var", CelValue::CreateList(&cel_list));
-  InterpreterOptions options = GetOptions(arena);
+  RuntimeOptions options = GetOptions();
   options.comprehension_max_iterations = 10000000;
   options.enable_comprehension_list_append = true;
-  options.enable_recursive_tracing = true;
+  ASSERT_OK_AND_ASSIGN(auto runtime, CreateBenchmarkRuntime(arena, options));
 
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry(), options),
-              IsOk());
-  ASSERT_OK_AND_ASSIGN(
-      auto cel_expr, builder->CreateExpression(&(parsed_expr.expr()), nullptr));
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Trace(activation, &arena, EmptyCallback));
-    ASSERT_TRUE(result.IsList());
-    ASSERT_EQ(result.ListOrDie()->size(), len);
+    ASSERT_OK_AND_ASSIGN(Value result,
+                         program->Trace(&arena, activation, EmptyCallback));
+    ASSERT_TRUE(result.Is<ListValue>());
+    ASSERT_THAT(result.Get<ListValue>().Size(),
+                ::absl_testing::IsOkAndHolds(len));
   }
 }
 
@@ -1154,48 +1165,45 @@ void BM_ListComprehension_Opt(benchmark::State& state) {
                        parser::Parse("list_var.map(x, x * 2)"));
 
   int len = state.range(0);
-  std::vector<CelValue> list;
-  list.reserve(len);
+  auto list_builder = NewListValueBuilder(&arena);
+  list_builder->Reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    ASSERT_THAT(list_builder->Add(IntValue(1)), IsOk());
   }
+  activation.InsertOrAssignValue("list_var", std::move(*list_builder).Build());
 
-  ContainerBackedListImpl cel_list(std::move(list));
-  activation.InsertValue("list_var", CelValue::CreateList(&cel_list));
-  InterpreterOptions options;
-  options.constant_arena = &arena;
-  options.constant_folding = true;
+  RuntimeOptions options;
   options.comprehension_max_iterations = 10000000;
   options.enable_comprehension_list_append = true;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
   ASSERT_OK_AND_ASSIGN(
-      auto cel_expr, builder->CreateExpression(&(parsed_expr.expr()), nullptr));
+      auto runtime,
+      CreateBenchmarkRuntime(arena, options, /*force_const_folding=*/true));
+
+  ASSERT_OK_AND_ASSIGN(auto program, ProtobufRuntimeAdapter::CreateProgram(
+                                         *runtime, parsed_expr));
 
   for (auto _ : state) {
-    ASSERT_OK_AND_ASSIGN(CelValue result,
-                         cel_expr->Evaluate(activation, &arena));
-    ASSERT_TRUE(result.IsList());
-    ASSERT_EQ(result.ListOrDie()->size(), len);
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    ASSERT_TRUE(result.Is<ListValue>());
+    ASSERT_THAT(result.Get<ListValue>().Size(),
+                ::absl_testing::IsOkAndHolds(len));
   }
 }
 
 BENCHMARK(BM_ListComprehension_Opt)->Range(1, 1 << 16);
 
 void BM_ComprehensionCpp(benchmark::State& state) {
-  Activation activation;
-
   int len = state.range(0);
-  std::vector<CelValue> list;
+  std::vector<Value> list;
   list.reserve(len);
   for (int i = 0; i < len; i++) {
-    list.push_back(CelValue::CreateInt64(1));
+    list.push_back(IntValue(1));
   }
 
   auto op = [&list]() {
     int sum = 0;
     for (const auto& value : list) {
-      sum += value.Int64OrDie();
+      sum += value.Get<IntValue>().NativeValue();
     }
     return sum;
   };

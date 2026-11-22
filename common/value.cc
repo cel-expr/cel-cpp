@@ -57,6 +57,7 @@
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
+#include "google/protobuf/io/zero_copy_stream.h"
 #include "google/protobuf/message.h"
 
 #undef GetMessage
@@ -2377,5 +2378,283 @@ StringValue::StringValue(const BytesValue& other) : StringValue(other.value_) {
         return internal::Utf8IsValid(cord);
       })));
 }
+
+namespace common_internal {
+
+std::string LegacyListValue::DebugString() const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return "[]";
+  }
+  return dispatcher_->debug_string(impl_);
+}
+
+absl::Status LegacyListValue::SerializeTo(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  return dispatcher_->serialize_to(impl_, descriptor_pool, message_factory,
+                                   output);
+}
+
+absl::Status LegacyListValue::ConvertToJson(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Message* absl_nonnull json) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  return dispatcher_->convert_to_json(impl_, descriptor_pool, message_factory,
+                                      json);
+}
+
+absl::Status LegacyListValue::ConvertToJsonArray(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Message* absl_nonnull json) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  return dispatcher_->convert_to_json_array(impl_, descriptor_pool,
+                                            message_factory, json);
+}
+
+absl::Status LegacyListValue::Equal(
+    const Value& other,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  if (auto list_value = other.AsList(); list_value.has_value()) {
+    return ListValueEqual(*this, *list_value, descriptor_pool, message_factory,
+                          arena, result);
+  }
+  *result = FalseValue();
+  return absl::OkStatus();
+}
+
+bool LegacyListValue::IsEmpty() const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return true;
+  }
+  return dispatcher_->is_empty(impl_);
+}
+
+size_t LegacyListValue::Size() const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return 0;
+  }
+  return dispatcher_->size(impl_);
+}
+
+absl::Status LegacyListValue::Get(
+    size_t index, const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  return dispatcher_->get(impl_, index, descriptor_pool, message_factory, arena,
+                          result);
+}
+
+absl::Status LegacyListValue::ForEach(
+    ForEachWithIndexCallback callback,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  return dispatcher_->for_each(impl_, callback, descriptor_pool,
+                               message_factory, arena);
+}
+
+absl::StatusOr<absl_nonnull ValueIteratorPtr> LegacyListValue::NewIterator()
+    const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  return dispatcher_->new_iterator(impl_);
+}
+
+absl::Status LegacyListValue::Contains(
+    const Value& other,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy list value support is not linked");
+  }
+  return dispatcher_->contains(impl_, other, descriptor_pool, message_factory,
+                               arena, result);
+}
+
+std::string LegacyMapValue::DebugString() const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return "{}";
+  }
+  return dispatcher_->debug_string(impl_);
+}
+
+absl::Status LegacyMapValue::SerializeTo(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->serialize_to(impl_, descriptor_pool, message_factory,
+                                   output);
+}
+
+absl::Status LegacyMapValue::ConvertToJson(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Message* absl_nonnull json) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->convert_to_json(impl_, descriptor_pool, message_factory,
+                                      json);
+}
+
+absl::Status LegacyMapValue::ConvertToJsonObject(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Message* absl_nonnull json) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->convert_to_json_object(impl_, descriptor_pool,
+                                             message_factory, json);
+}
+
+absl::Status LegacyMapValue::Equal(
+    const Value& other,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  if (auto map_value = other.AsMap(); map_value.has_value()) {
+    return MapValueEqual(*this, *map_value, descriptor_pool, message_factory,
+                         arena, result);
+  }
+  *result = FalseValue();
+  return absl::OkStatus();
+}
+
+bool LegacyMapValue::IsEmpty() const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return true;
+  }
+  return dispatcher_->is_empty(impl_);
+}
+
+size_t LegacyMapValue::Size() const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return 0;
+  }
+  return dispatcher_->size(impl_);
+}
+
+absl::Status LegacyMapValue::Get(
+    const Value& key,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->get(impl_, key, descriptor_pool, message_factory, arena,
+                          result);
+}
+
+absl::StatusOr<bool> LegacyMapValue::Find(
+    const Value& key,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->find(impl_, key, descriptor_pool, message_factory, arena,
+                           result);
+}
+
+absl::Status LegacyMapValue::Has(
+    const Value& key,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->has(impl_, key, descriptor_pool, message_factory, arena,
+                          result);
+}
+
+absl::Status LegacyMapValue::ListKeys(
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena, ListValue* absl_nonnull result) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->list_keys(impl_, descriptor_pool, message_factory, arena,
+                                result);
+}
+
+absl::Status LegacyMapValue::ForEach(
+    ForEachCallback callback,
+    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+    google::protobuf::MessageFactory* absl_nonnull message_factory,
+    google::protobuf::Arena* absl_nonnull arena) const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->for_each(impl_, callback, descriptor_pool,
+                               message_factory, arena);
+}
+
+absl::StatusOr<absl_nonnull ValueIteratorPtr> LegacyMapValue::NewIterator()
+    const {
+  if (ABSL_PREDICT_FALSE(dispatcher_ == nullptr)) {
+    ABSL_DCHECK(dispatcher_ != nullptr);
+    return absl::UnimplementedError("legacy map value support is not linked");
+  }
+  return dispatcher_->new_iterator(impl_);
+}
+
+}  // namespace common_internal
 
 }  // namespace cel

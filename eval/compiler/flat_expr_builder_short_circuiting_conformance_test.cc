@@ -20,7 +20,7 @@
 #include "internal/testing.h"
 #include "parser/options.h"
 #include "parser/parser.h"
-#include "runtime/internal/runtime_env_testing.h"
+#include "runtime/internal/legacy_runtime_env_testing.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 
@@ -29,7 +29,7 @@ namespace google::api::expr::runtime {
 namespace {
 
 using ::absl_testing::IsOk;
-using ::cel::runtime_internal::NewTestingRuntimeEnv;
+using ::cel::runtime_internal::NewTestingLegacyRuntimeEnv;
 using ::cel::expr::Expr;
 using ::google::api::expr::parser::Parse;
 using ::testing::Eq;
@@ -63,7 +63,7 @@ class ShortCircuitingTest
           cel::UnknownProcessingOptions::kAttributeAndFunction;
     }
     auto result = std::make_unique<CelExpressionBuilderFlatImpl>(
-        NewTestingRuntimeEnv(), options);
+        NewTestingLegacyRuntimeEnv(), options);
     ABSL_CHECK_OK(RegisterBuiltinFunctions(result->GetRegistry()));
     return result;
   }

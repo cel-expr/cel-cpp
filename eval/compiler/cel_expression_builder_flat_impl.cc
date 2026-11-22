@@ -23,6 +23,7 @@
 #include "cel/expr/checked.pb.h"
 #include "cel/expr/syntax.pb.h"
 #include "absl/base/macros.h"
+#include "absl/base/nullability.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
@@ -32,7 +33,11 @@
 #include "eval/public/cel_expression.h"
 #include "extensions/protobuf/ast_converters.h"
 #include "internal/status_macros.h"
+#include "runtime/internal/legacy_runtime_env.h"
+#include "runtime/internal/legacy_runtime_type_provider.h"
 #include "runtime/runtime_issue.h"
+#include "runtime/runtime_options.h"
+#include "runtime/type_registry.h"
 
 namespace google::api::expr::runtime {
 
@@ -41,6 +46,20 @@ using ::cel::RuntimeIssue;
 using ::cel::expr::CheckedExpr;
 using ::cel::expr::Expr;  // NOLINT: adjusted in OSS
 using ::cel::expr::SourceInfo;
+
+CelExpressionBuilderFlatImpl::CelExpressionBuilderFlatImpl(
+    absl_nonnull std::shared_ptr<cel::runtime_internal::LegacyRuntimeEnv> env,
+    const cel::RuntimeOptions& options)
+    : env_(std::move(env)),
+      legacy_type_provider_(
+          std::make_shared<cel::runtime_internal::LegacyRuntimeTypeProvider>(
+              env_->runtime_env.descriptor_pool.get(),
+              &cel::runtime_internal::GetRuntimeTypeProvider(
+                  env_->runtime_env.type_registry))),
+      flat_expr_builder_(env_->GetRuntimeEnv(), options,
+                         legacy_type_provider_.get()) {
+  env_->runtime_env.KeepAlive(legacy_type_provider_);
+}
 
 absl::StatusOr<std::unique_ptr<CelExpression>>
 CelExpressionBuilderFlatImpl::CreateExpression(
@@ -95,7 +114,8 @@ CelExpressionBuilderFlatImpl::CreateExpressionImpl(
     }
   }
 
-  return std::make_unique<CelExpressionFlatImpl>(env_, std::move(impl));
+  return std::make_unique<CelExpressionFlatImpl>(env_->GetRuntimeEnv(),
+                                                 std::move(impl));
 }
 
 }  // namespace google::api::expr::runtime

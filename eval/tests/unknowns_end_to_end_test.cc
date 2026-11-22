@@ -3,6 +3,8 @@
 // possible to represent unknown values or errors directly in CEL -- declaring
 // the unknowns is particular to the runtime.
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <utility>
@@ -10,7 +12,7 @@
 
 #include "cel/expr/syntax.pb.h"
 #include "google/protobuf/struct.pb.h"
-#include "absl/base/no_destructor.h"
+#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
@@ -20,21 +22,23 @@
 #include "base/attribute.h"
 #include "base/attribute_set.h"
 #include "base/function_result.h"
-#include "eval/public/activation.h"
-#include "eval/public/builtin_func_registrar.h"
-#include "eval/public/cel_attribute.h"
-#include "eval/public/cel_expr_builder_factory.h"
-#include "eval/public/cel_expression.h"
-#include "eval/public/cel_function.h"
-#include "eval/public/cel_options.h"
-#include "eval/public/cel_value.h"
-#include "eval/public/containers/container_backed_map_impl.h"
-#include "eval/public/structs/cel_proto_wrapper.h"
-#include "eval/public/unknown_set.h"
-#include "internal/status_macros.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
+#include "common/native_type.h"
+#include "common/unknown.h"
+#include "common/value.h"
+#include "extensions/protobuf/runtime_adapter.h"
 #include "internal/testing.h"
 #include "parser/parser.h"
+#include "runtime/activation.h"
+#include "runtime/function.h"
+#include "runtime/internal/errors.h"
+#include "runtime/runtime.h"
+#include "runtime/runtime_options.h"
+#include "runtime/standard_runtime_builder_factory.h"
 #include "google/protobuf/arena.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/message.h"
 #include "google/protobuf/text_format.h"
 
 namespace google {
@@ -44,43 +48,164 @@ namespace runtime {
 namespace {
 
 using ::absl_testing::IsOk;
+using ::absl_testing::StatusIs;
+using ::cel::Activation;
+using ::cel::AttributePattern;
+using ::cel::AttributeQualifierPattern;
+using ::cel::AttributeSet;
+using ::cel::BoolValue;
+using ::cel::CreateStandardRuntimeBuilder;
+using ::cel::CustomMapValue;
+using ::cel::CustomMapValueInterface;
+using ::cel::ErrorValue;
+using ::cel::Function;
+using ::cel::FunctionDescriptor;
+using ::cel::IntValue;
+using ::cel::Kind;
+using ::cel::ListValue;
+using ::cel::NativeTypeId;
+using ::cel::Runtime;
+using ::cel::RuntimeOptions;
+using ::cel::Unknown;
+using ::cel::UnknownProcessingOptions;
+using ::cel::UnknownValue;
+using ::cel::Value;
+using ::cel::ValueIterator;
+using ::cel::ValueIteratorPtr;
+using ::cel::extensions::ProtobufRuntimeAdapter;
+using ::cel::runtime_internal::CreateUnknownFunctionResultError;
+using ::cel::runtime_internal::kErrNoMatchingOverload;
 using ::cel::expr::Expr;
 using ::cel::expr::ParsedExpr;
 using ::google::api::expr::parser::Parse;
 using ::google::protobuf::Arena;
 using ::testing::ElementsAre;
+using ::testing::HasSubstr;
 
 enum class FunctionResponse { kUnknown, kTrue, kFalse };
 
-CelFunctionDescriptor CreateDescriptor(
-    absl::string_view name, CelValue::Type type = CelValue::Type::kString) {
-  return CelFunctionDescriptor(std::string(name), false, {type});
+FunctionDescriptor CreateDescriptor(absl::string_view name,
+                                    Kind type = Kind::kString) {
+  return FunctionDescriptor(name, false, {type});
 }
 
-class FunctionImpl : public CelFunction {
+class FunctionImpl : public Function {
  public:
-  FunctionImpl(absl::string_view name, FunctionResponse response,
-               CelValue::Type type = CelValue::Type::kString)
-      : CelFunction(CreateDescriptor(name, type)), response_(response) {}
+  explicit FunctionImpl(FunctionResponse response) : response_(response) {}
 
-  absl::Status Evaluate(absl::Span<const CelValue> arguments, CelValue* result,
-                        Arena* arena) const override {
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> arguments,
+                               const InvokeContext& context) const override {
     switch (response_) {
       case FunctionResponse::kUnknown:
-        *result = CreateUnknownFunctionResultError(arena, "help message");
-        break;
+        return ErrorValue::From(
+            CreateUnknownFunctionResultError("help message"), context.arena());
       case FunctionResponse::kTrue:
-        *result = CelValue::CreateBool(true);
-        break;
+        return BoolValue(true);
       case FunctionResponse::kFalse:
-        *result = CelValue::CreateBool(false);
-        break;
+        return BoolValue(false);
     }
-    return absl::OkStatus();
   }
 
  private:
   FunctionResponse response_;
+};
+
+// Custom map allowing arbitrary key Values (including UnknownValue and
+// ErrorValue) to test comprehension attribute-trail handling.
+class TestKeyTypesMap final : public CustomMapValueInterface {
+ public:
+  explicit TestKeyTypesMap(std::vector<std::pair<Value, Value>> entries)
+      : entries_(std::move(entries)) {}
+
+  size_t Size() const override { return entries_.size(); }
+
+  absl::Status ListKeys(const google::protobuf::DescriptorPool* absl_nonnull,
+                        google::protobuf::MessageFactory* absl_nonnull,
+                        google::protobuf::Arena* absl_nonnull,
+                        ListValue* absl_nonnull) const override {
+    return absl::UnimplementedError("ListKeys not implemented");
+  }
+
+  absl::StatusOr<absl_nonnull ValueIteratorPtr> NewIterator() const override {
+    class Iterator final : public ValueIterator {
+     public:
+      explicit Iterator(const std::vector<std::pair<Value, Value>>& entries)
+          : entries_(entries) {}
+
+      bool HasNext() override { return idx_ < entries_.size(); }
+
+      absl::Status Next(const google::protobuf::DescriptorPool* absl_nonnull,
+                        google::protobuf::MessageFactory* absl_nonnull,
+                        google::protobuf::Arena* absl_nonnull,
+                        Value* absl_nonnull result) override {
+        if (!HasNext()) {
+          return absl::OutOfRangeError("end of iterator");
+        }
+        *result = entries_[idx_++].first;
+        return absl::OkStatus();
+      }
+
+      absl::StatusOr<bool> Next2(const google::protobuf::DescriptorPool* absl_nonnull,
+                                 google::protobuf::MessageFactory* absl_nonnull,
+                                 google::protobuf::Arena* absl_nonnull,
+                                 Value* absl_nullable key,
+                                 Value* absl_nullable value) override {
+        if (!HasNext()) {
+          return false;
+        }
+        if (key != nullptr) {
+          *key = entries_[idx_].first;
+        }
+        if (value != nullptr) {
+          *value = entries_[idx_].second;
+        }
+        ++idx_;
+        return true;
+      }
+
+     private:
+      const std::vector<std::pair<Value, Value>>& entries_;
+      size_t idx_ = 0;
+    };
+    return std::make_unique<Iterator>(entries_);
+  }
+
+  std::string DebugString() const override { return "TestKeyTypesMap"; }
+
+  absl::Status ConvertToJsonObject(
+      const google::protobuf::DescriptorPool* absl_nonnull,
+      google::protobuf::MessageFactory* absl_nonnull,
+      google::protobuf::Message* absl_nonnull) const override {
+    return absl::UnimplementedError("ConvertToJsonObject not implemented");
+  }
+
+  CustomMapValue Clone(google::protobuf::Arena* absl_nonnull arena) const override {
+    return CustomMapValue(
+        google::protobuf::Arena::Create<TestKeyTypesMap>(arena, entries_), arena);
+  }
+
+ protected:
+  absl::StatusOr<bool> Find(const Value& key,
+                            const google::protobuf::DescriptorPool* absl_nonnull,
+                            google::protobuf::MessageFactory* absl_nonnull,
+                            google::protobuf::Arena* absl_nonnull,
+                            Value* absl_nonnull result) const override {
+    return false;
+  }
+
+  absl::StatusOr<bool> Has(const Value& key,
+                           const google::protobuf::DescriptorPool* absl_nonnull,
+                           google::protobuf::MessageFactory* absl_nonnull,
+                           google::protobuf::Arena* absl_nonnull) const override {
+    return false;
+  }
+
+ private:
+  NativeTypeId GetNativeTypeId() const override {
+    return NativeTypeId::For<TestKeyTypesMap>();
+  }
+
+  std::vector<std::pair<Value, Value>> entries_;
 };
 
 // Text fixture for unknowns. Holds on to state needed for execution to work
@@ -88,22 +213,24 @@ class FunctionImpl : public CelFunction {
 class UnknownsTest : public testing::Test {
  public:
   void PrepareBuilder(UnknownProcessingOptions opts) {
-    InterpreterOptions options;
+    RuntimeOptions options;
     options.unknown_processing = opts;
-    builder_ = CreateCelExpressionBuilder(options);
-    ASSERT_THAT(RegisterBuiltinFunctions(builder_->GetRegistry()), IsOk());
-    ASSERT_THAT(
-        builder_->GetRegistry()->RegisterLazyFunction(CreateDescriptor("F1")),
-        IsOk());
-    ASSERT_THAT(
-        builder_->GetRegistry()->RegisterLazyFunction(CreateDescriptor("F2")),
-        IsOk());
+    ASSERT_OK_AND_ASSIGN(
+        auto builder, CreateStandardRuntimeBuilder(
+                          google::protobuf::DescriptorPool::generated_pool(), options));
+    ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                    CreateDescriptor("F1")),
+                IsOk());
+    ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                    CreateDescriptor("F2")),
+                IsOk());
+    ASSERT_OK_AND_ASSIGN(runtime_, std::move(builder).Build());
   }
 
  protected:
   Arena arena_;
   Activation activation_;
-  std::unique_ptr<CelExpressionBuilder> builder_;
+  std::unique_ptr<Runtime> runtime_;
 };
 
 MATCHER_P(FunctionCallIs, fn_name, "") {
@@ -119,157 +246,155 @@ MATCHER_P(AttributeIs, attr, "") {
 TEST_F(UnknownsTest, NoUnknowns) {
   PrepareBuilder(UnknownProcessingOptions::kDisabled);
 
-  activation_.InsertValue("var1", CelValue::CreateInt64(3));
-  activation_.InsertValue("var2", CelValue::CreateInt64(5));
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F1", FunctionResponse::kFalse)),
-              IsOk());
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F2", FunctionResponse::kTrue)),
-              IsOk());
+  activation_.InsertOrAssignValue("var1", IntValue(3));
+  activation_.InsertOrAssignValue("var2", IntValue(5));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F1"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kFalse)));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F2"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kTrue)));
 
   ASSERT_OK_AND_ASSIGN(
       ParsedExpr expr,
       Parse("var1 > 3 && F1('arg1') || var2 > 3 && F2('arg2')"));
-  auto plan = builder_->CreateExpression(&expr.expr(), nullptr);
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr);
   ASSERT_THAT(plan, IsOk());
 
-  ASSERT_OK_AND_ASSIGN(CelValue response,
-                       plan.value()->Evaluate(activation_, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value response,
+                       plan.value()->Evaluate(&arena_, activation_));
 
   ASSERT_TRUE(response.IsBool()) << response.DebugString();
-  EXPECT_TRUE(response.BoolOrDie());
+  EXPECT_TRUE(response.GetBool().NativeValue());
 }
 
 TEST_F(UnknownsTest, UnknownAttributes) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeOnly);
-  ASSERT_THAT(activation_.SetUnknownAttributePatterns(
-                  {CelAttributePattern("var1", {})}),
+  ASSERT_THAT(activation_.SetUnknownPatterns({AttributePattern("var1", {})}),
               IsOk());
-  activation_.InsertValue("var2", CelValue::CreateInt64(3));
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F1", FunctionResponse::kTrue)),
-              IsOk());
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F2", FunctionResponse::kFalse)),
-              IsOk());
+  activation_.InsertOrAssignValue("var2", IntValue(3));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F1"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kTrue)));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F2"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kFalse)));
 
   ASSERT_OK_AND_ASSIGN(
       ParsedExpr expr,
       Parse("var1 > 3 && F1('arg1') || var2 > 3 && F2('arg2')"));
-  auto plan = builder_->CreateExpression(&expr.expr(), nullptr);
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr);
   ASSERT_THAT(plan, IsOk());
 
-  ASSERT_OK_AND_ASSIGN(CelValue response,
-                       plan.value()->Evaluate(activation_, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value response,
+                       plan.value()->Evaluate(&arena_, activation_));
 
-  ASSERT_TRUE(response.IsUnknownSet());
-  EXPECT_THAT(response.UnknownSetOrDie()->unknown_attributes(),
+  ASSERT_TRUE(response.IsUnknown());
+  EXPECT_THAT(response.GetUnknown().ToAttributeSet(),
               ElementsAre(AttributeIs("var1")));
 }
 
 TEST_F(UnknownsTest, UnknownAttributesPruning) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeOnly);
-  ASSERT_THAT(activation_.SetUnknownAttributePatterns(
-                  {CelAttributePattern("var1", {})}),
+  ASSERT_THAT(activation_.SetUnknownPatterns({AttributePattern("var1", {})}),
               IsOk());
-  activation_.InsertValue("var2", CelValue::CreateInt64(5));
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F1", FunctionResponse::kTrue)),
-              IsOk());
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F2", FunctionResponse::kTrue)),
-              IsOk());
+  activation_.InsertOrAssignValue("var2", IntValue(5));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F1"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kTrue)));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F2"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kTrue)));
 
   ASSERT_OK_AND_ASSIGN(
       ParsedExpr expr,
       Parse("var1 > 3 && F1('arg1') || var2 > 3 && F2('arg2')"));
-  auto plan = builder_->CreateExpression(&expr.expr(), nullptr);
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr);
   ASSERT_THAT(plan, IsOk());
 
-  ASSERT_OK_AND_ASSIGN(CelValue response,
-                       plan.value()->Evaluate(activation_, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value response,
+                       plan.value()->Evaluate(&arena_, activation_));
 
   ASSERT_TRUE(response.IsBool());
-  EXPECT_TRUE(response.BoolOrDie());
+  EXPECT_TRUE(response.GetBool().NativeValue());
 }
 
 TEST_F(UnknownsTest, UnknownFunctionsWithoutOptionError) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeOnly);
-  activation_.InsertValue("var1", CelValue::CreateInt64(5));
-  activation_.InsertValue("var2", CelValue::CreateInt64(3));
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F1", FunctionResponse::kUnknown)),
-              IsOk());
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F2", FunctionResponse::kFalse)),
-              IsOk());
+  activation_.InsertOrAssignValue("var1", IntValue(5));
+  activation_.InsertOrAssignValue("var2", IntValue(3));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F1"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kUnknown)));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F2"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kFalse)));
 
   ASSERT_OK_AND_ASSIGN(
       ParsedExpr expr,
       Parse("var1 > 3 && F1('arg1') || var2 > 3 && F2('arg2')"));
-  auto plan = builder_->CreateExpression(&expr.expr(), nullptr);
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr);
   ASSERT_THAT(plan, IsOk());
 
-  ASSERT_OK_AND_ASSIGN(CelValue response,
-                       plan.value()->Evaluate(activation_, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value response,
+                       plan.value()->Evaluate(&arena_, activation_));
 
   ASSERT_TRUE(response.IsError());
-  EXPECT_EQ(response.ErrorOrDie()->code(), absl::StatusCode::kUnavailable);
+  EXPECT_EQ(response.GetError().NativeValue().code(),
+            absl::StatusCode::kUnavailable);
 }
 
 TEST_F(UnknownsTest, UnknownFunctions) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeAndFunction);
-  activation_.InsertValue("var1", CelValue::CreateInt64(5));
-  activation_.InsertValue("var2", CelValue::CreateInt64(5));
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F1", FunctionResponse::kUnknown)),
-              IsOk());
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F2", FunctionResponse::kFalse)),
-              IsOk());
+  activation_.InsertOrAssignValue("var1", IntValue(5));
+  activation_.InsertOrAssignValue("var2", IntValue(5));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F1"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kUnknown)));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F2"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kFalse)));
 
   ASSERT_OK_AND_ASSIGN(
       ParsedExpr expr,
       Parse("var1 > 3 && F1('arg1') || var2 > 3 && F2('arg2')"));
-  auto plan = builder_->CreateExpression(&expr.expr(), nullptr);
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr);
   ASSERT_THAT(plan, IsOk());
 
-  ASSERT_OK_AND_ASSIGN(CelValue response,
-                       plan.value()->Evaluate(activation_, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value response,
+                       plan.value()->Evaluate(&arena_, activation_));
 
-  ASSERT_TRUE(response.IsUnknownSet()) << *response.ErrorOrDie();
-  EXPECT_THAT(response.UnknownSetOrDie()->unknown_function_results(),
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  EXPECT_THAT(response.GetUnknown().ToFunctionResultSet(),
               ElementsAre(FunctionCallIs("F1")));
 }
 
 TEST_F(UnknownsTest, UnknownsMerge) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeAndFunction);
-  activation_.InsertValue("var1", CelValue::CreateInt64(5));
-  ASSERT_THAT(activation_.SetUnknownAttributePatterns(
-                  {CelAttributePattern("var2", {})}),
+  activation_.InsertOrAssignValue("var1", IntValue(5));
+  ASSERT_THAT(activation_.SetUnknownPatterns({AttributePattern("var2", {})}),
               IsOk());
 
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F1", FunctionResponse::kUnknown)),
-              IsOk());
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "F2", FunctionResponse::kTrue)),
-              IsOk());
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F1"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kUnknown)));
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("F2"),
+      std::make_unique<FunctionImpl>(FunctionResponse::kTrue)));
 
   ASSERT_OK_AND_ASSIGN(
       ParsedExpr expr,
       Parse("var1 > 3 && F1('arg1') || var2 > 3 && F2('arg2')"));
-  auto plan = builder_->CreateExpression(&expr.expr(), nullptr);
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr);
   ASSERT_THAT(plan, IsOk());
 
-  ASSERT_OK_AND_ASSIGN(CelValue response,
-                       plan.value()->Evaluate(activation_, &arena_));
+  ASSERT_OK_AND_ASSIGN(Value response,
+                       plan.value()->Evaluate(&arena_, activation_));
 
-  ASSERT_TRUE(response.IsUnknownSet()) << *response.ErrorOrDie();
-  EXPECT_THAT(response.UnknownSetOrDie()->unknown_function_results(),
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  EXPECT_THAT(response.GetUnknown().ToFunctionResultSet(),
               ElementsAre(FunctionCallIs("F1")));
-  EXPECT_THAT(response.UnknownSetOrDie()->unknown_attributes(),
+  EXPECT_THAT(response.GetUnknown().ToAttributeSet(),
               ElementsAre(AttributeIs("var2")));
 }
 
@@ -384,13 +509,15 @@ constexpr char kListCompExistsExpr[] = R"pb(
 class UnknownsCompTest : public testing::Test {
  public:
   void PrepareBuilder(UnknownProcessingOptions opts) {
-    InterpreterOptions options;
+    RuntimeOptions options;
     options.unknown_processing = opts;
-    builder_ = CreateCelExpressionBuilder(options);
-    ASSERT_THAT(RegisterBuiltinFunctions(builder_->GetRegistry()), IsOk());
-    ASSERT_THAT(builder_->GetRegistry()->RegisterLazyFunction(
-                    CreateDescriptor("Fn", CelValue::Type::kInt64)),
+    ASSERT_OK_AND_ASSIGN(
+        auto builder, CreateStandardRuntimeBuilder(
+                          google::protobuf::DescriptorPool::generated_pool(), options));
+    ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                    CreateDescriptor("Fn", Kind::kInt)),
                 IsOk());
+    ASSERT_OK_AND_ASSIGN(runtime_, std::move(builder).Build());
     ASSERT_TRUE(
         google::protobuf::TextFormat::ParseFromString(kListCompExistsExpr, &expr_))
         << "error parsing expr";
@@ -399,28 +526,27 @@ class UnknownsCompTest : public testing::Test {
  protected:
   Arena arena_;
   Activation activation_;
-  std::unique_ptr<CelExpressionBuilder> builder_;
+  std::unique_ptr<Runtime> runtime_;
   Expr expr_;
 };
 
 TEST_F(UnknownsCompTest, UnknownsMerge) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeAndFunction);
 
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "Fn", FunctionResponse::kUnknown, CelValue::Type::kInt64)),
-              IsOk());
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("Fn", Kind::kInt),
+      std::make_unique<FunctionImpl>(FunctionResponse::kUnknown)));
 
   // [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].exists(x, Fn(x) > 5)
-  auto build_status = builder_->CreateExpression(&expr_, nullptr);
+  auto build_status = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr_);
   ASSERT_THAT(build_status, IsOk());
 
-  auto eval_status = build_status.value()->Evaluate(activation_, &arena_);
+  auto eval_status = build_status.value()->Evaluate(&arena_, activation_);
   ASSERT_THAT(eval_status, IsOk());
-  CelValue response = eval_status.value();
+  Value response = eval_status.value();
 
-  ASSERT_TRUE(response.IsUnknownSet()) << *response.ErrorOrDie();
-  EXPECT_THAT(response.UnknownSetOrDie()->unknown_function_results(),
-              testing::SizeIs(1));
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  EXPECT_THAT(response.GetUnknown().ToFunctionResultSet(), testing::SizeIs(1));
 }
 
 constexpr char kListCompCondExpr[] = R"pb(
@@ -520,13 +646,15 @@ constexpr char kListCompCondExpr[] = R"pb(
 class UnknownsCompCondTest : public testing::Test {
  public:
   void PrepareBuilder(UnknownProcessingOptions opts) {
-    InterpreterOptions options;
+    RuntimeOptions options;
     options.unknown_processing = opts;
-    builder_ = CreateCelExpressionBuilder(options);
-    ASSERT_THAT(RegisterBuiltinFunctions(builder_->GetRegistry()), IsOk());
-    ASSERT_THAT(builder_->GetRegistry()->RegisterLazyFunction(
-                    CreateDescriptor("Fn", CelValue::Type::kInt64)),
+    ASSERT_OK_AND_ASSIGN(
+        auto builder, CreateStandardRuntimeBuilder(
+                          google::protobuf::DescriptorPool::generated_pool(), options));
+    ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                    CreateDescriptor("Fn", Kind::kInt)),
                 IsOk());
+    ASSERT_OK_AND_ASSIGN(runtime_, std::move(builder).Build());
     ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kListCompCondExpr, &expr_))
         << "error parsing expr";
   }
@@ -534,47 +662,48 @@ class UnknownsCompCondTest : public testing::Test {
  protected:
   Arena arena_;
   Activation activation_;
-  std::unique_ptr<CelExpressionBuilder> builder_;
+  std::unique_ptr<Runtime> runtime_;
   Expr expr_;
 };
 
 TEST_F(UnknownsCompCondTest, UnknownConditionReturned) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeAndFunction);
 
-  ASSERT_THAT(activation_.InsertFunction(std::make_unique<FunctionImpl>(
-                  "Fn", FunctionResponse::kUnknown, CelValue::Type::kInt64)),
-              IsOk());
+  ASSERT_TRUE(activation_.InsertFunction(
+      CreateDescriptor("Fn", Kind::kInt),
+      std::make_unique<FunctionImpl>(FunctionResponse::kUnknown)));
 
   // [1, 2, 3].exists_one(x, Fn(x))
-  auto build_status = builder_->CreateExpression(&expr_, nullptr);
+  auto build_status = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr_);
   ASSERT_THAT(build_status, IsOk());
 
-  auto eval_status = build_status.value()->Evaluate(activation_, &arena_);
+  auto eval_status = build_status.value()->Evaluate(&arena_, activation_);
   ASSERT_THAT(eval_status, IsOk());
-  CelValue response = eval_status.value();
+  Value response = eval_status.value();
 
-  ASSERT_TRUE(response.IsUnknownSet()) << *response.ErrorOrDie();
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
   // The comprehension ends on the first non-bool condition, so we only get one
-  // call captured in the UnknownSet.
-  EXPECT_THAT(response.UnknownSetOrDie()->unknown_function_results(),
-              testing::SizeIs(1));
+  // call captured in the UnknownValue.
+  EXPECT_THAT(response.GetUnknown().ToFunctionResultSet(), testing::SizeIs(1));
 }
 
 TEST_F(UnknownsCompCondTest, ErrorConditionReturned) {
   PrepareBuilder(UnknownProcessingOptions::kAttributeAndFunction);
 
-  // No implementation for Fn(int64) provided in activation -- this turns into a
-  // CelError.
+  // No implementation for Fn(int64) provided in activation -- this turns into
+  // an ErrorValue.
   // [1, 2, 3].exists_one(x, Fn(x))
-  auto build_status = builder_->CreateExpression(&expr_, nullptr);
+  auto build_status = ProtobufRuntimeAdapter::CreateProgram(*runtime_, expr_);
   ASSERT_THAT(build_status, IsOk());
 
-  auto eval_status = build_status.value()->Evaluate(activation_, &arena_);
+  auto eval_status = build_status.value()->Evaluate(&arena_, activation_);
   ASSERT_THAT(eval_status, IsOk());
-  CelValue response = eval_status.value();
+  Value response = eval_status.value();
 
-  ASSERT_TRUE(response.IsError()) << CelValue::TypeName(response.type());
-  EXPECT_TRUE(CheckNoMatchingOverloadError(response));
+  ASSERT_TRUE(response.IsError()) << response.DebugString();
+  EXPECT_THAT(
+      response.GetError().NativeValue(),
+      StatusIs(absl::StatusCode::kUnknown, HasSubstr(kErrNoMatchingOverload)));
 }
 
 constexpr char kListCompExistsWithAttrExpr[] = R"pb(
@@ -633,7 +762,7 @@ constexpr char kListCompExistsWithAttrExpr[] = R"pb(
   })pb";
 
 TEST(UnknownsIterAttrTest, IterAttributeTrail) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   Expr expr;
   Activation activation;
   Arena arena;
@@ -648,134 +777,140 @@ TEST(UnknownsIterAttrTest, IterAttributeTrail) {
   *list.add_values() = element;
 
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
-  ASSERT_THAT(builder->GetRegistry()->RegisterLazyFunction(
-                  CreateDescriptor("Fn", CelValue::Type::kMap)),
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                  CreateDescriptor("Fn", Kind::kMap)),
               IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
   ASSERT_TRUE(
       google::protobuf::TextFormat::ParseFromString(kListCompExistsWithAttrExpr, &expr))
       << "error parsing expr";
 
   // var.exists(x, Fn(x))
-  auto plan = builder->CreateExpression(&expr, nullptr).value();
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime, expr).value();
 
-  activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
+  activation.InsertOrAssignValue(
+      "var",
+      Value::WrapMessage(&list, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   // var[1]['elem1'] is unknown
-  ASSERT_THAT(
-      activation.SetUnknownAttributePatterns({CelAttributePattern(
-          "var",
-          {
-              CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-              CreateCelAttributeQualifierPattern(
-                  CelValue::CreateStringView("elem1")),
-          })}),
-      IsOk());
-
-  ASSERT_THAT(activation.InsertFunction(std::make_unique<FunctionImpl>(
-                  "Fn", FunctionResponse::kFalse, CelValue::Type::kMap)),
+  ASSERT_THAT(activation.SetUnknownPatterns({AttributePattern(
+                  "var",
+                  {
+                      AttributeQualifierPattern::OfInt(1),
+                      AttributeQualifierPattern::OfString("elem1"),
+                  })}),
               IsOk());
 
-  CelValue response = plan->Evaluate(activation, &arena).value();
+  ASSERT_TRUE(activation.InsertFunction(
+      CreateDescriptor("Fn", Kind::kMap),
+      std::make_unique<FunctionImpl>(FunctionResponse::kFalse)));
 
-  ASSERT_TRUE(response.IsUnknownSet()) << CelValue::TypeName(response.type());
-  ASSERT_EQ(response.UnknownSetOrDie()->unknown_attributes().size(), 1);
+  Value response = plan->Evaluate(&arena, activation).value();
+
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  ASSERT_EQ(response.GetUnknown().ToAttributeSet().size(), 1);
   // 'var[1]' is partially unknown when we make the function call so we treat it
   // as unknown.
-  ASSERT_EQ(response.UnknownSetOrDie()
-                ->unknown_attributes()
-                .begin()
-                ->qualifier_path()
-                .size(),
-            1);
+  ASSERT_EQ(
+      response.GetUnknown().ToAttributeSet().begin()->qualifier_path().size(),
+      1);
 }
 
 TEST(UnknownsIterAttrTest, IterAttributeTrailMapKeyTypes) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   Expr expr;
   Activation activation;
   Arena arena;
 
-  UnknownSet unknown_set(cel::AttributeSet({cel::Attribute("foo")}));
-  CelError error = absl::CancelledError();
+  Unknown unknown_set(AttributeSet({cel::Attribute("foo")}));
+  absl::Status error = absl::CancelledError();
 
-  std::vector<std::pair<CelValue, CelValue>> backing;
-
+  std::vector<std::pair<Value, Value>> backing;
   backing.push_back(
-      {CelValue::CreateUnknownSet(&unknown_set), CelValue::CreateBool(false)});
-  backing.push_back(
-      {CelValue::CreateError(&error), CelValue::CreateBool(false)});
-  backing.push_back({CelValue::CreateBool(true), CelValue::CreateBool(false)});
-
-  auto map_impl = CreateContainerBackedMap(absl::MakeSpan(backing)).value();
+      {cel::common_internal::MakeUnknownValue(unknown_set, &arena),
+       BoolValue(false)});
+  backing.push_back({ErrorValue::From(error, &arena), BoolValue(false)});
+  backing.push_back({BoolValue(true), BoolValue(false)});
 
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
-  ASSERT_THAT(builder->GetRegistry()->RegisterLazyFunction(
-                  CreateDescriptor("Fn", CelValue::Type::kBool)),
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                  CreateDescriptor("Fn", Kind::kBool)),
               IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
   ASSERT_TRUE(
       google::protobuf::TextFormat::ParseFromString(kListCompExistsWithAttrExpr, &expr))
       << "error parsing expr";
 
   // var.exists(x, Fn(x))
-  auto plan = builder->CreateExpression(&expr, nullptr).value();
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime, expr).value();
 
-  activation.InsertValue("var", CelValue::CreateMap(map_impl.get()));
+  activation.InsertOrAssignValue(
+      "var",
+      CustomMapValue(Arena::Create<TestKeyTypesMap>(&arena, std::move(backing)),
+                     &arena));
 
-  ASSERT_THAT(activation.InsertFunction(std::make_unique<FunctionImpl>(
-                  "Fn", FunctionResponse::kFalse, CelValue::Type::kBool)),
-              IsOk());
+  ASSERT_TRUE(activation.InsertFunction(
+      CreateDescriptor("Fn", Kind::kBool),
+      std::make_unique<FunctionImpl>(FunctionResponse::kFalse)));
 
-  CelValue response = plan->Evaluate(activation, &arena).value();
+  Value response = plan->Evaluate(&arena, activation).value();
 
-  ASSERT_TRUE(response.IsUnknownSet()) << CelValue::TypeName(response.type());
-  ASSERT_EQ(*response.UnknownSetOrDie(), unknown_set);
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  Unknown got(response.GetUnknown().ToAttributeSet(),
+              response.GetUnknown().ToFunctionResultSet());
+  ASSERT_EQ(got, unknown_set);
 }
 
 TEST(UnknownsIterAttrTest, IterAttributeTrailMapKeyTypesShortcutted) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   Expr expr;
   Activation activation;
   Arena arena;
 
-  UnknownSet unknown_set(cel::AttributeSet({cel::Attribute("foo")}));
-  CelError error = absl::CancelledError();
+  Unknown unknown_set(AttributeSet({cel::Attribute("foo")}));
+  absl::Status error = absl::CancelledError();
 
-  std::vector<std::pair<CelValue, CelValue>> backing;
-
+  std::vector<std::pair<Value, Value>> backing;
   backing.push_back(
-      {CelValue::CreateUnknownSet(&unknown_set), CelValue::CreateBool(false)});
-  backing.push_back(
-      {CelValue::CreateError(&error), CelValue::CreateBool(false)});
-  backing.push_back({CelValue::CreateBool(true), CelValue::CreateBool(false)});
-
-  auto map_impl = CreateContainerBackedMap(absl::MakeSpan(backing)).value();
+      {cel::common_internal::MakeUnknownValue(unknown_set, &arena),
+       BoolValue(false)});
+  backing.push_back({ErrorValue::From(error, &arena), BoolValue(false)});
+  backing.push_back({BoolValue(true), BoolValue(false)});
 
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
-  ASSERT_THAT(builder->GetRegistry()->RegisterLazyFunction(
-                  CreateDescriptor("Fn", CelValue::Type::kBool)),
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                  CreateDescriptor("Fn", Kind::kBool)),
               IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
   ASSERT_TRUE(
       google::protobuf::TextFormat::ParseFromString(kListCompExistsWithAttrExpr, &expr))
       << "error parsing expr";
 
   // var.exists(x, Fn(x))
-  auto plan = builder->CreateExpression(&expr, nullptr).value();
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime, expr).value();
 
-  activation.InsertValue("var", CelValue::CreateMap(map_impl.get()));
+  activation.InsertOrAssignValue(
+      "var",
+      CustomMapValue(Arena::Create<TestKeyTypesMap>(&arena, std::move(backing)),
+                     &arena));
 
-  ASSERT_THAT(activation.InsertFunction(std::make_unique<FunctionImpl>(
-                  "Fn", FunctionResponse::kTrue, CelValue::Type::kBool)),
-              IsOk());
+  ASSERT_TRUE(activation.InsertFunction(
+      CreateDescriptor("Fn", Kind::kBool),
+      std::make_unique<FunctionImpl>(FunctionResponse::kTrue)));
 
-  CelValue response = plan->Evaluate(activation, &arena).value();
-  ASSERT_TRUE(response.IsBool()) << CelValue::TypeName(response.type());
-  ASSERT_TRUE(response.BoolOrDie());
+  Value response = plan->Evaluate(&arena, activation).value();
+  ASSERT_TRUE(response.IsBool()) << response.DebugString();
+  ASSERT_TRUE(response.GetBool().NativeValue());
 }
 
 constexpr char kMapElementsComp[] = R"pb(
@@ -836,7 +971,7 @@ constexpr char kMapElementsComp[] = R"pb(
 // comprehension is a little unclear and the test coverage is a bit sparse.
 // A few more tests should be added for coverage and to help document.
 TEST(UnknownsIterAttrTest, IterAttributeTrailMap) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   Expr expr;
   Activation activation;
   Arena arena;
@@ -851,43 +986,43 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailMap) {
   *list.add_values() = element;
 
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
-  ASSERT_THAT(builder->GetRegistry()->RegisterLazyFunction(
-                  CreateDescriptor("Fn", CelValue::Type::kDouble)),
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_THAT(builder.function_registry().RegisterLazyFunction(
+                  CreateDescriptor("Fn", Kind::kDouble)),
               IsOk());
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kMapElementsComp, &expr))
       << "error parsing expr";
-  activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
+  activation.InsertOrAssignValue(
+      "var",
+      Value::WrapMessage(&list, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   // var[1]['key'] is unknown
-  ASSERT_THAT(
-      activation.SetUnknownAttributePatterns({CelAttributePattern(
-          "var",
-          {
-              CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-              CreateCelAttributeQualifierPattern(
-                  CelValue::CreateStringView("key")),
-          })}),
-      IsOk());
-
-  ASSERT_THAT(activation.InsertFunction(std::make_unique<FunctionImpl>(
-                  "Fn", FunctionResponse::kFalse, CelValue::Type::kDouble)),
+  ASSERT_THAT(activation.SetUnknownPatterns({AttributePattern(
+                  "var",
+                  {
+                      AttributeQualifierPattern::OfInt(1),
+                      AttributeQualifierPattern::OfString("key"),
+                  })}),
               IsOk());
 
-  auto plan = builder->CreateExpression(&expr, nullptr).value();
-  CelValue response = plan->Evaluate(activation, &arena).value();
+  ASSERT_TRUE(activation.InsertFunction(
+      CreateDescriptor("Fn", Kind::kDouble),
+      std::make_unique<FunctionImpl>(FunctionResponse::kFalse)));
 
-  ASSERT_TRUE(response.IsUnknownSet()) << CelValue::TypeName(response.type());
-  ASSERT_EQ(response.UnknownSetOrDie()->unknown_attributes().size(), 1);
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime, expr).value();
+  Value response = plan->Evaluate(&arena, activation).value();
+
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  ASSERT_EQ(response.GetUnknown().ToAttributeSet().size(), 1);
   // 'var[1].key' is unknown when we make the Fn function call.
   // comprehension is:  ((([] + false) + unk) + false) -> unk
-  ASSERT_EQ(response.UnknownSetOrDie()
-                ->unknown_attributes()
-                .begin()
-                ->qualifier_path()
-                .size(),
-            2);
+  ASSERT_EQ(
+      response.GetUnknown().ToAttributeSet().begin()->qualifier_path().size(),
+      2);
 }
 
 constexpr char kFilterElementsComp[] = R"pb(
@@ -959,7 +1094,7 @@ constexpr char kFilterElementsComp[] = R"pb(
   })pb";
 
 TEST(UnknownsIterAttrTest, IterAttributeTrailExact) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   Activation activation;
   Arena arena;
 
@@ -975,38 +1110,38 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailExact) {
   (*list.mutable_values())[0].set_bool_value(true);
 
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
-  activation.InsertValue("list_var",
-                         CelProtoWrapper::CreateMessage(&list, &arena));
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
+  activation.InsertOrAssignValue(
+      "list_var",
+      Value::WrapMessage(&list, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   // list_var[0]
-  std::vector<CelAttributePattern> unknown_attribute_patterns;
-  unknown_attribute_patterns.push_back(CelAttributePattern(
-      "list_var",
-      {CreateCelAttributeQualifierPattern(CelValue::CreateInt64(0))}));
-  ASSERT_THAT(activation.SetUnknownAttributePatterns(
-                  std::move(unknown_attribute_patterns)),
-              IsOk());
+  std::vector<AttributePattern> unknown_attribute_patterns;
+  unknown_attribute_patterns.push_back(
+      AttributePattern("list_var", {AttributeQualifierPattern::OfInt(0)}));
+  ASSERT_THAT(
+      activation.SetUnknownPatterns(std::move(unknown_attribute_patterns)),
+      IsOk());
 
-  ASSERT_OK_AND_ASSIGN(
-      auto plan, builder->CreateExpression(&expr.expr(), &expr.source_info()));
+  ASSERT_OK_AND_ASSIGN(auto plan,
+                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
 
-  CelValue response = plan->Evaluate(activation, &arena).value();
+  Value response = plan->Evaluate(&arena, activation).value();
 
-  ASSERT_TRUE(response.IsUnknownSet()) << CelValue::TypeName(response.type());
-  ASSERT_EQ(response.UnknownSetOrDie()->unknown_attributes().size(), 1);
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  ASSERT_EQ(response.GetUnknown().ToAttributeSet().size(), 1);
 
-  ASSERT_EQ(response.UnknownSetOrDie()
-                ->unknown_attributes()
-                .begin()
-                ->qualifier_path()
-                .size(),
-            1);
+  ASSERT_EQ(
+      response.GetUnknown().ToAttributeSet().begin()->qualifier_path().size(),
+      1);
 }
 
 TEST(UnknownsIterAttrTest, IterAttributeTrailFilterValues) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   Expr expr;
   Activation activation;
   Arena arena;
@@ -1025,40 +1160,40 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailFilterValues) {
   *list.add_values() = element;
 
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kFilterElementsComp, &expr))
       << "error parsing expr";
-  activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
+  activation.InsertOrAssignValue(
+      "var",
+      Value::WrapMessage(&list, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   // var[1]['value_key'] is unknown
-  ASSERT_THAT(
-      activation.SetUnknownAttributePatterns({CelAttributePattern(
-          "var",
-          {
-              CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-              CreateCelAttributeQualifierPattern(
-                  CelValue::CreateStringView("value_key")),
-          })}),
-      IsOk());
+  ASSERT_THAT(activation.SetUnknownPatterns({AttributePattern(
+                  "var",
+                  {
+                      AttributeQualifierPattern::OfInt(1),
+                      AttributeQualifierPattern::OfString("value_key"),
+                  })}),
+              IsOk());
 
-  auto plan = builder->CreateExpression(&expr, nullptr).value();
-  CelValue response = plan->Evaluate(activation, &arena).value();
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime, expr).value();
+  Value response = plan->Evaluate(&arena, activation).value();
 
-  ASSERT_TRUE(response.IsUnknownSet()) << CelValue::TypeName(response.type());
-  ASSERT_EQ(response.UnknownSetOrDie()->unknown_attributes().size(), 1);
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  ASSERT_EQ(response.GetUnknown().ToAttributeSet().size(), 1);
   // 'var[1].value_key' is unknown when we make the cons function call.
   // comprehension is:  ((([] + [1]) + unk) + [1]) -> unk
-  ASSERT_EQ(response.UnknownSetOrDie()
-                ->unknown_attributes()
-                .begin()
-                ->qualifier_path()
-                .size(),
-            2);
+  ASSERT_EQ(
+      response.GetUnknown().ToAttributeSet().begin()->qualifier_path().size(),
+      2);
 }
 
 TEST(UnknownsIterAttrTest, IterAttributeTrailFilterConditions) {
-  InterpreterOptions options;
+  RuntimeOptions options;
   Expr expr;
   Activation activation;
   Arena arena;
@@ -1077,33 +1212,35 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailFilterConditions) {
   *list.add_values() = element;
 
   options.unknown_processing = UnknownProcessingOptions::kAttributeAndFunction;
-  auto builder = CreateCelExpressionBuilder(options);
-  ASSERT_THAT(RegisterBuiltinFunctions(builder->GetRegistry()), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
   ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(kFilterElementsComp, &expr))
       << "error parsing expr";
-  activation.InsertValue("var", CelProtoWrapper::CreateMessage(&list, &arena));
+  activation.InsertOrAssignValue(
+      "var",
+      Value::WrapMessage(&list, google::protobuf::DescriptorPool::generated_pool(),
+                         google::protobuf::MessageFactory::generated_factory(), &arena));
 
   // var[1]['value_key'] is unknown
-  ASSERT_THAT(
-      activation.SetUnknownAttributePatterns(
-          {CelAttributePattern(
-               "var",
-               {
-                   CreateCelAttributeQualifierPattern(CelValue::CreateInt64(1)),
-                   CreateCelAttributeQualifierPattern(
-                       CelValue::CreateStringView("filter_key")),
-               }),
-           CelAttributePattern(
-               "var",
-               {
-                   CreateCelAttributeQualifierPattern(CelValue::CreateInt64(0)),
-                   CreateCelAttributeQualifierPattern(
-                       CelValue::CreateStringView("filter_key")),
-               })}),
-      IsOk());
+  ASSERT_THAT(activation.SetUnknownPatterns(
+                  {AttributePattern(
+                       "var",
+                       {
+                           AttributeQualifierPattern::OfInt(1),
+                           AttributeQualifierPattern::OfString("filter_key"),
+                       }),
+                   AttributePattern(
+                       "var",
+                       {
+                           AttributeQualifierPattern::OfInt(0),
+                           AttributeQualifierPattern::OfString("filter_key"),
+                       })}),
+              IsOk());
 
-  auto plan = builder->CreateExpression(&expr, nullptr).value();
-  CelValue response = plan->Evaluate(activation, &arena).value();
+  auto plan = ProtobufRuntimeAdapter::CreateProgram(*runtime, expr).value();
+  Value response = plan->Evaluate(&arena, activation).value();
 
   // 'var[1].filter_key' is unknown when we make the ternary call.
   // Since the unknown is expressed in a conditional jump, the behavior is to
@@ -1112,14 +1249,11 @@ TEST(UnknownsIterAttrTest, IterAttributeTrailFilterConditions) {
   // loop1: (unk{1})? unk{0} + [1] : unk{0} -> unk{1}
   // loop2: (true)? unk{1} + [1] : unk{1} -> unk{1}
   // result: unk{1}
-  ASSERT_TRUE(response.IsUnknownSet()) << CelValue::TypeName(response.type());
-  ASSERT_EQ(response.UnknownSetOrDie()->unknown_attributes().size(), 1);
-  ASSERT_EQ(response.UnknownSetOrDie()
-                ->unknown_attributes()
-                .begin()
-                ->qualifier_path()
-                .size(),
-            2);
+  ASSERT_TRUE(response.IsUnknown()) << response.DebugString();
+  ASSERT_EQ(response.GetUnknown().ToAttributeSet().size(), 1);
+  ASSERT_EQ(
+      response.GetUnknown().ToAttributeSet().begin()->qualifier_path().size(),
+      2);
 }
 
 }  // namespace

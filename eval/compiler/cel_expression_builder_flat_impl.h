@@ -34,7 +34,8 @@
 #include "eval/public/cel_expression.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_type_registry.h"
-#include "runtime/internal/runtime_env.h"
+#include "runtime/internal/legacy_runtime_env.h"
+#include "runtime/internal/legacy_runtime_type_provider.h"
 #include "runtime/runtime_options.h"
 
 namespace google::api::expr::runtime {
@@ -44,15 +45,11 @@ namespace google::api::expr::runtime {
 class CelExpressionBuilderFlatImpl : public CelExpressionBuilder {
  public:
   CelExpressionBuilderFlatImpl(
-      absl_nonnull std::shared_ptr<cel::runtime_internal::RuntimeEnv> env,
-      const cel::RuntimeOptions& options)
-      : env_(std::move(env)),
-        flat_expr_builder_(env_, options, /*use_legacy_type_provider=*/true) {
-    ABSL_DCHECK(env_->IsInitialized());
-  }
+      absl_nonnull std::shared_ptr<cel::runtime_internal::LegacyRuntimeEnv> env,
+      const cel::RuntimeOptions& options);
 
   explicit CelExpressionBuilderFlatImpl(
-      absl_nonnull std::shared_ptr<cel::runtime_internal::RuntimeEnv> env)
+      absl_nonnull std::shared_ptr<cel::runtime_internal::LegacyRuntimeEnv> env)
       : CelExpressionBuilderFlatImpl(std::move(env), cel::RuntimeOptions()) {}
 
   absl::StatusOr<std::unique_ptr<CelExpression>> CreateExpression(
@@ -99,7 +96,10 @@ class CelExpressionBuilderFlatImpl : public CelExpressionBuilder {
       std::unique_ptr<cel::Ast> converted_ast,
       std::vector<absl::Status>* warnings) const;
 
-  absl_nonnull std::shared_ptr<cel::runtime_internal::RuntimeEnv> env_;
+  absl_nonnull std::shared_ptr<cel::runtime_internal::LegacyRuntimeEnv> env_;
+  absl_nonnull
+  std::shared_ptr<const cel::runtime_internal::LegacyRuntimeTypeProvider>
+      legacy_type_provider_;
   FlatExprBuilder flat_expr_builder_;
 };
 

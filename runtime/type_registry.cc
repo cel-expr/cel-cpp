@@ -25,7 +25,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "common/value.h"
-#include "runtime/internal/legacy_runtime_type_provider.h"
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/message.h"
 
@@ -34,8 +33,7 @@ namespace cel {
 TypeRegistry::TypeRegistry(
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nullable message_factory)
-    : type_provider_(descriptor_pool),
-      legacy_type_provider_(descriptor_pool, &type_provider_) {
+    : type_provider_(descriptor_pool) {
   RegisterEnum("google.protobuf.NullValue", {{"NULL_VALUE", 0}});
 }
 
