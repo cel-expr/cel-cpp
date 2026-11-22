@@ -25,11 +25,18 @@
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
 #include "common/value.h"
 #include "common/value_testing.h"
+#include "eval/public/activation.h"
+#include "eval/public/builtin_func_registrar.h"
+#include "eval/public/cel_expr_builder_factory.h"
+#include "eval/public/cel_expression.h"
+#include "eval/public/cel_options.h"
+#include "eval/public/cel_value.h"
 #include "extensions/protobuf/runtime_adapter.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
@@ -57,6 +64,7 @@ using ::cel::test::OptionalValueIsEmpty;
 using ::cel::expr::ParsedExpr;
 using ::google::api::expr::parser::Parse;
 using ::google::api::expr::parser::ParserOptions;
+using ::google::api::expr::runtime::CelValue;
 using ::testing::ElementsAre;
 using ::testing::HasSubstr;
 using ::testing::TestWithParam;
@@ -417,6 +425,67 @@ TEST(OptionalTypesTest, CreateStruct_KeyTypeConversionError) {
   EXPECT_THAT(result.GetError().ToStatus(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("type conversion error")));
+}
+
+// A legacy map that only has key "a", but returns a value for any key.
+class DefaultingCelMap : public google::api::expr::runtime::CelMap {
+ public:
+  absl::optional<CelValue> operator[](CelValue key) const override {
+    return CelValue::CreateInt64(IsA(key) ? 1 : 0);
+  }
+  absl::StatusOr<bool> Has(const CelValue& key) const override {
+    return IsA(key);
+  }
+  int size() const override { return 1; }
+  absl::StatusOr<const google::api::expr::runtime::CelList*> ListKeys()
+      const override {
+    return absl::UnimplementedError("ListKeys");
+  }
+
+ private:
+  static bool IsA(const CelValue& key) {
+    return key.IsString() && key.StringOrDie().value() == "a";
+  }
+};
+
+using LegacyOptionalTypesTest = TestWithParam<std::string>;
+
+TEST_P(LegacyOptionalTypesTest, EvaluatesToTrue) {
+  google::api::expr::runtime::InterpreterOptions options;
+  options.enable_qualified_type_identifiers = true;
+  std::unique_ptr<google::api::expr::runtime::CelExpressionBuilder> builder =
+      google::api::expr::runtime::CreateCelExpressionBuilder(options);
+  ASSERT_THAT(google::api::expr::runtime::RegisterBuiltinFunctions(
+                  builder->GetRegistry(), options),
+              IsOk());
+  ASSERT_THAT(EnableOptionalTypes(*builder), IsOk());
+  ASSERT_OK_AND_ASSIGN(ParsedExpr expr,
+                       Parse(GetParam(), "<input>",
+                             ParserOptions{.enable_optional_syntax = true}));
+  ASSERT_OK_AND_ASSIGN(auto expression, builder->CreateExpression(
+                                            &expr.expr(), &expr.source_info()));
+  DefaultingCelMap map;
+  google::api::expr::runtime::Activation activation;
+  activation.InsertValue("m", CelValue::CreateMap(&map));
+  google::protobuf::Arena arena;
+  ASSERT_OK_AND_ASSIGN(CelValue result,
+                       expression->Evaluate(activation, &arena));
+  EXPECT_TRUE(result.IsBool() && result.BoolOrDie()) << result.DebugString();
+}
+
+INSTANTIATE_TEST_SUITE_P(LegacyOptionalTypesTest, LegacyOptionalTypesTest,
+                         testing::Values("m.?a.orValue(-1) == 1",
+                                         "m.?b.orValue(-1) == -1",
+                                         "m[?'b'].orValue(-1) == -1",
+                                         "m.?b.or(m.?a).orValue(-1) == 1",
+                                         "type(m.?a) == optional_type"));
+
+TEST(LegacyOptionalTypes, RequiresQualifiedTypeIdentifiers) {
+  std::unique_ptr<google::api::expr::runtime::CelExpressionBuilder> builder =
+      google::api::expr::runtime::CreateCelExpressionBuilder(
+          google::api::expr::runtime::InterpreterOptions());
+  EXPECT_THAT(EnableOptionalTypes(*builder),
+              StatusIs(absl::StatusCode::kFailedPrecondition));
 }
 
 }  // namespace

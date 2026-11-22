@@ -16,6 +16,7 @@
 #define THIRD_PARTY_CEL_CPP_RUNTIME_OPTIONAL_TYPES_H_
 
 #include "absl/status/status.h"
+#include "eval/public/cel_expression.h"
 #include "runtime/runtime_builder.h"
 
 namespace cel::extensions {
@@ -146,6 +147,14 @@ namespace cel::extensions {
 //
 //  msg.?elements.optFlatMap(e, e[?0]) // return the first element if present.
 absl::Status EnableOptionalTypes(RuntimeBuilder& builder);
+
+// Legacy CelExpressionBuilder version of EnableOptionalTypes. The builder must
+// be created with InterpreterOptions.enable_qualified_type_identifiers.
+//
+// On maps, `m.?k` and `m[?k]` also check `has(m.k)`, since legacy CelMap
+// implementations may return values for absent keys.
+absl::Status EnableOptionalTypes(
+    google::api::expr::runtime::CelExpressionBuilder& builder);
 
 }  // namespace cel::extensions
 
