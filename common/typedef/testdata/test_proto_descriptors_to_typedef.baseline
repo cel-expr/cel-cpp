@@ -1,0 +1,478 @@
+SOURCE: test_proto_descriptors.txtproto
+--------------------------------------------------------------------
+TYPEDEF YAML (DEFAULT OPTIONS):
+- enum:
+    name: "com.example.CustomEnum"
+    doc: "Enum doc comment."
+    aspects:
+      proto:
+        allow_alias: true
+        file_name: "custom.proto"
+    constants:
+      - name: "UNKNOWN"
+        id: 0
+        doc: "Enum constant doc comment."
+      - name: "FIRST"
+        id: 1
+      - name: "ALIAS_FIRST"
+        id: 1
+- struct:
+    name: "com.example.CustomMsg"
+    doc: "Message doc comment.\nSecond line."
+    aspects:
+      proto:
+        file_name: "custom.proto"
+    fields:
+      - name: "custom_field"
+        type: "string"
+        doc: "Field doc comment."
+        default: "hello"
+        aspects:
+          proto:
+            id: 1
+            json_name: "customJson"
+      - name: "normal_field"
+        type: "int"
+        aspects:
+          proto:
+            id: 2
+            type: "int32"
+      - name: "packed_ints"
+        type: "list<int>"
+        aspects:
+          proto:
+            id: 3
+- struct:
+    name: "com.example.EditionsMsg"
+    aspects:
+      proto:
+        file_name: "editions_file.proto"
+    fields:
+      - name: "y"
+        type: "int"
+        default: 42
+        aspects:
+          proto:
+            id: 1
+      - name: "delimited_sub"
+        type: "com.example.EditionsMsg.Sub"
+        aspects:
+          proto:
+            id: 2
+- struct:
+    name: "com.example.EditionsMsg.Sub"
+    fields:
+      - name: "z"
+        type: "string"
+        aspects:
+          proto:
+            id: 1
+- struct:
+    name: "com.example.Event"
+    aspects:
+      proto:
+        file_name: "event.proto"
+    fields:
+      - name: "created_at"
+        type: "timestamp"
+        aspects:
+          proto:
+            id: 1
+      - name: "unpacked_vals"
+        type: "list<int>"
+        aspects:
+          proto:
+            id: 2
+- enum:
+    name: "com.example.NonZeroEnum"
+    aspects:
+      proto:
+        file_name: "nonzero_enum.proto"
+    constants:
+      - name: "NZ_FIRST"
+        id: 1
+      - name: "NZ_SECOND"
+        id: 2
+--------------------------------------------------------------------
+TYPEDEF PROTO (DEFAULT OPTIONS):
+types {
+  enum_type {
+    name: "com.example.CustomEnum"
+    doc: "Enum doc comment."
+    constants {
+      name: "UNKNOWN"
+      id: 0
+      doc: "Enum constant doc comment."
+    }
+    constants {
+      name: "FIRST"
+      id: 1
+    }
+    constants {
+      name: "ALIAS_FIRST"
+      id: 1
+    }
+    aspects {
+      key: "proto"
+      value {
+        properties {
+          key: "allow_alias"
+          value {
+            bool_value: true
+          }
+        }
+        properties {
+          key: "file_name"
+          value {
+            string_value: "custom.proto"
+          }
+        }
+      }
+    }
+  }
+}
+types {
+  struct_type {
+    name: "com.example.CustomMsg"
+    doc: "Message doc comment.\nSecond line."
+    members {
+      field {
+        name: "custom_field"
+        type {
+          primitive: STRING
+        }
+        doc: "Field doc comment."
+        default_value {
+          string_value: "hello"
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 1
+              }
+            }
+            properties {
+              key: "json_name"
+              value {
+                string_value: "customJson"
+              }
+            }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "normal_field"
+        type {
+          primitive: INT64
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 2
+              }
+            }
+            properties {
+              key: "type"
+              value {
+                string_value: "int32"
+              }
+            }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "packed_ints"
+        type {
+          list_type {
+            elem_type {
+              primitive: INT64
+            }
+          }
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 3
+              }
+            }
+          }
+        }
+      }
+    }
+    aspects {
+      key: "proto"
+      value {
+        properties {
+          key: "file_name"
+          value {
+            string_value: "custom.proto"
+          }
+        }
+      }
+    }
+  }
+}
+types {
+  struct_type {
+    name: "com.example.Event"
+    members {
+      field {
+        name: "created_at"
+        type {
+          well_known: TIMESTAMP
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 1
+              }
+            }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "unpacked_vals"
+        type {
+          list_type {
+            elem_type {
+              primitive: INT64
+            }
+          }
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 2
+              }
+            }
+          }
+        }
+      }
+    }
+    aspects {
+      key: "proto"
+      value {
+        properties {
+          key: "file_name"
+          value {
+            string_value: "event.proto"
+          }
+        }
+      }
+    }
+  }
+}
+types {
+  struct_type {
+    name: "com.example.EditionsMsg"
+    members {
+      field {
+        name: "y"
+        type {
+          primitive: INT64
+        }
+        default_value {
+          int64_value: 42
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 1
+              }
+            }
+          }
+        }
+      }
+    }
+    members {
+      field {
+        name: "delimited_sub"
+        type {
+          message_type: "com.example.EditionsMsg.Sub"
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 2
+              }
+            }
+          }
+        }
+      }
+    }
+    aspects {
+      key: "proto"
+      value {
+        properties {
+          key: "file_name"
+          value {
+            string_value: "editions_file.proto"
+          }
+        }
+      }
+    }
+  }
+}
+types {
+  struct_type {
+    name: "com.example.EditionsMsg.Sub"
+    members {
+      field {
+        name: "z"
+        type {
+          primitive: STRING
+        }
+        aspects {
+          key: "proto"
+          value {
+            properties {
+              key: "id"
+              value {
+                int64_value: 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+types {
+  enum_type {
+    name: "com.example.NonZeroEnum"
+    constants {
+      name: "NZ_FIRST"
+      id: 1
+    }
+    constants {
+      name: "NZ_SECOND"
+      id: 2
+    }
+    aspects {
+      key: "proto"
+      value {
+        properties {
+          key: "file_name"
+          value {
+            string_value: "nonzero_enum.proto"
+          }
+        }
+      }
+    }
+  }
+}
+--------------------------------------------------------------------
+TYPEDEF YAML (NO COMMENTS, NO DEFAULTS):
+- enum:
+    name: "com.example.CustomEnum"
+    aspects:
+      proto:
+        allow_alias: true
+        file_name: "custom.proto"
+    constants:
+      - name: "UNKNOWN"
+        id: 0
+      - name: "FIRST"
+        id: 1
+      - name: "ALIAS_FIRST"
+        id: 1
+- struct:
+    name: "com.example.CustomMsg"
+    aspects:
+      proto:
+        file_name: "custom.proto"
+    fields:
+      - name: "custom_field"
+        type: "string"
+        aspects:
+          proto:
+            id: 1
+            json_name: "customJson"
+      - name: "normal_field"
+        type: "int"
+        aspects:
+          proto:
+            id: 2
+            type: "int32"
+      - name: "packed_ints"
+        type: "list<int>"
+        aspects:
+          proto:
+            id: 3
+- struct:
+    name: "com.example.EditionsMsg"
+    aspects:
+      proto:
+        file_name: "editions_file.proto"
+    fields:
+      - name: "y"
+        type: "int"
+        aspects:
+          proto:
+            id: 1
+      - name: "delimited_sub"
+        type: "com.example.EditionsMsg.Sub"
+        aspects:
+          proto:
+            id: 2
+- struct:
+    name: "com.example.EditionsMsg.Sub"
+    fields:
+      - name: "z"
+        type: "string"
+        aspects:
+          proto:
+            id: 1
+- struct:
+    name: "com.example.Event"
+    aspects:
+      proto:
+        file_name: "event.proto"
+    fields:
+      - name: "created_at"
+        type: "timestamp"
+        aspects:
+          proto:
+            id: 1
+      - name: "unpacked_vals"
+        type: "list<int>"
+        aspects:
+          proto:
+            id: 2
+- enum:
+    name: "com.example.NonZeroEnum"
+    aspects:
+      proto:
+        file_name: "nonzero_enum.proto"
+    constants:
+      - name: "NZ_FIRST"
+        id: 1
+      - name: "NZ_SECOND"
+        id: 2
