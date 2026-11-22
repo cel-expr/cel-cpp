@@ -16,12 +16,17 @@
 
 #include <cstdint>
 #include <limits>
+#include <memory>
 
 #include "absl/status/status.h"
+#include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/builtins.h"
-#include "base/function_adapter.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
 #include "common/value.h"
+#include "common/value_kind.h"
 #include "internal/overflow.h"
 #include "internal/status_macros.h"
 #include "runtime/function.h"
@@ -31,214 +36,174 @@
 namespace cel {
 namespace {
 
-// Template functions providing arithmetic operations
-template <class Type>
-Value Add(Type v0, Type v1, const Function::InvokeContext& context);
+class ArithmeticBinaryFunction final : public Function {
+ public:
+  enum class Op { kAdd, kSubtract, kMultiply, kDivide, kModulo };
 
-template <>
-Value Add<int64_t>(int64_t v0, int64_t v1,
-                   const Function::InvokeContext& context) {
-  auto sum = cel::internal::CheckedAdd(v0, v1);
-  if (!sum.ok()) {
-    return ErrorValue::From(sum.status(), context.arena());
+  explicit ArithmeticBinaryFunction(Op op) : op_(op) {}
+
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext& context) const override {
+    if (args.size() != 2) {
+      return absl::InvalidArgumentError(
+          "unexpected number of arguments for binary function");
+    }
+    if (args[0].kind() != args[1].kind()) {
+      return absl::InvalidArgumentError(
+          "unexpected argument kinds for arithmetic function");
+    }
+    switch (args[0].kind()) {
+      case ValueKind::kInt: {
+        int64_t lhs = args[0].GetInt().NativeValue();
+        int64_t rhs = args[1].GetInt().NativeValue();
+        absl::StatusOr<int64_t> result;
+        switch (op_) {
+          case Op::kAdd:
+            result = cel::internal::CheckedAdd(lhs, rhs);
+            break;
+          case Op::kSubtract:
+            result = cel::internal::CheckedSub(lhs, rhs);
+            break;
+          case Op::kMultiply:
+            result = cel::internal::CheckedMul(lhs, rhs);
+            break;
+          case Op::kDivide:
+            result = cel::internal::CheckedDiv(lhs, rhs);
+            break;
+          case Op::kModulo:
+            result = cel::internal::CheckedMod(lhs, rhs);
+            break;
+        }
+        if (!result.ok()) {
+          return ErrorValue::From(result.status(), context.arena());
+        }
+        return IntValue(*result);
+      }
+      case ValueKind::kUint: {
+        uint64_t lhs = args[0].GetUint().NativeValue();
+        uint64_t rhs = args[1].GetUint().NativeValue();
+        absl::StatusOr<uint64_t> result;
+        switch (op_) {
+          case Op::kAdd:
+            result = cel::internal::CheckedAdd(lhs, rhs);
+            break;
+          case Op::kSubtract:
+            result = cel::internal::CheckedSub(lhs, rhs);
+            break;
+          case Op::kMultiply:
+            result = cel::internal::CheckedMul(lhs, rhs);
+            break;
+          case Op::kDivide:
+            result = cel::internal::CheckedDiv(lhs, rhs);
+            break;
+          case Op::kModulo:
+            result = cel::internal::CheckedMod(lhs, rhs);
+            break;
+        }
+        if (!result.ok()) {
+          return ErrorValue::From(result.status(), context.arena());
+        }
+        return UintValue(*result);
+      }
+      case ValueKind::kDouble: {
+        static_assert(std::numeric_limits<double>::is_iec559,
+                      "Division by zero for doubles must be supported");
+        double lhs = args[0].GetDouble().NativeValue();
+        double rhs = args[1].GetDouble().NativeValue();
+        switch (op_) {
+          case Op::kAdd:
+            return DoubleValue(lhs + rhs);
+          case Op::kSubtract:
+            return DoubleValue(lhs - rhs);
+          case Op::kMultiply:
+            return DoubleValue(lhs * rhs);
+          case Op::kDivide:
+            // For double, division will result in +/- inf
+            return DoubleValue(lhs / rhs);
+          case Op::kModulo:
+            return absl::InvalidArgumentError(
+                "modulo is not defined for double");
+        }
+      }
+      default:
+        return absl::InvalidArgumentError("expected numeric value");
+    }
   }
-  return IntValue(*sum);
-}
 
-template <>
-Value Add<uint64_t>(uint64_t v0, uint64_t v1,
-                    const Function::InvokeContext& context) {
-  auto sum = cel::internal::CheckedAdd(v0, v1);
-  if (!sum.ok()) {
-    return ErrorValue::From(sum.status(), context.arena());
+ private:
+  Op op_;
+};
+
+class ArithmeticNegateFunction final : public Function {
+ public:
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext& context) const override {
+    if (args.size() != 1) {
+      return absl::InvalidArgumentError(
+          "unexpected number of arguments for unary function");
+    }
+    switch (args[0].kind()) {
+      case ValueKind::kInt: {
+        auto inv =
+            cel::internal::CheckedNegation(args[0].GetInt().NativeValue());
+        if (!inv.ok()) {
+          return ErrorValue::From(inv.status(), context.arena());
+        }
+        return IntValue(*inv);
+      }
+      case ValueKind::kDouble:
+        return DoubleValue(-args[0].GetDouble().NativeValue());
+      default:
+        return absl::InvalidArgumentError("expected int or double value");
+    }
   }
-  return UintValue(*sum);
-}
+};
 
-template <>
-Value Add<double>(double v0, double v1, const Function::InvokeContext&) {
-  return DoubleValue(v0 + v1);
-}
-
-template <class Type>
-Value Sub(Type v0, Type v1, const Function::InvokeContext& context);
-
-template <>
-Value Sub<int64_t>(int64_t v0, int64_t v1,
-                   const Function::InvokeContext& context) {
-  auto diff = cel::internal::CheckedSub(v0, v1);
-  if (!diff.ok()) {
-    return ErrorValue::From(diff.status(), context.arena());
+absl::Status RegisterBinaryOverloads(FunctionRegistry& registry,
+                                     absl::string_view name,
+                                     ArithmeticBinaryFunction::Op op,
+                                     absl::Span<const Kind> kinds) {
+  for (Kind kind : kinds) {
+    CEL_RETURN_IF_ERROR(registry.Register(
+        FunctionDescriptor(name, /*is_receiver_style=*/false, {kind, kind}),
+        std::make_unique<ArithmeticBinaryFunction>(op)));
   }
-  return IntValue(*diff);
-}
-
-template <>
-Value Sub<uint64_t>(uint64_t v0, uint64_t v1,
-                    const Function::InvokeContext& context) {
-  auto diff = cel::internal::CheckedSub(v0, v1);
-  if (!diff.ok()) {
-    return ErrorValue::From(diff.status(), context.arena());
-  }
-  return UintValue(*diff);
-}
-
-template <>
-Value Sub<double>(double v0, double v1, const Function::InvokeContext&) {
-  return DoubleValue(v0 - v1);
-}
-
-template <class Type>
-Value Mul(Type v0, Type v1, const Function::InvokeContext& context);
-
-template <>
-Value Mul<int64_t>(int64_t v0, int64_t v1,
-                   const Function::InvokeContext& context) {
-  auto prod = cel::internal::CheckedMul(v0, v1);
-  if (!prod.ok()) {
-    return ErrorValue::From(prod.status(), context.arena());
-  }
-  return IntValue(*prod);
-}
-
-template <>
-Value Mul<uint64_t>(uint64_t v0, uint64_t v1,
-                    const Function::InvokeContext& context) {
-  auto prod = cel::internal::CheckedMul(v0, v1);
-  if (!prod.ok()) {
-    return ErrorValue::From(prod.status(), context.arena());
-  }
-  return UintValue(*prod);
-}
-
-template <>
-Value Mul<double>(double v0, double v1, const Function::InvokeContext&) {
-  return DoubleValue(v0 * v1);
-}
-
-template <class Type>
-Value Div(Type v0, Type v1, const Function::InvokeContext& context);
-
-// Division operations for integer types should check for
-// division by 0
-template <>
-Value Div<int64_t>(int64_t v0, int64_t v1,
-                   const Function::InvokeContext& context) {
-  auto quot = cel::internal::CheckedDiv(v0, v1);
-  if (!quot.ok()) {
-    return ErrorValue::From(quot.status(), context.arena());
-  }
-  return IntValue(*quot);
-}
-
-// Division operations for integer types should check for
-// division by 0
-template <>
-Value Div<uint64_t>(uint64_t v0, uint64_t v1,
-                    const Function::InvokeContext& context) {
-  auto quot = cel::internal::CheckedDiv(v0, v1);
-  if (!quot.ok()) {
-    return ErrorValue::From(quot.status(), context.arena());
-  }
-  return UintValue(*quot);
-}
-
-template <>
-Value Div<double>(double v0, double v1, const Function::InvokeContext&) {
-  static_assert(std::numeric_limits<double>::is_iec559,
-                "Division by zero for doubles must be supported");
-
-  // For double, division will result in +/- inf
-  return DoubleValue(v0 / v1);
-}
-
-// Modulo operation
-template <class Type>
-Value Modulo(Type v0, Type v1, const Function::InvokeContext& context);
-
-// Modulo operations for integer types should check for
-// division by 0
-template <>
-Value Modulo<int64_t>(int64_t v0, int64_t v1,
-                      const Function::InvokeContext& context) {
-  auto mod = cel::internal::CheckedMod(v0, v1);
-  if (!mod.ok()) {
-    return ErrorValue::From(mod.status(), context.arena());
-  }
-  return IntValue(*mod);
-}
-
-template <>
-Value Modulo<uint64_t>(uint64_t v0, uint64_t v1,
-                       const Function::InvokeContext& context) {
-  auto mod = cel::internal::CheckedMod(v0, v1);
-  if (!mod.ok()) {
-    return ErrorValue::From(mod.status(), context.arena());
-  }
-  return UintValue(*mod);
-}
-
-// Helper method
-// Registers all arithmetic functions for template parameter type.
-template <class Type>
-absl::Status RegisterArithmeticFunctionsForType(FunctionRegistry& registry) {
-  using FunctionAdapter = cel::BinaryFunctionAdapter<Value, Type, Type>;
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kAdd, false),
-      FunctionAdapter::WrapFunction(&Add<Type>)));
-
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kSubtract, false),
-      FunctionAdapter::WrapFunction(&Sub<Type>)));
-
-  CEL_RETURN_IF_ERROR(registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kMultiply, false),
-      FunctionAdapter::WrapFunction(&Mul<Type>)));
-
-  return registry.Register(
-      FunctionAdapter::CreateDescriptor(cel::builtin::kDivide, false),
-      FunctionAdapter::WrapFunction(&Div<Type>));
+  return absl::OkStatus();
 }
 
 }  // namespace
 
 absl::Status RegisterArithmeticFunctions(FunctionRegistry& registry,
                                          const RuntimeOptions& options) {
-  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<int64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<uint64_t>(registry));
-  CEL_RETURN_IF_ERROR(RegisterArithmeticFunctionsForType<double>(registry));
+  static constexpr Kind kNumericKinds[] = {Kind::kInt, Kind::kUint,
+                                           Kind::kDouble};
+  static constexpr Kind kIntegralKinds[] = {Kind::kInt, Kind::kUint};
 
-  // Modulo
-  CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<Value, int64_t, int64_t>::CreateDescriptor(
-          cel::builtin::kModulo, false),
-      BinaryFunctionAdapter<Value, int64_t, int64_t>::WrapFunction(
-          &Modulo<int64_t>)));
-
-  CEL_RETURN_IF_ERROR(registry.Register(
-      BinaryFunctionAdapter<Value, uint64_t, uint64_t>::CreateDescriptor(
-          cel::builtin::kModulo, false),
-      BinaryFunctionAdapter<Value, uint64_t, uint64_t>::WrapFunction(
-          &Modulo<uint64_t>)));
+  CEL_RETURN_IF_ERROR(RegisterBinaryOverloads(
+      registry, cel::builtin::kAdd, ArithmeticBinaryFunction::Op::kAdd,
+      kNumericKinds));
+  CEL_RETURN_IF_ERROR(RegisterBinaryOverloads(
+      registry, cel::builtin::kSubtract,
+      ArithmeticBinaryFunction::Op::kSubtract, kNumericKinds));
+  CEL_RETURN_IF_ERROR(RegisterBinaryOverloads(
+      registry, cel::builtin::kMultiply,
+      ArithmeticBinaryFunction::Op::kMultiply, kNumericKinds));
+  CEL_RETURN_IF_ERROR(RegisterBinaryOverloads(
+      registry, cel::builtin::kDivide, ArithmeticBinaryFunction::Op::kDivide,
+      kNumericKinds));
+  CEL_RETURN_IF_ERROR(RegisterBinaryOverloads(
+      registry, cel::builtin::kModulo, ArithmeticBinaryFunction::Op::kModulo,
+      kIntegralKinds));
 
   // Negation group
   CEL_RETURN_IF_ERROR(registry.Register(
-      UnaryFunctionAdapter<Value, int64_t>::CreateDescriptor(cel::builtin::kNeg,
-                                                             false),
-      UnaryFunctionAdapter<Value, int64_t>::WrapFunction(
-          [](int64_t value, const Function::InvokeContext& context) -> Value {
-            auto inv = cel::internal::CheckedNegation(value);
-            if (!inv.ok()) {
-              return ErrorValue::From(inv.status(), context.arena());
-            }
-            return IntValue(*inv);
-          })));
-
+      FunctionDescriptor(cel::builtin::kNeg, /*is_receiver_style=*/false,
+                         {Kind::kInt}),
+      std::make_unique<ArithmeticNegateFunction>()));
   return registry.Register(
-      UnaryFunctionAdapter<double, double>::CreateDescriptor(cel::builtin::kNeg,
-                                                             false),
-      UnaryFunctionAdapter<double, double>::WrapFunction(
-          [](double value) -> double { return -value; }));
+      FunctionDescriptor(cel::builtin::kNeg, /*is_receiver_style=*/false,
+                         {Kind::kDouble}),
+      std::make_unique<ArithmeticNegateFunction>());
 }
 
 }  // namespace cel
