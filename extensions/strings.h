@@ -16,57 +16,16 @@
 #define THIRD_PARTY_CEL_CPP_EXTENSIONS_STRINGS_H_
 
 #include "absl/status/status.h"
-#include "checker/type_checker_builder.h"
-#include "compiler/compiler.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_options.h"
-#include "runtime/function_registry.h"
-#include "runtime/runtime_options.h"
+#include "extensions/strings_modern.h"  // IWYU pragma: export
 
 namespace cel::extensions {
-
-constexpr int kStringsExtensionLatestVersion = 4;
-
-struct StringsExtensionOptions {
-  int version = kStringsExtensionLatestVersion;
-
-  // Maximum precision allowed for floating point format specifiers in
-  // format() function. This is used for both fixed and scientific notations.
-  // Value must be in the range [0, 1000], otherwise clamped.
-  //
-  // Does not affect default precisions for %e and %f format specifiers.
-  int max_precision = 1000;
-};
-
-// Register extension functions for strings.
-absl::Status RegisterStringsFunctions(
-    FunctionRegistry& registry, const RuntimeOptions& options,
-    const StringsExtensionOptions& extension_options = {});
 
 absl::Status RegisterStringsFunctions(
     google::api::expr::runtime::CelFunctionRegistry* registry,
     const google::api::expr::runtime::InterpreterOptions& options,
     const StringsExtensionOptions& extension_options = {});
-
-CheckerLibrary StringsCheckerLibrary(
-    const StringsExtensionOptions& extension_options = {});
-
-inline CheckerLibrary StringsCheckerLibrary(int version) {
-  StringsExtensionOptions options;
-  options.version = version;
-  return StringsCheckerLibrary(options);
-}
-
-inline CompilerLibrary StringsCompilerLibrary(
-    const StringsExtensionOptions& options = {}) {
-  return CompilerLibrary::FromCheckerLibrary(StringsCheckerLibrary(options));
-}
-
-inline CompilerLibrary StringsCompilerLibrary(int version) {
-  StringsExtensionOptions options;
-  options.version = version;
-  return StringsCompilerLibrary(options);
-}
 
 }  // namespace cel::extensions
 

@@ -18,17 +18,9 @@
 #include "absl/status/status.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_options.h"
-#include "extensions/math_ext_decls.h"
-#include "runtime/function_registry.h"
-#include "runtime/runtime_options.h"
+#include "extensions/math_ext_modern.h"  // IWYU pragma: export
 
 namespace cel::extensions {
-
-// Register extension functions for supporting mathematical operations above
-// and beyond the set defined in the CEL standard environment.
-absl::Status RegisterMathExtensionFunctions(
-    FunctionRegistry& registry, const RuntimeOptions& options,
-    int version = kMathExtensionLatestVersion);
 
 absl::Status RegisterMathExtensionFunctions(
     google::api::expr::runtime::CelFunctionRegistry* registry,

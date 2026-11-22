@@ -37,8 +37,6 @@ cc_library(
     srcs = ["runtime_env.cc"],
     hdrs = ["runtime_env.h"],
     deps = [
-        "//eval/public:cel_function_registry",
-        "//eval/public:cel_type_registry",
         "//internal:noop_delete",
         "//internal:well_known_types",
         "//runtime:function_registry",
@@ -47,6 +45,38 @@ cc_library(
         "@com_google_absl//absl/base:nullability",
         "@com_google_absl//absl/status",
         "@com_google_absl//absl/synchronization",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "legacy_runtime_env",
+    srcs = ["legacy_runtime_env.cc"],
+    hdrs = ["legacy_runtime_env.h"],
+    deps = [
+        ":runtime_env",
+        "//eval/public:cel_function_registry",
+        "//eval/public:cel_type_registry",
+        "//internal:status_macros",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_protobuf//:protobuf",
+    ],
+)
+
+cc_library(
+    name = "legacy_runtime_env_testing",
+    testonly = True,
+    srcs = ["legacy_runtime_env_testing.cc"],
+    hdrs = ["legacy_runtime_env_testing.h"],
+    deps = [
+        ":legacy_runtime_env",
+        "//internal:noop_delete",
+        "//internal:testing_descriptor_pool",
+        "//internal:testing_message_factory",
+        "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/log:absl_check",
+        "@com_google_absl//absl/status:statusor",
         "@com_google_protobuf//:protobuf",
     ],
 )

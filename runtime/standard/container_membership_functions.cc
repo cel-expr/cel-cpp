@@ -16,22 +16,22 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 
-#include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "base/builtins.h"
-#include "base/function_adapter.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
 #include "common/value.h"
+#include "common/value_kind.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
+#include "runtime/function.h"
 #include "runtime/function_registry.h"
-#include "runtime/register_function_helper.h"
 #include "runtime/runtime_options.h"
-#include "google/protobuf/arena.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/message.h"
 
 namespace cel {
 namespace {
@@ -44,119 +44,212 @@ static constexpr std::array<absl::string_view, 3> in_operators = {
     cel::builtin::kInDeprecated,  // deprecated _in_ -- for backwards compat
 };
 
-template <class T>
-bool ValueEquals(const Value& value, T other);
-
-template <>
-bool ValueEquals(const Value& value, bool other) {
-  if (auto bool_value = value.As<BoolValue>(); bool_value) {
-    return bool_value->NativeValue() == other;
+bool HomogenousValueEquals(const Value& lhs, const Value& rhs) {
+  if (lhs.kind() != rhs.kind()) {
+    return false;
   }
-  return false;
+  switch (lhs.kind()) {
+    case ValueKind::kBool:
+      return lhs.GetBool().NativeValue() == rhs.GetBool().NativeValue();
+    case ValueKind::kInt:
+      return lhs.GetInt().NativeValue() == rhs.GetInt().NativeValue();
+    case ValueKind::kUint:
+      return lhs.GetUint().NativeValue() == rhs.GetUint().NativeValue();
+    case ValueKind::kDouble:
+      return lhs.GetDouble().NativeValue() == rhs.GetDouble().NativeValue();
+    case ValueKind::kString:
+      return lhs.GetString().Equals(rhs.GetString());
+    case ValueKind::kBytes:
+      return lhs.GetBytes().Equals(rhs.GetBytes());
+    default:
+      return false;
+  }
 }
 
-template <>
-bool ValueEquals(const Value& value, int64_t other) {
-  if (auto int_value = value.As<IntValue>(); int_value) {
-    return int_value->NativeValue() == other;
+absl::StatusOr<Value> EvaluateHomogenousListIn(
+    const Value& key, const ListValue& list,
+    const Function::InvokeContext& context) {
+  switch (key.kind()) {
+    case ValueKind::kBool:
+    case ValueKind::kInt:
+    case ValueKind::kUint:
+    case ValueKind::kDouble:
+    case ValueKind::kString:
+    case ValueKind::kBytes:
+      break;
+    default:
+      return absl::InvalidArgumentError("unsupported key kind for list in");
   }
-  return false;
-}
-
-template <>
-bool ValueEquals(const Value& value, uint64_t other) {
-  if (auto uint_value = value.As<UintValue>(); uint_value) {
-    return uint_value->NativeValue() == other;
-  }
-  return false;
-}
-
-template <>
-bool ValueEquals(const Value& value, double other) {
-  if (auto double_value = value.As<DoubleValue>(); double_value) {
-    return double_value->NativeValue() == other;
-  }
-  return false;
-}
-
-template <>
-bool ValueEquals(const Value& value, const StringValue& other) {
-  if (auto string_value = value.As<StringValue>(); string_value) {
-    return string_value->Equals(other);
-  }
-  return false;
-}
-
-template <>
-bool ValueEquals(const Value& value, const BytesValue& other) {
-  if (auto bytes_value = value.As<BytesValue>(); bytes_value) {
-    return bytes_value->Equals(other);
-  }
-  return false;
-}
-
-// Template function implementing CEL in() function
-template <typename T>
-absl::StatusOr<bool> In(
-    T value, const ListValue& list,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) {
   CEL_ASSIGN_OR_RETURN(auto size, list.Size());
   Value element;
   for (int i = 0; i < size; i++) {
-    CEL_RETURN_IF_ERROR(
-        list.Get(i, descriptor_pool, message_factory, arena, &element));
-    if (ValueEquals<T>(element, value)) {
-      return true;
+    CEL_RETURN_IF_ERROR(list.Get(i, context.descriptor_pool(),
+                                 context.message_factory(), context.arena(),
+                                 &element));
+    if (HomogenousValueEquals(element, key)) {
+      return BoolValue(true);
+    }
+  }
+  return BoolValue(false);
+}
+
+absl::StatusOr<Value> EvaluateMapIn(const Value& key, const MapValue& map_value,
+                                    bool enable_heterogeneous_equality,
+                                    const Function::InvokeContext& context) {
+  switch (key.kind()) {
+    case ValueKind::kString: {
+      Value result;
+      CEL_RETURN_IF_ERROR(map_value.Has(key, context.descriptor_pool(),
+                                        context.message_factory(),
+                                        context.arena(), &result));
+      if (result.IsBool()) {
+        return result;
+      }
+      if (enable_heterogeneous_equality) {
+        return BoolValue(false);
+      }
+      return result;
+    }
+    case ValueKind::kBool: {
+      Value has;
+      CEL_RETURN_IF_ERROR(map_value.Has(key, context.descriptor_pool(),
+                                        context.message_factory(),
+                                        context.arena(), &has));
+      if (has.IsTrue()) {
+        return has;
+      }
+      if (enable_heterogeneous_equality) {
+        return BoolValue(false);
+      }
+      return has;
+    }
+    case ValueKind::kInt: {
+      Value result;
+      CEL_RETURN_IF_ERROR(map_value.Has(key, context.descriptor_pool(),
+                                        context.message_factory(),
+                                        context.arena(), &result));
+      if (enable_heterogeneous_equality) {
+        if (result.IsTrue()) {
+          return result;
+        }
+        Number number = Number::FromInt64(key.GetInt().NativeValue());
+        if (number.LosslessConvertibleToUint()) {
+          Value result_alt;
+          CEL_RETURN_IF_ERROR(map_value.Has(
+              UintValue(number.AsUint()), context.descriptor_pool(),
+              context.message_factory(), context.arena(), &result_alt));
+          if (result_alt.IsTrue()) {
+            return result_alt;
+          }
+        }
+        return BoolValue(false);
+      }
+      return result;
+    }
+    case ValueKind::kUint: {
+      Value has;
+      CEL_RETURN_IF_ERROR(map_value.Has(key, context.descriptor_pool(),
+                                        context.message_factory(),
+                                        context.arena(), &has));
+      if (enable_heterogeneous_equality) {
+        if (has.IsTrue()) {
+          return has;
+        }
+        Number number = Number::FromUint64(key.GetUint().NativeValue());
+        if (number.LosslessConvertibleToInt()) {
+          Value has_alt;
+          CEL_RETURN_IF_ERROR(map_value.Has(
+              IntValue(number.AsInt()), context.descriptor_pool(),
+              context.message_factory(), context.arena(), &has_alt));
+          if (has_alt.IsTrue()) {
+            return has_alt;
+          }
+        }
+        return BoolValue(false);
+      }
+      return has;
+    }
+    case ValueKind::kDouble: {
+      if (!enable_heterogeneous_equality) {
+        return absl::InvalidArgumentError(
+            "double key not supported for homogenous map in");
+      }
+      Number number = Number::FromDouble(key.GetDouble().NativeValue());
+      if (number.LosslessConvertibleToInt()) {
+        Value has;
+        CEL_RETURN_IF_ERROR(
+            map_value.Has(IntValue(number.AsInt()), context.descriptor_pool(),
+                          context.message_factory(), context.arena(), &has));
+        if (has.IsTrue()) {
+          return has;
+        }
+      }
+      if (number.LosslessConvertibleToUint()) {
+        Value has;
+        CEL_RETURN_IF_ERROR(
+            map_value.Has(UintValue(number.AsUint()), context.descriptor_pool(),
+                          context.message_factory(), context.arena(), &has));
+        if (has.IsTrue()) {
+          return has;
+        }
+      }
+      return BoolValue(false);
+    }
+    default:
+      return absl::InvalidArgumentError("unsupported key kind for map in");
+  }
+}
+
+class ContainerMembershipFunction final : public Function {
+ public:
+  explicit ContainerMembershipFunction(bool enable_heterogeneous_equality)
+      : enable_heterogeneous_equality_(enable_heterogeneous_equality) {}
+
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext& context) const override {
+    if (args.size() != 2) {
+      return absl::InvalidArgumentError(
+          "unexpected number of arguments for binary function");
+    }
+    switch (args[1].kind()) {
+      case ValueKind::kList:
+        if (enable_heterogeneous_equality_) {
+          return args[1].GetList().Contains(args[0], context.descriptor_pool(),
+                                            context.message_factory(),
+                                            context.arena());
+        }
+        return EvaluateHomogenousListIn(args[0], args[1].GetList(), context);
+      case ValueKind::kMap:
+        return EvaluateMapIn(args[0], args[1].GetMap(),
+                             enable_heterogeneous_equality_, context);
+      default:
+        return absl::InvalidArgumentError("expected list or map value");
     }
   }
 
-  return false;
-}
-
-// Implementation for @in operator using heterogeneous equality.
-absl::StatusOr<Value> HeterogeneousEqualityIn(
-    const Value& value, const ListValue& list,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) {
-  return list.Contains(value, descriptor_pool, message_factory, arena);
-}
+ private:
+  bool enable_heterogeneous_equality_;
+};
 
 absl::Status RegisterListMembershipFunctions(FunctionRegistry& registry,
                                              const RuntimeOptions& options) {
+  static constexpr Kind kHomogenousListKeyKinds[] = {
+      Kind::kBool,   Kind::kInt,    Kind::kUint,
+      Kind::kDouble, Kind::kString, Kind::kBytes,
+  };
   for (absl::string_view op : in_operators) {
     if (options.enable_heterogeneous_equality) {
-      CEL_RETURN_IF_ERROR(
-          (RegisterHelper<BinaryFunctionAdapter<
-               absl::StatusOr<Value>, const Value&, const ListValue&>>::
-               RegisterGlobalOverload(op, &HeterogeneousEqualityIn, registry)));
+      CEL_RETURN_IF_ERROR(registry.Register(
+          FunctionDescriptor(op, /*is_receiver_style=*/false,
+                             {Kind::kAny, Kind::kList}),
+          std::make_unique<ContainerMembershipFunction>(true)));
     } else {
-      CEL_RETURN_IF_ERROR(
-          (RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<bool>, bool,
-                                                const ListValue&>>::
-               RegisterGlobalOverload(op, In<bool>, registry)));
-      CEL_RETURN_IF_ERROR(
-          (RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<bool>, int64_t,
-                                                const ListValue&>>::
-               RegisterGlobalOverload(op, In<int64_t>, registry)));
-      CEL_RETURN_IF_ERROR(
-          (RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<bool>, uint64_t,
-                                                const ListValue&>>::
-               RegisterGlobalOverload(op, In<uint64_t>, registry)));
-      CEL_RETURN_IF_ERROR(
-          (RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<bool>, double,
-                                                const ListValue&>>::
-               RegisterGlobalOverload(op, In<double>, registry)));
-      CEL_RETURN_IF_ERROR(
-          (RegisterHelper<BinaryFunctionAdapter<
-               absl::StatusOr<bool>, const StringValue&, const ListValue&>>::
-               RegisterGlobalOverload(op, In<const StringValue&>, registry)));
-      CEL_RETURN_IF_ERROR(
-          (RegisterHelper<BinaryFunctionAdapter<
-               absl::StatusOr<bool>, const BytesValue&, const ListValue&>>::
-               RegisterGlobalOverload(op, In<const BytesValue&>, registry)));
+      for (Kind kind : kHomogenousListKeyKinds) {
+        CEL_RETURN_IF_ERROR(registry.Register(
+            FunctionDescriptor(op, /*is_receiver_style=*/false,
+                               {kind, Kind::kList}),
+            std::make_unique<ContainerMembershipFunction>(false)));
+      }
     }
   }
   return absl::OkStatus();
@@ -166,152 +259,25 @@ absl::Status RegisterMapMembershipFunctions(FunctionRegistry& registry,
                                             const RuntimeOptions& options) {
   const bool enable_heterogeneous_equality =
       options.enable_heterogeneous_equality;
-
-  auto boolKeyInSet =
-      [enable_heterogeneous_equality](
-          bool key, const MapValue& map_value,
-          const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-          google::protobuf::MessageFactory* absl_nonnull message_factory,
-          google::protobuf::Arena* absl_nonnull arena) -> absl::StatusOr<Value> {
-    Value has;
-    CEL_RETURN_IF_ERROR(map_value.Has(BoolValue(key), descriptor_pool,
-                                      message_factory, arena, &has));
-    if (has.IsTrue()) {
-      return has;
+  static constexpr Kind kMapKeyKinds[] = {
+      Kind::kString,
+      Kind::kBool,
+      Kind::kInt,
+      Kind::kUint,
+  };
+  for (absl::string_view op : in_operators) {
+    for (Kind kind : kMapKeyKinds) {
+      CEL_RETURN_IF_ERROR(
+          registry.Register(FunctionDescriptor(op, /*is_receiver_style=*/false,
+                                               {kind, Kind::kMap}),
+                            std::make_unique<ContainerMembershipFunction>(
+                                enable_heterogeneous_equality)));
     }
     if (enable_heterogeneous_equality) {
-      return BoolValue(false);
-    }
-    return has;
-  };
-
-  auto intKeyInSet =
-      [enable_heterogeneous_equality](
-          int64_t key, const MapValue& map_value,
-          const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-          google::protobuf::MessageFactory* absl_nonnull message_factory,
-          google::protobuf::Arena* absl_nonnull arena) -> absl::StatusOr<Value> {
-    Value result;
-    CEL_RETURN_IF_ERROR(map_value.Has(IntValue(key), descriptor_pool,
-                                      message_factory, arena, &result));
-    if (enable_heterogeneous_equality) {
-      if (result.IsTrue()) {
-        return result;
-      }
-      Number number = Number::FromInt64(key);
-      if (number.LosslessConvertibleToUint()) {
-        Value result_alt;
-        CEL_RETURN_IF_ERROR(map_value.Has(UintValue(number.AsUint()),
-                                          descriptor_pool, message_factory,
-                                          arena, &result_alt));
-        if (result_alt.IsTrue()) {
-          return result_alt;
-        }
-      }
-      return BoolValue(false);
-    }
-    return result;
-  };
-
-  auto stringKeyInSet =
-      [enable_heterogeneous_equality](
-          const StringValue& key, const MapValue& map_value,
-          const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-          google::protobuf::MessageFactory* absl_nonnull message_factory,
-          google::protobuf::Arena* absl_nonnull arena) -> absl::StatusOr<Value> {
-    Value result;
-    CEL_RETURN_IF_ERROR(
-        map_value.Has(key, descriptor_pool, message_factory, arena, &result));
-    if (result.IsBool()) {
-      return result;
-    }
-    if (enable_heterogeneous_equality) {
-      return BoolValue(false);
-    }
-    return result;
-  };
-
-  auto uintKeyInSet =
-      [enable_heterogeneous_equality](
-          uint64_t key, const MapValue& map_value,
-          const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-          google::protobuf::MessageFactory* absl_nonnull message_factory,
-          google::protobuf::Arena* absl_nonnull arena) -> absl::StatusOr<Value> {
-    Value has;
-    CEL_RETURN_IF_ERROR(map_value.Has(UintValue(key), descriptor_pool,
-                                      message_factory, arena, &has));
-    if (enable_heterogeneous_equality) {
-      if (has.IsTrue()) {
-        return has;
-      }
-      Value has_alt;
-      Number number = Number::FromUint64(key);
-      if (number.LosslessConvertibleToInt()) {
-        CEL_RETURN_IF_ERROR(map_value.Has(IntValue(number.AsInt()),
-                                          descriptor_pool, message_factory,
-                                          arena, &has_alt));
-        if (has.IsTrue()) {
-          return has;
-        }
-      }
-      return BoolValue(false);
-    }
-    return has;
-  };
-
-  auto doubleKeyInSet =
-      [](double key, const MapValue& map_value,
-         const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-         google::protobuf::MessageFactory* absl_nonnull message_factory,
-         google::protobuf::Arena* absl_nonnull arena) -> absl::StatusOr<Value> {
-    Number number = Number::FromDouble(key);
-    if (number.LosslessConvertibleToInt()) {
-      Value has;
-      CEL_RETURN_IF_ERROR(map_value.Has(IntValue(number.AsInt()),
-                                        descriptor_pool, message_factory, arena,
-                                        &has));
-      if (has.IsTrue()) {
-        return has;
-      }
-    }
-    if (number.LosslessConvertibleToUint()) {
-      Value has;
-      CEL_RETURN_IF_ERROR(map_value.Has(UintValue(number.AsUint()),
-                                        descriptor_pool, message_factory, arena,
-                                        &has));
-      if (has.IsTrue()) {
-        return has;
-      }
-    }
-    return BoolValue(false);
-  };
-
-  for (auto op : in_operators) {
-    auto status = RegisterHelper<BinaryFunctionAdapter<
-        absl::StatusOr<Value>, const StringValue&,
-        const MapValue&>>::RegisterGlobalOverload(op, stringKeyInSet, registry);
-    if (!status.ok()) return status;
-
-    status = RegisterHelper<
-        BinaryFunctionAdapter<absl::StatusOr<Value>, bool, const MapValue&>>::
-        RegisterGlobalOverload(op, boolKeyInSet, registry);
-    if (!status.ok()) return status;
-
-    status = RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<Value>,
-                                                  int64_t, const MapValue&>>::
-        RegisterGlobalOverload(op, intKeyInSet, registry);
-    if (!status.ok()) return status;
-
-    status = RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<Value>,
-                                                  uint64_t, const MapValue&>>::
-        RegisterGlobalOverload(op, uintKeyInSet, registry);
-    if (!status.ok()) return status;
-
-    if (enable_heterogeneous_equality) {
-      status = RegisterHelper<BinaryFunctionAdapter<absl::StatusOr<Value>,
-                                                    double, const MapValue&>>::
-          RegisterGlobalOverload(op, doubleKeyInSet, registry);
-      if (!status.ok()) return status;
+      CEL_RETURN_IF_ERROR(registry.Register(
+          FunctionDescriptor(op, /*is_receiver_style=*/false,
+                             {Kind::kDouble, Kind::kMap}),
+          std::make_unique<ContainerMembershipFunction>(true)));
     }
   }
   return absl::OkStatus();

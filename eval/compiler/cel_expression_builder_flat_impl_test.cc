@@ -45,7 +45,7 @@
 #include "internal/testing.h"
 #include "parser/macro.h"
 #include "parser/parser.h"
-#include "runtime/internal/runtime_env_testing.h"
+#include "runtime/internal/legacy_runtime_env_testing.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/message.h"
@@ -58,7 +58,7 @@ namespace {
 using ::absl_testing::StatusIs;
 using ::cel::expr::conformance::proto3::NestedTestAllTypes;
 using ::cel::expr::conformance::proto3::TestAllTypes;
-using ::cel::runtime_internal::NewTestingRuntimeEnv;
+using ::cel::runtime_internal::NewTestingLegacyRuntimeEnv;
 using ::cel::expr::CheckedExpr;
 using ::cel::expr::Expr;
 using ::cel::expr::ParsedExpr;
@@ -73,7 +73,7 @@ using ::testing::HasSubstr;
 TEST(CelExpressionBuilderFlatImplTest, Error) {
   Expr expr;
   SourceInfo source_info;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv());
   EXPECT_THAT(builder.CreateExpression(&expr, &source_info).status(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("Invalid empty expression")));
@@ -82,7 +82,7 @@ TEST(CelExpressionBuilderFlatImplTest, Error) {
 TEST(CelExpressionBuilderFlatImplTest, ParsedExpr) {
   ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, Parse("1 + 2"));
 
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv());
   ASSERT_OK(RegisterBuiltinFunctions(builder.GetRegistry()));
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
@@ -169,7 +169,7 @@ TEST_P(PlanTest, Basic) {
   cel::RuntimeOptions options;
   options.container = "cel.expr.conformance.proto3";
   google::protobuf::Arena arena;
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv(), options);
 
   ASSERT_OK(SetupBuilder(builder));
 
@@ -453,7 +453,7 @@ TEST(CelExpressionBuilderFlatImplTest, ParsedExprWithWarnings) {
   cel::RuntimeOptions options;
   options.fail_on_warnings = false;
 
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv(), options);
   std::vector<absl::Status> warnings;
 
   ASSERT_OK_AND_ASSIGN(
@@ -478,7 +478,7 @@ TEST(CelExpressionBuilderFlatImplTest, EmptyLegacyTypeViewUnsupported) {
   ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, Parse("x"));
   cel::RuntimeOptions options;
 
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv(), options);
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
                        builder.CreateExpression(&parsed_expr.expr(),
@@ -495,7 +495,7 @@ TEST(CelExpressionBuilderFlatImplTest, LegacyTypeViewSupported) {
   ASSERT_OK_AND_ASSIGN(ParsedExpr parsed_expr, Parse("x"));
   cel::RuntimeOptions options;
 
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv(), options);
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
                        builder.CreateExpression(&parsed_expr.expr(),
@@ -515,7 +515,7 @@ TEST(CelExpressionBuilderFlatImplTest, CheckedExpr) {
   checked_expr.mutable_expr()->Swap(parsed_expr.mutable_expr());
   checked_expr.mutable_source_info()->Swap(parsed_expr.mutable_source_info());
 
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv());
   ASSERT_OK(RegisterBuiltinFunctions(builder.GetRegistry()));
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,
@@ -535,7 +535,7 @@ TEST(CelExpressionBuilderFlatImplTest, CheckedExprWithWarnings) {
   cel::RuntimeOptions options;
   options.fail_on_warnings = false;
 
-  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  CelExpressionBuilderFlatImpl builder(NewTestingLegacyRuntimeEnv(), options);
   std::vector<absl::Status> warnings;
 
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<CelExpression> plan,

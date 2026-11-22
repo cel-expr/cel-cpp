@@ -14,92 +14,12 @@
 
 #include "extensions/encoders.h"
 
-#include <string>
-#include <utility>
-
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
-#include "absl/status/statusor.h"
-#include "absl/strings/escaping.h"
-#include "checker/type_checker_builder.h"
-#include "common/decl.h"
-#include "common/type.h"
-#include "common/value.h"
-#include "compiler/compiler.h"
 #include "eval/public/cel_function_registry.h"
 #include "eval/public/cel_options.h"
-#include "internal/status_macros.h"
-#include "runtime/function_adapter.h"
-#include "runtime/function_registry.h"
-#include "runtime/runtime_options.h"
-#include "google/protobuf/arena.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/message.h"
 
 namespace cel::extensions {
-
-namespace {
-
-absl::StatusOr<Value> Base64Decode(
-    const StringValue& value,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) {
-  std::string in;
-  std::string out;
-  if (!absl::Base64Unescape(value.NativeString(in), &out)) {
-    return ErrorValue::From(absl::InvalidArgumentError("invalid base64 data"),
-                            arena);
-  }
-  return BytesValue::From(std::move(out), arena);
-}
-
-absl::StatusOr<Value> Base64Encode(
-    const BytesValue& value,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena) {
-  std::string in;
-  std::string out;
-  out = absl::Base64Escape(value.NativeString(in));
-  return StringValue::From(std::move(out), arena);
-}
-
-absl::Status RegisterEncodersDecls(TypeCheckerBuilder& builder) {
-  CEL_ASSIGN_OR_RETURN(
-      auto base64_decode_decl,
-      MakeFunctionDecl(
-          "base64.decode",
-          MakeOverloadDecl("base64_decode_string", BytesType(), StringType())));
-
-  CEL_ASSIGN_OR_RETURN(
-      auto base64_encode_decl,
-      MakeFunctionDecl(
-          "base64.encode",
-          MakeOverloadDecl("base64_encode_bytes", StringType(), BytesType())));
-
-  CEL_RETURN_IF_ERROR(builder.AddFunction(base64_decode_decl));
-  CEL_RETURN_IF_ERROR(builder.AddFunction(base64_encode_decl));
-  return absl::OkStatus();
-}
-
-}  // namespace
-
-absl::Status RegisterEncodersFunctions(FunctionRegistry& registry,
-                                       const RuntimeOptions&) {
-  CEL_RETURN_IF_ERROR(registry.Register(
-      UnaryFunctionAdapter<absl::StatusOr<Value>,
-                           StringValue>::CreateDescriptor("base64.decode",
-                                                          false),
-      UnaryFunctionAdapter<absl::StatusOr<Value>, StringValue>::WrapFunction(
-          &Base64Decode)));
-  CEL_RETURN_IF_ERROR(registry.Register(
-      UnaryFunctionAdapter<absl::StatusOr<Value>, BytesValue>::CreateDescriptor(
-          "base64.encode", false),
-      UnaryFunctionAdapter<absl::StatusOr<Value>, BytesValue>::WrapFunction(
-          &Base64Encode)));
-  return absl::OkStatus();
-}
 
 absl::Status RegisterEncodersFunctions(
     google::api::expr::runtime::CelFunctionRegistry* absl_nonnull registry,
@@ -107,14 +27,6 @@ absl::Status RegisterEncodersFunctions(
   return RegisterEncodersFunctions(
       registry->InternalGetRegistry(),
       google::api::expr::runtime::ConvertToRuntimeOptions(options));
-}
-
-CheckerLibrary EncodersCheckerLibrary() {
-  return {"cel.lib.ext.encoders", &RegisterEncodersDecls};
-}
-
-CompilerLibrary EncodersCompilerLibrary() {
-  return CompilerLibrary::FromCheckerLibrary(EncodersCheckerLibrary());
 }
 
 }  // namespace cel::extensions
