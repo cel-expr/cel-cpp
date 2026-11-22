@@ -17,6 +17,7 @@
 #define THIRD_PARTY_CEL_CPP_COMMON_STANDARD_DEFINITIONS_H_
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 
 namespace cel {
 
@@ -342,6 +343,9 @@ struct StandardOverloadIds {
   static constexpr absl::string_view kStringToDuration = "string_to_duration";
   // to_type
   static constexpr absl::string_view kToType = "type";
+
+  static absl::Span<const absl::string_view> GetAllIds();
+  static bool HasId(absl::string_view id);
 };
 
 }  // namespace cel
