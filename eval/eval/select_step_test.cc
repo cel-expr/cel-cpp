@@ -20,6 +20,7 @@
 #include "common/expr.h"
 #include "common/legacy_value.h"
 #include "common/type.h"
+#include "common/value.h"
 #include "eval/eval/cel_expression_flat_impl.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/public/activation.h"
@@ -1051,6 +1052,389 @@ TEST_F(SelectStepTest, TypedSelectStepUnknownPatternResolvesToUnknown) {
 
   ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr.Evaluate(activation, &arena_));
   ASSERT_TRUE(result.IsUnknownSet());
+}
+
+// Helper step to wrap the top-of-stack value in `cel::OptionalValue::Of(...)`
+// while preserving its `AttributeTrail` for unknown attribute tests.
+class WrapOptionalTestStep : public ExpressionStepLogic {
+ public:
+  void Evaluate(ExecutionFrame* frame) const override {
+    cel::Value& top = frame->value_stack().Peek();
+    top = cel::OptionalValue::Of(std::move(top), frame->arena());
+  }
+};
+
+// Helper step to unwrap `cel::OptionalValue` into a sentinel `StringValue`
+// ("optional.none") or its held value so `CelExpressionFlatImpl::Evaluate` can
+// return it as a `CelValue`.
+class UnwrapOptionalTestStep : public ExpressionStepLogic {
+ public:
+  void Evaluate(ExecutionFrame* frame) const override {
+    cel::Value& top = frame->value_stack().Peek();
+    if (!top.IsOptional()) {
+      return;
+    }
+    const cel::OptionalValue& opt = top.GetOptional();
+    if (!opt.HasValue()) {
+      top = cel::StringValue::Literal("optional.none");
+      return;
+    }
+    cel::Value inner;
+    opt.Value(&inner);
+    top = std::move(inner);
+  }
+};
+
+TEST_P(SelectStepConformanceTest, TypedHasStepTest) {
+  cel::StructType resolved_operand_type(
+      (cel::MessageType(TestAllTypes::descriptor())));
+  const google::protobuf::FieldDescriptor* field_desc =
+      TestAllTypes::descriptor()->FindFieldByName("single_int64");
+  ASSERT_NE(field_desc, nullptr);
+  cel::StructTypeField resolved_field((cel::MessageTypeField(field_desc)));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto step1, CreateTypedSelectStep(
+                      "single_int64", resolved_operand_type, resolved_field,
+                      /*test_only=*/true,
+                      /*enable_wrapper_type_null_unboxing=*/false,
+                      /*enable_optional_types=*/false));
+
+  ExecutionPath path;
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
+  cel::RuntimeOptions options;
+  if (GetParam()) {
+    options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
+  }
+  CelExpressionFlatImpl cel_expr(
+      env_,
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
+
+  TestAllTypes message;
+  {
+    Activation activation;
+    activation.InsertValue("message",
+                           CelProtoWrapper::CreateMessage(&message, &arena_));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsBool());
+    EXPECT_FALSE(result.BoolOrDie());
+  }
+  message.set_single_int64(42);
+  {
+    Activation activation;
+    activation.InsertValue("message",
+                           CelProtoWrapper::CreateMessage(&message, &arena_));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsBool());
+    EXPECT_TRUE(result.BoolOrDie());
+  }
+}
+
+TEST_P(SelectStepConformanceTest, ChainedTypedSelectStepTest) {
+  cel::StructType root_type((cel::MessageType(TestAllTypes::descriptor())));
+  const google::protobuf::FieldDescriptor* nested_field_desc =
+      TestAllTypes::descriptor()->FindFieldByName("single_nested_message");
+  ASSERT_NE(nested_field_desc, nullptr);
+  cel::StructTypeField nested_field((cel::MessageTypeField(nested_field_desc)));
+
+  cel::StructType nested_type(
+      (cel::MessageType(TestAllTypes::NestedMessage::descriptor())));
+  const google::protobuf::FieldDescriptor* bb_field_desc =
+      TestAllTypes::NestedMessage::descriptor()->FindFieldByName("bb");
+  ASSERT_NE(bb_field_desc, nullptr);
+  cel::StructTypeField bb_field((cel::MessageTypeField(bb_field_desc)));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto step1,
+      CreateTypedSelectStep("single_nested_message", root_type, nested_field,
+                            /*test_only=*/false,
+                            /*enable_wrapper_type_null_unboxing=*/false,
+                            /*enable_optional_types=*/false));
+  ASSERT_OK_AND_ASSIGN(
+      auto step2,
+      CreateTypedSelectStep("bb", nested_type, bb_field,
+                            /*test_only=*/false,
+                            /*enable_wrapper_type_null_unboxing=*/false,
+                            /*enable_optional_types=*/false));
+
+  ExecutionPath path;
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step2)));
+  cel::RuntimeOptions options;
+  if (GetParam()) {
+    options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
+  }
+  CelExpressionFlatImpl cel_expr(
+      env_,
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
+
+  TestAllTypes message;
+  message.mutable_single_nested_message()->set_bb(99);
+  Activation activation;
+  activation.InsertValue("message",
+                         CelProtoWrapper::CreateMessage(&message, &arena_));
+
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr.Evaluate(activation, &arena_));
+  ASSERT_TRUE(result.IsInt64());
+  EXPECT_EQ(result.Int64OrDie(), 99);
+}
+
+TEST_P(SelectStepConformanceTest, TypedOptionalSelectStepTest) {
+  cel::StructType root_type((cel::MessageType(TestAllTypes::descriptor())));
+  const google::protobuf::FieldDescriptor* nested_field_desc =
+      TestAllTypes::descriptor()->FindFieldByName("single_nested_message");
+  ASSERT_NE(nested_field_desc, nullptr);
+  cel::StructTypeField nested_field((cel::MessageTypeField(nested_field_desc)));
+
+  cel::StructType nested_type(
+      (cel::MessageType(TestAllTypes::NestedMessage::descriptor())));
+  const google::protobuf::FieldDescriptor* bb_field_desc =
+      TestAllTypes::NestedMessage::descriptor()->FindFieldByName("bb");
+  ASSERT_NE(bb_field_desc, nullptr);
+  cel::StructTypeField bb_field((cel::MessageTypeField(bb_field_desc)));
+
+  auto make_chained_expr =
+      [&](bool start_with_none) -> absl::StatusOr<CelExpressionFlatImpl> {
+    ExecutionPath path;
+    if (start_with_none) {
+      path.push_back(ExpressionStep::MakeConstant(cel::OptionalValue::None()));
+    } else {
+      path.push_back(ExpressionStep::MakeIdentifierStep(0));
+      path.push_back(ExpressionStep::MakeGenericStep(
+          std::make_unique<WrapOptionalTestStep>(), -1, /*stack_delta=*/0));
+    }
+    CEL_ASSIGN_OR_RETURN(
+        auto step1,
+        CreateTypedSelectStep("single_nested_message", root_type, nested_field,
+                              /*test_only=*/false,
+                              /*enable_wrapper_type_null_unboxing=*/false,
+                              /*enable_optional_types=*/true));
+    CEL_ASSIGN_OR_RETURN(
+        auto step2,
+        CreateTypedSelectStep("bb", nested_type, bb_field, /*test_only=*/false,
+                              /*enable_wrapper_type_null_unboxing=*/false,
+                              /*enable_optional_types=*/true));
+    path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
+    path.push_back(ExpressionStep::MakeGenericStep(std::move(step2)));
+    path.push_back(ExpressionStep::MakeGenericStep(
+        std::make_unique<UnwrapOptionalTestStep>(), -1, /*stack_delta=*/0));
+
+    cel::RuntimeOptions options;
+    if (GetParam()) {
+      options.unknown_processing =
+          cel::UnknownProcessingOptions::kAttributeOnly;
+    }
+    return CelExpressionFlatImpl(
+        env_,
+        FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                       env_->type_registry.GetComposedTypeProvider(), options,
+                       /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
+  };
+
+  // Optional none propagates as optional.none.
+  {
+    ASSERT_OK_AND_ASSIGN(CelExpressionFlatImpl none_expr,
+                         make_chained_expr(true));
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         none_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsString());
+    EXPECT_EQ(result.StringOrDie().value(), "optional.none");
+  }
+
+  ASSERT_OK_AND_ASSIGN(CelExpressionFlatImpl cel_expr,
+                       make_chained_expr(false));
+  // Unset intermediate field returns optional.none.
+  {
+    TestAllTypes message;
+    Activation activation;
+    activation.InsertValue("message",
+                           CelProtoWrapper::CreateMessage(&message, &arena_));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsString());
+    EXPECT_EQ(result.StringOrDie().value(), "optional.none");
+  }
+  // Present intermediate message with unset leaf field returns optional.none.
+  {
+    TestAllTypes message;
+    message.mutable_single_nested_message();
+    Activation activation;
+    activation.InsertValue("message",
+                           CelProtoWrapper::CreateMessage(&message, &arena_));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsString());
+    EXPECT_EQ(result.StringOrDie().value(), "optional.none");
+  }
+  // Present intermediate and leaf field returns optional.of(value).
+  {
+    TestAllTypes message;
+    message.mutable_single_nested_message()->set_bb(123);
+    Activation activation;
+    activation.InsertValue("message",
+                           CelProtoWrapper::CreateMessage(&message, &arena_));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsInt64());
+    EXPECT_EQ(result.Int64OrDie(), 123);
+  }
+  // Fallback when optional holds a legacy map instead of a proto message.
+  {
+    std::string nested_key = "single_nested_message";
+    std::string bb_key = "bb";
+    std::vector<std::pair<CelValue, CelValue>> inner_kvs{
+        {CelValue::CreateString(&bb_key), CelValue::CreateInt64(77)}};
+    ASSERT_OK_AND_ASSIGN(auto inner_map,
+                         CreateContainerBackedMap(absl::MakeSpan(inner_kvs)));
+    std::vector<std::pair<CelValue, CelValue>> outer_kvs{
+        {CelValue::CreateString(&nested_key),
+         CelValue::CreateMap(inner_map.get())}};
+    ASSERT_OK_AND_ASSIGN(auto outer_map,
+                         CreateContainerBackedMap(absl::MakeSpan(outer_kvs)));
+    Activation activation;
+    activation.InsertValue("message", CelValue::CreateMap(outer_map.get()));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsInt64());
+    EXPECT_EQ(result.Int64OrDie(), 77);
+  }
+}
+
+TEST_F(SelectStepTest, TypedOptionalSelectStepUnknownPatternResolvesToUnknown) {
+  cel::StructType root_type((cel::MessageType(TestAllTypes::descriptor())));
+  const google::protobuf::FieldDescriptor* field_desc =
+      TestAllTypes::descriptor()->FindFieldByName("single_int64");
+  ASSERT_NE(field_desc, nullptr);
+  cel::StructTypeField resolved_field((cel::MessageTypeField(field_desc)));
+
+  ASSERT_OK_AND_ASSIGN(
+      auto step1,
+      CreateTypedSelectStep("single_int64", root_type, resolved_field,
+                            /*test_only=*/false,
+                            /*enable_wrapper_type_null_unboxing=*/false,
+                            /*enable_optional_types=*/true));
+
+  ExecutionPath path;
+  path.push_back(ExpressionStep::MakeIdentifierStep(0));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<WrapOptionalTestStep>(), -1, /*stack_delta=*/0));
+  path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
+  path.push_back(ExpressionStep::MakeGenericStep(
+      std::make_unique<UnwrapOptionalTestStep>(), -1, /*stack_delta=*/0));
+
+  cel::RuntimeOptions options;
+  options.unknown_processing = cel::UnknownProcessingOptions::kAttributeOnly;
+  CelExpressionFlatImpl cel_expr(
+      env_,
+      FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                     env_->type_registry.GetComposedTypeProvider(), options,
+                     /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
+
+  TestAllTypes message;
+  message.set_single_int64(42);
+  std::vector<CelAttributePattern> unknown_patterns;
+  unknown_patterns.push_back(CelAttributePattern(
+      "message", {CelAttributeQualifierPattern::OfString("single_int64")}));
+
+  Activation activation;
+  activation.InsertValue("message",
+                         CelProtoWrapper::CreateMessage(&message, &arena_));
+  ASSERT_THAT(activation.SetUnknownAttributePatterns(unknown_patterns), IsOk());
+
+  ASSERT_OK_AND_ASSIGN(CelValue result, cel_expr.Evaluate(activation, &arena_));
+  ASSERT_TRUE(result.IsUnknownSet());
+}
+
+TEST_P(SelectStepConformanceTest, TypedOptionalHasStepTest) {
+  cel::StructType root_type((cel::MessageType(TestAllTypes::descriptor())));
+  const google::protobuf::FieldDescriptor* nested_field_desc =
+      TestAllTypes::descriptor()->FindFieldByName("single_nested_message");
+  ASSERT_NE(nested_field_desc, nullptr);
+  cel::StructTypeField nested_field((cel::MessageTypeField(nested_field_desc)));
+
+  cel::StructType nested_type(
+      (cel::MessageType(TestAllTypes::NestedMessage::descriptor())));
+  const google::protobuf::FieldDescriptor* bb_field_desc =
+      TestAllTypes::NestedMessage::descriptor()->FindFieldByName("bb");
+  ASSERT_NE(bb_field_desc, nullptr);
+  cel::StructTypeField bb_field((cel::MessageTypeField(bb_field_desc)));
+
+  auto make_has_expr =
+      [&](bool start_with_none) -> absl::StatusOr<CelExpressionFlatImpl> {
+    ExecutionPath path;
+    if (start_with_none) {
+      path.push_back(ExpressionStep::MakeConstant(cel::OptionalValue::None()));
+    } else {
+      path.push_back(ExpressionStep::MakeIdentifierStep(0));
+      path.push_back(ExpressionStep::MakeGenericStep(
+          std::make_unique<WrapOptionalTestStep>(), -1, /*stack_delta=*/0));
+    }
+    CEL_ASSIGN_OR_RETURN(
+        auto step1,
+        CreateTypedSelectStep("single_nested_message", root_type, nested_field,
+                              /*test_only=*/false,
+                              /*enable_wrapper_type_null_unboxing=*/false,
+                              /*enable_optional_types=*/true));
+    CEL_ASSIGN_OR_RETURN(
+        auto step2,
+        CreateTypedSelectStep("bb", nested_type, bb_field, /*test_only=*/true,
+                              /*enable_wrapper_type_null_unboxing=*/false,
+                              /*enable_optional_types=*/true));
+    path.push_back(ExpressionStep::MakeGenericStep(std::move(step1)));
+    path.push_back(ExpressionStep::MakeGenericStep(std::move(step2)));
+
+    cel::RuntimeOptions options;
+    if (GetParam()) {
+      options.unknown_processing =
+          cel::UnknownProcessingOptions::kAttributeOnly;
+    }
+    return CelExpressionFlatImpl(
+        env_,
+        FlatExpression(std::move(path), /*comprehension_slot_count=*/1,
+                       env_->type_registry.GetComposedTypeProvider(), options,
+                       /*arena=*/nullptr, IdentifierTable{{"message", 0}}));
+  };
+
+  {
+    ASSERT_OK_AND_ASSIGN(CelExpressionFlatImpl none_expr, make_has_expr(true));
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         none_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsBool());
+    EXPECT_FALSE(result.BoolOrDie());
+  }
+
+  ASSERT_OK_AND_ASSIGN(CelExpressionFlatImpl cel_expr, make_has_expr(false));
+  {
+    TestAllTypes message;
+    Activation activation;
+    activation.InsertValue("message",
+                           CelProtoWrapper::CreateMessage(&message, &arena_));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsBool());
+    EXPECT_FALSE(result.BoolOrDie());
+  }
+  {
+    TestAllTypes message;
+    message.mutable_single_nested_message()->set_bb(10);
+    Activation activation;
+    activation.InsertValue("message",
+                           CelProtoWrapper::CreateMessage(&message, &arena_));
+    ASSERT_OK_AND_ASSIGN(CelValue result,
+                         cel_expr.Evaluate(activation, &arena_));
+    ASSERT_TRUE(result.IsBool());
+    EXPECT_TRUE(result.BoolOrDie());
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(UnknownsEnabled, SelectStepConformanceTest,

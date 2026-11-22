@@ -16,16 +16,21 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/types/span.h"
 #include "base/builtins.h"
-#include "base/function_adapter.h"
+#include "common/function_descriptor.h"
+#include "common/kind.h"
 #include "common/value.h"
+#include "common/value_kind.h"
 #include "common/values/list_value_builder.h"
 #include "internal/status_macros.h"
+#include "runtime/function.h"
 #include "runtime/function_registry.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
@@ -34,14 +39,6 @@
 
 namespace cel {
 namespace {
-
-absl::StatusOr<int64_t> MapSizeImpl(const MapValue& value) {
-  return value.Size();
-}
-
-absl::StatusOr<int64_t> ListSizeImpl(const ListValue& value) {
-  return value.Size();
-}
 
 // Concatenation for CelList type.
 absl::StatusOr<ListValue> ConcatList(
@@ -95,6 +92,64 @@ absl::StatusOr<ListValue> AppendList(ListValue value1, const Value& value2) {
   }
   return absl::InvalidArgumentError("Unexpected call to runtime list append.");
 }
+
+class ContainerFunction final : public Function {
+ public:
+  enum class Op { kSize, kConcatList, kAppendList };
+
+  explicit ContainerFunction(Op op) : op_(op) {}
+
+  absl::StatusOr<Value> Invoke(absl::Span<const Value> args,
+                               const InvokeContext& context) const override {
+    switch (op_) {
+      case Op::kSize: {
+        if (args.size() != 1) {
+          return absl::InvalidArgumentError(
+              "unexpected number of arguments for unary function");
+        }
+        absl::StatusOr<int64_t> size;
+        switch (args[0].kind()) {
+          case ValueKind::kList:
+            size = args[0].GetList().Size();
+            break;
+          case ValueKind::kMap:
+            size = args[0].GetMap().Size();
+            break;
+          default:
+            return absl::InvalidArgumentError("expected list or map value");
+        }
+        if (!size.ok()) {
+          return std::move(size).status();
+        }
+        return IntValue(*size);
+      }
+      case Op::kConcatList:
+        if (args.size() != 2) {
+          return absl::InvalidArgumentError(
+              "unexpected number of arguments for binary function");
+        }
+        if (!args[0].IsList() || !args[1].IsList()) {
+          return absl::InvalidArgumentError("expected list value");
+        }
+        return ConcatList(args[0].GetList(), args[1].GetList(),
+                          context.descriptor_pool(), context.message_factory(),
+                          context.arena());
+      case Op::kAppendList:
+        if (args.size() != 2) {
+          return absl::InvalidArgumentError(
+              "unexpected number of arguments for binary function");
+        }
+        if (!args[0].IsList()) {
+          return absl::InvalidArgumentError("expected list value");
+        }
+        return AppendList(args[0].GetList(), args[1]);
+    }
+  }
+
+ private:
+  Op op_;
+};
+
 }  // namespace
 
 absl::Status RegisterContainerFunctions(FunctionRegistry& registry,
@@ -102,35 +157,26 @@ absl::Status RegisterContainerFunctions(FunctionRegistry& registry,
   // receiver style = true/false
   // Support both the global and receiver style size() for lists and maps.
   for (bool receiver_style : {true, false}) {
-    CEL_RETURN_IF_ERROR(registry.Register(
-        cel::UnaryFunctionAdapter<absl::StatusOr<int64_t>, const ListValue&>::
-            CreateDescriptor(cel::builtin::kSize, receiver_style),
-        UnaryFunctionAdapter<absl::StatusOr<int64_t>,
-                             const ListValue&>::WrapFunction(ListSizeImpl)));
-
-    CEL_RETURN_IF_ERROR(registry.Register(
-        UnaryFunctionAdapter<absl::StatusOr<int64_t>, const MapValue&>::
-            CreateDescriptor(cel::builtin::kSize, receiver_style),
-        UnaryFunctionAdapter<absl::StatusOr<int64_t>,
-                             const MapValue&>::WrapFunction(MapSizeImpl)));
+    for (Kind kind : {Kind::kList, Kind::kMap}) {
+      CEL_RETURN_IF_ERROR(registry.Register(
+          FunctionDescriptor(cel::builtin::kSize, receiver_style, {kind}),
+          std::make_unique<ContainerFunction>(ContainerFunction::Op::kSize)));
+    }
   }
 
   if (options.enable_list_concat) {
     CEL_RETURN_IF_ERROR(registry.Register(
-        BinaryFunctionAdapter<
-            absl::StatusOr<Value>, const ListValue&,
-            const ListValue&>::CreateDescriptor(cel::builtin::kAdd, false),
-        BinaryFunctionAdapter<absl::StatusOr<Value>, const ListValue&,
-                              const ListValue&>::WrapFunction(ConcatList)));
+        FunctionDescriptor(cel::builtin::kAdd, /*is_receiver_style=*/false,
+                           {Kind::kList, Kind::kList}),
+        std::make_unique<ContainerFunction>(
+            ContainerFunction::Op::kConcatList)));
   }
 
   return registry.Register(
-      BinaryFunctionAdapter<
-          absl::StatusOr<ListValue>, ListValue,
-          const Value&>::CreateDescriptor(cel::builtin::kRuntimeListAppend,
-                                          false),
-      BinaryFunctionAdapter<absl::StatusOr<ListValue>, ListValue,
-                            const Value&>::WrapFunction(AppendList));
+      FunctionDescriptor(cel::builtin::kRuntimeListAppend,
+                         /*is_receiver_style=*/false,
+                         {Kind::kList, Kind::kAny}),
+      std::make_unique<ContainerFunction>(ContainerFunction::Op::kAppendList));
 }
 
 }  // namespace cel
