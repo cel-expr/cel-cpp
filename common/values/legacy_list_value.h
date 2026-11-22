@@ -50,14 +50,76 @@ namespace common_internal {
 
 class LegacyListValue;
 
+struct LegacyListValueDispatcher {
+  using DebugString = std::string (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl);
+
+  using SerializeTo = absl::Status (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::io::ZeroCopyOutputStream* absl_nonnull output);
+
+  using ConvertToJson = absl::Status (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json);
+
+  using ConvertToJsonArray = absl::Status (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Message* absl_nonnull json);
+
+  using IsEmpty = bool (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl);
+
+  using Size = size_t (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl);
+
+  using Get = absl::Status (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl,
+      size_t index, const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  using ForEach = absl::Status (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl,
+      CustomListValueInterface::ForEachWithIndexCallback callback,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena);
+
+  using NewIterator = absl::StatusOr<absl_nonnull ValueIteratorPtr> (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl);
+
+  using Contains = absl::Status (*)(
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl,
+      const Value& other,
+      const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
+      google::protobuf::MessageFactory* absl_nonnull message_factory,
+      google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result);
+
+  absl_nonnull DebugString debug_string;
+  absl_nonnull SerializeTo serialize_to;
+  absl_nonnull ConvertToJson convert_to_json;
+  absl_nonnull ConvertToJsonArray convert_to_json_array;
+  absl_nonnull IsEmpty is_empty;
+  absl_nonnull Size size;
+  absl_nonnull Get get;
+  absl_nonnull ForEach for_each;
+  absl_nonnull NewIterator new_iterator;
+  absl_nonnull Contains contains;
+};
+
 class LegacyListValue final
     : private common_internal::ListValueMixin<LegacyListValue> {
  public:
   static constexpr ValueKind kKind = ValueKind::kList;
 
   explicit LegacyListValue(
-      const google::api::expr::runtime::CelList* absl_nullability_unknown impl)
-      : impl_(impl) {}
+      const google::api::expr::runtime::CelList* absl_nullability_unknown impl);
 
   // By default, this creates an empty list whose type is `list(dyn)`. Unless
   // you can help it, you should use a more specific typed list value.
@@ -140,6 +202,7 @@ class LegacyListValue final
 
   friend void swap(LegacyListValue& lhs, LegacyListValue& rhs) noexcept {
     using std::swap;
+    swap(lhs.dispatcher_, rhs.dispatcher_);
     swap(lhs.impl_, rhs.impl_);
   }
 
@@ -147,6 +210,7 @@ class LegacyListValue final
   friend class common_internal::ValueMixin<LegacyListValue>;
   friend class common_internal::ListValueMixin<LegacyListValue>;
 
+  const LegacyListValueDispatcher* absl_nullable dispatcher_ = nullptr;
   const google::api::expr::runtime::CelList* absl_nullability_unknown impl_ =
       nullptr;
 };

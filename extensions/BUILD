@@ -568,6 +568,7 @@ cc_test(
         "//checker:validation_result",
         "//common:ast",
         "//common:decl",
+        "//common:legacy_value",
         "//common:minimal_descriptor_pool",
         "//common:type",
         "//common:value",

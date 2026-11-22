@@ -27,7 +27,6 @@
 #include "common/native_type.h"
 #include "common/value.h"
 #include "common/values/legacy_struct_value.h"
-#include "common/values/list_value_builder.h"
 #include "common/values/values.h"
 #include "eval/public/cel_value.h"
 #include "internal/casts.h"
@@ -324,28 +323,8 @@ ListValue FromLegacyList(
       }
       return CustomListValue();
     }
-    if (native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-      const auto* impl =
-          cel::internal::down_cast<const MutableCompatListValue*>(cel_list);
-      if (google::protobuf::Arena* arena = impl->GetOwningArena(); arena != nullptr) {
-        return CustomListValue(impl, arena);
-      }
-    }
   }
   return LegacyListValue(cel_list);
-}
-
-absl::Status LegacyListValue::Equal(
-    const Value& other,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena, Value* absl_nonnull result) const {
-  if (auto list_value = other.AsList(); list_value.has_value()) {
-    return ListValueEqual(*this, *list_value, descriptor_pool, message_factory,
-                          arena, result);
-  }
-  *result = FalseValue();
-  return absl::OkStatus();
 }
 
 bool IsLegacyListValue(const Value& value) {
@@ -362,16 +341,14 @@ absl::optional<LegacyListValue> AsLegacyListValue(const Value& value) {
     return GetLegacyListValue(value);
   }
   if (auto custom_list_value = value.AsCustomList(); custom_list_value) {
+    if (custom_list_value->interface() == CustomListValue().interface()) {
+      return LegacyListValue(EmptyCompatListValue());
+    }
     NativeTypeId native_type_id = custom_list_value->GetTypeId();
     if (native_type_id == NativeTypeId::For<CompatListValue>()) {
       return LegacyListValue(
           static_cast<const google::api::expr::runtime::CelList*>(
               cel::internal::down_cast<const CompatListValue*>(
-                  custom_list_value->interface())));
-    } else if (native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
-      return LegacyListValue(
-          static_cast<const google::api::expr::runtime::CelList*>(
-              cel::internal::down_cast<const MutableCompatListValue*>(
                   custom_list_value->interface())));
     } else if (native_type_id ==
                NativeTypeId::For<LegacyParsedRepeatedFieldListValue>()) {

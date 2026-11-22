@@ -26,9 +26,7 @@
 #include "absl/strings/string_view.h"
 #include "common/native_type.h"
 #include "common/value.h"
-#include "common/values/list_value_builder.h"
 #include "common/values/values.h"
-#include "eval/public/cel_value.h"
 #include "internal/status_macros.h"
 #include "internal/well_known_types.h"
 #include "google/protobuf/arena.h"
@@ -42,9 +40,8 @@ namespace {
 
 using ::cel::well_known_types::ListValueReflection;
 using ::cel::well_known_types::ValueReflection;
-using ::google::api::expr::runtime::CelValue;
 
-class EmptyListValue final : public common_internal::CompatListValue {
+class EmptyListValue final : public CustomListValueInterface {
  public:
   static const EmptyListValue& Get() {
     static const absl::NoDestructor<EmptyListValue> empty;
@@ -52,8 +49,6 @@ class EmptyListValue final : public common_internal::CompatListValue {
   }
 
   EmptyListValue() = default;
-
-  google::protobuf::Arena* GetOwningArena() const override { return nullptr; }
 
   std::string DebugString() const override { return "[]"; }
 
@@ -79,22 +74,6 @@ class EmptyListValue final : public common_internal::CompatListValue {
     return CustomListValue(&EmptyListValue::Get(), arena);
   }
 
-  int size() const override { return 0; }
-
-  CelValue operator[](int index) const override {
-    static const absl::NoDestructor<absl::Status> error(
-        absl::InvalidArgumentError("index out of bounds"));
-    return CelValue::CreateError(&*error);
-  }
-
-  CelValue Get(google::protobuf::Arena* arena, int index) const override {
-    if (arena == nullptr) {
-      return (*this)[index];
-    }
-    return CelValue::CreateError(google::protobuf::Arena::Create<absl::Status>(
-        arena, absl::InvalidArgumentError("index out of bounds")));
-  }
-
  private:
   absl::Status Get(size_t index, const google::protobuf::DescriptorPool* absl_nonnull,
                    google::protobuf::MessageFactory* absl_nonnull,
@@ -103,17 +82,13 @@ class EmptyListValue final : public common_internal::CompatListValue {
     *result = IndexOutOfBoundsError(index, arena);
     return absl::OkStatus();
   }
+
+  NativeTypeId GetNativeTypeId() const override {
+    return NativeTypeId::For<EmptyListValue>();
+  }
 };
 
 }  // namespace
-
-namespace common_internal {
-
-const CompatListValue* absl_nonnull EmptyCompatListValue() {
-  return &EmptyListValue::Get();
-}
-
-}  // namespace common_internal
 
 class CustomListValueInterfaceIterator final : public ValueIterator {
  public:
