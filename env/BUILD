@@ -80,6 +80,7 @@ cc_library(
         "//env/internal:runtime_ext_registry",
         "//internal:status_macros",
         "//runtime",
+        "//runtime:reference_resolver",
         "//runtime:runtime_builder",
         "//runtime:runtime_builder_factory",
         "//runtime:runtime_options",
