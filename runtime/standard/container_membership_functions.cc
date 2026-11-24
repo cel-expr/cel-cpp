@@ -250,8 +250,8 @@ absl::Status RegisterMapMembershipFunctions(FunctionRegistry& registry,
         CEL_RETURN_IF_ERROR(map_value.Has(IntValue(number.AsInt()),
                                           descriptor_pool, message_factory,
                                           arena, &has_alt));
-        if (has.IsTrue()) {
-          return has;
+        if (has_alt.IsTrue()) {
+          return has_alt;
         }
       }
       return BoolValue(false);
