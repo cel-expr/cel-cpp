@@ -14,5 +14,4 @@ parser, and type checker.
 
 Released under the [Apache License](LICENSE).
 
-
 [1]:  https://github.com/cel-expr/cel-spec

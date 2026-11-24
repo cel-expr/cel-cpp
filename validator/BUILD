@@ -211,4 +211,35 @@ cc_test(
     ],
 )
 
+cc_library(
+    name = "bind_nesting_validator",
+    srcs = ["bind_nesting_validator.cc"],
+    hdrs = ["bind_nesting_validator.h"],
+    deps = [
+        ":validator",
+        "//common:expr",
+        "//common:navigable_ast",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/strings:string_view",
+    ],
+)
+
+cc_test(
+    name = "bind_nesting_validator_test",
+    srcs = ["bind_nesting_validator_test.cc"],
+    deps = [
+        ":bind_nesting_validator",
+        ":validator",
+        "//checker:validation_result",
+        "//compiler",
+        "//compiler:compiler_factory",
+        "//compiler:standard_library",
+        "//extensions:bindings_ext",
+        "//internal:status_macros",
+        "//internal:testing",
+        "//internal:testing_descriptor_pool",
+        "@com_google_absl//absl/status:statusor",
+    ],
+)
+
 licenses(["notice"])
