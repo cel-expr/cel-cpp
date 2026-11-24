@@ -492,6 +492,10 @@ absl::StatusOr<TypeSpec> ParseTypeSignature(std::string_view signature) {
     name_str = Unescape(signature.substr(0, less_idx));
     std::string_view params_str =
         signature.substr(less_idx + 1, signature.size() - less_idx - 2);
+    if (params_str.empty()) {
+      return absl::InvalidArgumentError(
+          "Invalid type signature: empty type parameter list");
+    }
     CEL_ASSIGN_OR_RETURN(auto param_list, SplitTypeList(params_str));
     for (std::string_view param_str : param_list) {
       CEL_ASSIGN_OR_RETURN(auto param, ParseTypeSignature(param_str));
