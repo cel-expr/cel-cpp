@@ -108,6 +108,29 @@ TEST(YamlMatcherTest, DetectsScalarMismatch) {
                      "    type: bool\n")));
 }
 
+TEST(YamlMatcherTest, MatchesEquivalentFloatScalars) {
+  EXPECT_THAT("value: 3.1400000000000001\n", EqualsYaml("value: 3.14\n"));
+  EXPECT_THAT("value: 1.50\n", EqualsYaml("value: 1.5\n"));
+  EXPECT_THAT("value: 0\n", EqualsYaml("value: 0.0\n"));
+  EXPECT_THAT("value: 1e2\n", EqualsYaml("value: 100.0\n"));
+  EXPECT_THAT("value: .nan\n", EqualsYaml("value: .NaN\n"));
+  EXPECT_THAT("value: .inf\n", EqualsYaml("value: +.Inf\n"));
+  EXPECT_THAT("value: -.inf\n", EqualsYaml("value: -.INF\n"));
+}
+
+TEST(YamlMatcherTest, RejectsNonEquivalentFloatAndIntegerScalars) {
+  EXPECT_THAT("value: 3.14\n", Not(EqualsYaml("value: 3.15\n")));
+  EXPECT_THAT("value: .inf\n", Not(EqualsYaml("value: -.inf\n")));
+  EXPECT_THAT("value: inf\n", Not(EqualsYaml("value: .inf\n")));
+  EXPECT_THAT("value: \"3.1400000000000001\"\n",
+              Not(EqualsYaml("value: \"3.14\"\n")));
+  EXPECT_THAT("value: \"3.1400000000000001\"\n",
+              Not(EqualsYaml("value: 3.14\n")));
+  EXPECT_THAT("value: !!str 3.140\n", Not(EqualsYaml("value: !!str 3.14\n")));
+  EXPECT_THAT("value: 9007199254740992\n",
+              Not(EqualsYaml("value: 9007199254740993\n")));
+}
+
 TEST(YamlMatcherTest, DetectsSequenceOrderAndSizeMismatch) {
   EXPECT_THAT(
       "params:\n"
