@@ -773,6 +773,19 @@ TEST(ParseSignatureTest, EmptyOrWhitespaceErrors) {
                         *GetTestingDescriptorPool()),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("Empty type signature")));
+  EXPECT_THAT(ParseType("list<>", GetTestArena(), *GetTestingDescriptorPool()),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("empty type parameter list")));
+  EXPECT_THAT(ParseType("map<>", GetTestArena(), *GetTestingDescriptorPool()),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("empty type parameter list")));
+  EXPECT_THAT(ParseType("map< >", GetTestArena(), *GetTestingDescriptorPool()),
+              StatusIs(absl::StatusCode::kInvalidArgument,
+                       HasSubstr("empty type parameter list")));
+  EXPECT_THAT(
+      ParseType("list<map<>>", GetTestArena(), *GetTestingDescriptorPool()),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("empty type parameter list")));
 }
 
 TEST(OverloadSignatureTest, ArgumentTypeVector) {
