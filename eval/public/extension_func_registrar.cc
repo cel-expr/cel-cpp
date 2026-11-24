@@ -109,14 +109,12 @@ CelValue GetTimeOfDayUTC(Arena* arena, absl::Time time_stamp) {
   return GetTimeOfDayTz(arena, time_stamp, utc);
 }
 
-int ToSeconds(const google::type::TimeOfDay* time_of_day) {
-  int seconds = 0;
-
-  seconds += time_of_day->hours() * 60 * 60;
-  seconds += time_of_day->minutes() * 60;
-  seconds += time_of_day->seconds();
-
-  return seconds;
+// Fields are widened to int64_t so that out-of-range TimeOfDay values cannot
+// overflow (and wrap into the valid range) in 32-bit arithmetic.
+int64_t ToSeconds(const google::type::TimeOfDay* time_of_day) {
+  return static_cast<int64_t>(time_of_day->hours()) * 60 * 60 +
+         static_cast<int64_t>(time_of_day->minutes()) * 60 +
+         static_cast<int64_t>(time_of_day->seconds());
 }
 
 CelValue BetweenToD(Arena* arena, const google::protobuf::Message* time_of_day,
@@ -135,9 +133,9 @@ CelValue BetweenToD(Arena* arena, const google::protobuf::Message* time_of_day,
                             absl::StatusCode::kInvalidArgument);
   }
   // resolution for TimeOfDay in this function is 1 second
-  int start_time = ToSeconds(start_tod);
-  int stop_time = ToSeconds(stop_tod);
-  int tod_time = ToSeconds(time_of_day_tod);
+  int64_t start_time = ToSeconds(start_tod);
+  int64_t stop_time = ToSeconds(stop_tod);
+  int64_t tod_time = ToSeconds(time_of_day_tod);
 
   is_between = (tod_time >= start_time) && (tod_time < stop_time);
   return CelValue::CreateBool(is_between);

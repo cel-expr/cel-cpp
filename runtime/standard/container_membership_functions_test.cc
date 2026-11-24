@@ -15,19 +15,32 @@
 #include "runtime/standard/container_membership_functions.h"
 
 #include <array>
+#include <cstdint>
+#include <limits>
+#include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
 #include "base/builtins.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
+#include "common/value.h"
+#include "common/value_testing.h"
 #include "internal/testing.h"
+#include "internal/testing_descriptor_pool.h"
+#include "internal/testing_message_factory.h"
+#include "runtime/function.h"
+#include "runtime/function_overload_reference.h"
 #include "runtime/function_registry.h"
 #include "runtime/runtime_options.h"
+#include "google/protobuf/arena.h"
 
 namespace cel {
 namespace {
 
+using ::absl_testing::IsOk;
+using ::cel::test::BoolValueIs;
+using ::testing::SizeIs;
 using ::testing::UnorderedElementsAre;
 
 MATCHER_P3(MatchesDescriptor, name, receiver, expected_kinds, "") {
@@ -128,6 +141,48 @@ TEST(RegisterContainerMembershipFunctions, RegistersInOperatorListsDisabled) {
                               std::vector<Kind>{Kind::kString, Kind::kMap}),
             MatchesDescriptor(operator_name, false,
                               std::vector<Kind>{Kind::kBool, Kind::kMap})));
+  }
+}
+
+// When enable_fast_builtins is true, the planner routes heterogeneous `in`
+// through a dedicated step; invoke the registered overload directly to cover
+// the uint -> int key fallback used when enable_fast_builtins is false.
+TEST(RegisterContainerMembershipFunctions, HeterogeneousUintKeyMatchesIntKey) {
+  FunctionRegistry registry;
+  RuntimeOptions options;
+  options.enable_heterogeneous_equality = true;
+  ASSERT_THAT(RegisterContainerMembershipFunctions(registry, options), IsOk());
+
+  google::protobuf::Arena arena;
+  auto builder = NewMapValueBuilder(&arena);
+  ASSERT_THAT(builder->Put(IntValue(1), IntValue(2)), IsOk());
+  ASSERT_THAT(builder->Put(IntValue(-1), IntValue(3)), IsOk());
+  MapValue map_value = std::move(*builder).Build();
+
+  for (absl::string_view operator_name : kInOperators) {
+    std::vector<FunctionOverloadReference> overloads =
+        registry.FindStaticOverloads(operator_name, /*receiver_style=*/false,
+                                     {Kind::kUint, Kind::kMap});
+    ASSERT_THAT(overloads, SizeIs(1));
+    const Function::InvokeContext context(internal::GetTestingDescriptorPool(),
+                                          internal::GetTestingMessageFactory(),
+                                          &arena);
+
+    ASSERT_OK_AND_ASSIGN(Value found, overloads[0].implementation.Invoke(
+                                          {UintValue(1), map_value}, context));
+    EXPECT_THAT(found, BoolValueIs(true));
+
+    ASSERT_OK_AND_ASSIGN(
+        Value missing,
+        overloads[0].implementation.Invoke({UintValue(2), map_value}, context));
+    EXPECT_THAT(missing, BoolValueIs(false));
+
+    ASSERT_OK_AND_ASSIGN(
+        Value unconvertible,
+        overloads[0].implementation.Invoke(
+            {UintValue(std::numeric_limits<uint64_t>::max()), map_value},
+            context));
+    EXPECT_THAT(unconvertible, BoolValueIs(false));
   }
 }
 

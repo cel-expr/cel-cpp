@@ -443,6 +443,33 @@ INSTANTIATE_TEST_SUITE_P(
         {"list_in", "'a' in ['a', 'b', 'c', 'd']", true},
         {"list_in_numeric", "3u in [1.1, 2.3, 3.0, 4.4]", true}}));
 
+TEST(StandardRuntimeTest, HeterogeneousInMapWithoutFastBuiltins) {
+  // Without fast builtins the planner dispatches `in` to the registered map
+  // overloads, so heterogeneous numeric key fallbacks must be honored there.
+  RuntimeOptions options;
+  options.enable_fast_builtins = false;
+
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           google::protobuf::DescriptorPool::generated_pool(), options));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
+
+  for (const auto& test_case : std::vector<std::pair<std::string, bool>>{
+           {"1u in {1: 1, 2: 2}", true},
+           {"3u in {1: 1, 2: 2}", false},
+           {"1 in {1u: 1, 2u: 2}", true},
+           {"1.0 in {1: 1, 2: 2}", true},
+       }) {
+    ASSERT_OK_AND_ASSIGN(ParsedExpr expr, ParseWithTestMacros(test_case.first));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    google::protobuf::Arena arena;
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    EXPECT_THAT(result, BoolValueIs(test_case.second)) << test_case.first;
+  }
+}
+
 TEST(StandardRuntimeTest, RuntimeIssueSupport) {
   RuntimeOptions options;
   options.fail_on_warnings = false;

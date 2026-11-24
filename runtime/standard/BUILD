@@ -95,10 +95,17 @@ cc_test(
         "//base:builtins",
         "//common:function_descriptor",
         "//common:kind",
+        "//common:value",
+        "//common:value_testing",
         "//internal:testing",
+        "//internal:testing_descriptor_pool",
+        "//internal:testing_message_factory",
+        "//runtime:function",
+        "//runtime:function_overload_reference",
         "//runtime:function_registry",
         "//runtime:runtime_options",
         "@com_google_absl//absl/strings",
+        "@com_google_protobuf//:protobuf",
     ],
 )
 

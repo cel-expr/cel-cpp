@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -542,6 +544,41 @@ TEST_F(ExtensionTest, TestBetweenToD) {
   time_of_day->set_seconds(1);
   PerformBetweenToDTest(&arena, time_of_day, start, stop, &result);
   ASSERT_EQ(result.BoolOrDie(), false);
+}
+
+TEST_F(ExtensionTest, TestBetweenToDOutOfRangeHoursDoNotWrap) {
+  Arena arena;
+  CelValue result;
+  google::type::TimeOfDay* time_of_day =
+      Arena::Create<google::type::TimeOfDay>(&arena);
+  google::type::TimeOfDay* start =
+      Arena::Create<google::type::TimeOfDay>(&arena);
+  google::type::TimeOfDay* stop =
+      Arena::Create<google::type::TimeOfDay>(&arena);
+
+  start->set_hours(0);
+  stop->set_hours(1);
+  // 1193047 hours is 4294969200 seconds, which wraps to 1904 seconds (00:31:44)
+  // in 32-bit arithmetic and would wrongly land inside [00:00, 01:00).
+  time_of_day->set_hours(1193047);
+
+  PerformBetweenToDTest(&arena, time_of_day, start, stop, &result);
+  ASSERT_TRUE(result.IsBool());
+  EXPECT_FALSE(result.BoolOrDie());
+
+  time_of_day->set_hours(std::numeric_limits<int32_t>::max());
+  time_of_day->set_minutes(std::numeric_limits<int32_t>::max());
+  time_of_day->set_seconds(std::numeric_limits<int32_t>::max());
+  PerformBetweenToDTest(&arena, time_of_day, start, stop, &result);
+  ASSERT_TRUE(result.IsBool());
+  EXPECT_FALSE(result.BoolOrDie());
+
+  time_of_day->set_hours(std::numeric_limits<int32_t>::min());
+  time_of_day->set_minutes(std::numeric_limits<int32_t>::min());
+  time_of_day->set_seconds(std::numeric_limits<int32_t>::min());
+  PerformBetweenToDTest(&arena, time_of_day, start, stop, &result);
+  ASSERT_TRUE(result.IsBool());
+  EXPECT_FALSE(result.BoolOrDie());
 }
 
 TEST_F(ExtensionTest, TestBetweenTodStr) {
