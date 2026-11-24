@@ -153,6 +153,15 @@ std::vector<TestCase> GetEnvRuntimeTestCases() {
                   "1 + 2 == 3",
           .expected_to_fail = true,
       },
+      TestCase{
+          .config_yaml = R"yaml(
+                variables:
+                - name: "x"
+                  type: "int"
+                  value: 42
+              )yaml",
+          .expr = "x == 42",
+      },
   };
 }
 

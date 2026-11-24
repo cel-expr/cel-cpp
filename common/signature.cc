@@ -283,7 +283,9 @@ std::string StripUnescapedWhitespace(std::string_view str) {
 }
 
 absl::optional<TypeSpec> ParseBuiltinOrWrapper(std::string_view name_str) {
-  if (name_str == "null") return TypeSpec(NullTypeSpec());
+  if (name_str == "null" || name_str == "null_type" ||
+      name_str == "google.protobuf.NullValue")
+    return TypeSpec(NullTypeSpec());
   if (name_str == "bool") return TypeSpec(PrimitiveType::kBool);
   if (name_str == "int") return TypeSpec(PrimitiveType::kInt64);
   if (name_str == "uint") return TypeSpec(PrimitiveType::kUint64);

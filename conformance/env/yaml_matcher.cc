@@ -14,11 +14,15 @@
 
 #include "conformance/env/yaml_matcher.h"
 
+#include <cmath>
 #include <cstddef>
+#include <limits>
 #include <ostream>
 #include <string>
 
 #include "absl/container/flat_hash_set.h"
+#include "absl/strings/match.h"
+#include "absl/strings/numbers.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
 #include "internal/testing.h"
@@ -52,6 +56,84 @@ absl::string_view NodeTypeName(YAML::NodeType::value type) {
 bool HasExplicitTag(const YAML::Node& node) {
   const std::string& tag = node.Tag();
   return !tag.empty() && tag != "?" && tag != "!";
+}
+
+bool IsFloatCandidateScalar(const YAML::Node& node) {
+  const std::string& tag = node.Tag();
+  return tag == "?" || tag == "tag:yaml.org,2002:float";
+}
+
+bool IsYamlSpecialFloat(absl::string_view s) {
+  return absl::EqualsIgnoreCase(s, ".nan") ||
+         absl::EqualsIgnoreCase(s, ".inf") ||
+         absl::EqualsIgnoreCase(s, "+.inf") ||
+         absl::EqualsIgnoreCase(s, "-.inf");
+}
+
+bool LooksLikeYamlFloat(absl::string_view s) {
+  if (IsYamlSpecialFloat(s)) {
+    return true;
+  }
+  return s.find_first_of(".eE") != absl::string_view::npos;
+}
+
+bool ParseYamlDouble(absl::string_view s, double* out) {
+  if (s.empty()) {
+    return false;
+  }
+  if (absl::EqualsIgnoreCase(s, ".nan")) {
+    *out = std::numeric_limits<double>::quiet_NaN();
+    return true;
+  }
+  if (absl::EqualsIgnoreCase(s, ".inf") || absl::EqualsIgnoreCase(s, "+.inf")) {
+    *out = std::numeric_limits<double>::infinity();
+    return true;
+  }
+  if (absl::EqualsIgnoreCase(s, "-.inf")) {
+    *out = -std::numeric_limits<double>::infinity();
+    return true;
+  }
+  absl::string_view unsigned_s = s;
+  if (unsigned_s.front() == '+' || unsigned_s.front() == '-') {
+    unsigned_s.remove_prefix(1);
+  }
+  if (unsigned_s.empty() ||
+      (unsigned_s.front() != '.' &&
+       (unsigned_s.front() < '0' || unsigned_s.front() > '9'))) {
+    return false;
+  }
+  if (absl::StartsWithIgnoreCase(unsigned_s, "0x")) {
+    return false;
+  }
+  double value = 0.0;
+  if (!absl::SimpleAtod(s, &value) || !std::isfinite(value)) {
+    return false;
+  }
+  *out = value;
+  return true;
+}
+
+bool ScalarsEqual(const YAML::Node& actual, const YAML::Node& expected) {
+  if (actual.Scalar() == expected.Scalar()) {
+    return true;
+  }
+  if (!IsFloatCandidateScalar(actual) || !IsFloatCandidateScalar(expected)) {
+    return false;
+  }
+  if (!LooksLikeYamlFloat(actual.Scalar()) &&
+      !LooksLikeYamlFloat(expected.Scalar())) {
+    return false;
+  }
+  double actual_val = 0.0;
+  double expected_val = 0.0;
+  if (!ParseYamlDouble(actual.Scalar(), &actual_val) ||
+      !ParseYamlDouble(expected.Scalar(), &expected_val)) {
+    return false;
+  }
+  if (std::isnan(actual_val) && std::isnan(expected_val)) {
+    return true;
+  }
+  return actual_val == expected_val;
 }
 
 bool NodesEqual(const YAML::Node& actual, const YAML::Node& expected,
@@ -89,7 +171,7 @@ bool NodesEqual(const YAML::Node& actual, const YAML::Node& expected,
       return true;
 
     case YAML::NodeType::Scalar:
-      if (actual.Scalar() != expected.Scalar()) {
+      if (!ScalarsEqual(actual, expected)) {
         if (listener != nullptr) {
           *listener << "at " << path << ": scalar mismatch (actual: \""
                     << actual.Scalar() << "\", expected: \""
