@@ -31,6 +31,10 @@ namespace cel {
 
 // A parser for YAML-based CEL policies.
 //
+// Security note: Only pass trusted (or vetted, semi-trusted) YAML input.
+// `YamlPolicyParser` delegates YAML parsing to `yaml-cpp` and is not hardened
+// against malicious YAML inputs. See SECURITY.md for the full threat model.
+//
 // To support additional or alternative YAML elements, subclass
 // `YamlPolicyParser` and override specific parsing methods, `Parse*`
 class YamlPolicyParser : public CelPolicyParser<YAML::Node> {

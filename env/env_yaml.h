@@ -48,10 +48,13 @@ struct EnvConfigFromYamlOptions {
 
 // EnvConfigFromYaml creates an environment configuration from a YAML string.
 //
-// To ensure safety, only pass trusted YAML input. yaml-cpp has some fuzz
-// coverage, but its security model is unclear. Additionally, callers should be
-// aware that improper CEL configuration can lead to unsafe or unpredictably
-// expensive expressions.
+// Security note: Only pass trusted (or vetted, semi-trusted) YAML input.
+// `cel-cpp` delegates YAML parsing to `yaml-cpp`, which does not have a formal
+// untrusted-input security model, and improper CEL environment configurations
+// can make type checking or evaluation unpredictably expensive. When loading
+// configs shared with cel-go or cel-java, consider enabling `options.strict` so
+// unimplemented fields (such as `limits` and `validators`) are not silently
+// ignored. See SECURITY.md for the full threat model.
 absl::StatusOr<Config> EnvConfigFromYaml(
     const std::string& yaml, const EnvConfigFromYamlOptions& options = {});
 
