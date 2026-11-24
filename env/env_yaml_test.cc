@@ -14,8 +14,10 @@
 
 #include "env/env_yaml.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -483,6 +485,24 @@ std::vector<ParseConstantTestCase> GetParseConstantTestCases() {
       },
       ParseConstantTestCase{
           .type = "double",
+          .value = ".inf",
+          .expected_constant =
+              Constant(std::numeric_limits<double>::infinity()),
+      },
+      ParseConstantTestCase{
+          .type = "double",
+          .value = "+.Inf",
+          .expected_constant =
+              Constant(std::numeric_limits<double>::infinity()),
+      },
+      ParseConstantTestCase{
+          .type = "double",
+          .value = "-.INF",
+          .expected_constant =
+              Constant(-std::numeric_limits<double>::infinity()),
+      },
+      ParseConstantTestCase{
+          .type = "double",
           .value = "abc",
           .expected_error = "Failed to parse double constant",
       },
@@ -548,6 +568,20 @@ std::vector<ParseConstantTestCase> GetParseConstantTestCases() {
 
 INSTANTIATE_TEST_SUITE_P(EnvYamlParseConstantTest, EnvYamlParseConstantTest,
                          ::testing::ValuesIn(GetParseConstantTestCases()));
+
+TEST(EnvYamlTest, ParseDoubleNanConstant) {
+  for (absl::string_view literal : {".nan", ".NaN", ".NAN"}) {
+    ASSERT_OK_AND_ASSIGN(
+        Config config,
+        EnvConfigFromYaml(absl::StrFormat(
+            "variables:\n  - name: const\n    type: double\n    value: %s\n",
+            literal)));
+    ASSERT_THAT(config.GetVariableConfigs(), SizeIs(1));
+    const Constant& value = config.GetVariableConfigs()[0].value;
+    ASSERT_TRUE(value.has_double_value());
+    EXPECT_TRUE(std::isnan(value.double_value())) << "literal: " << literal;
+  }
+}
 
 struct ParseFunctionTestCase {
   std::string yaml;
@@ -1629,6 +1663,86 @@ std::vector<ExportTestCase> GetExportTestCases() {
                   - name: "foo"
                     type: "double"
                     value: 0.75
+            )yaml",
+      },
+      ExportTestCase{
+          .config = []() -> absl::StatusOr<Config> {
+            Config config;
+            CEL_RETURN_IF_ERROR(
+                config.AddVariableConfig({.name = "foo",
+                                          .type_info = {.name = "double"},
+                                          .value = Constant(3.14)}));
+            return config;
+          }(),
+          .expected_yaml = R"yaml(
+                variables:
+                  - name: "foo"
+                    type: "double"
+                    value: 3.14
+            )yaml",
+      },
+      ExportTestCase{
+          .config = []() -> absl::StatusOr<Config> {
+            Config config;
+            CEL_RETURN_IF_ERROR(config.AddVariableConfig(
+                {.name = "foo",
+                 .type_info = {.name = "double"},
+                 .value = Constant(3.141592653589793)}));
+            return config;
+          }(),
+          .expected_yaml = R"yaml(
+                variables:
+                  - name: "foo"
+                    type: "double"
+                    value: 3.141592653589793
+            )yaml",
+      },
+      ExportTestCase{
+          .config = []() -> absl::StatusOr<Config> {
+            Config config;
+            CEL_RETURN_IF_ERROR(config.AddVariableConfig(
+                {.name = "foo",
+                 .type_info = {.name = "double"},
+                 .value = Constant(std::numeric_limits<double>::quiet_NaN())}));
+            return config;
+          }(),
+          .expected_yaml = R"yaml(
+                variables:
+                  - name: "foo"
+                    type: "double"
+                    value: .nan
+            )yaml",
+      },
+      ExportTestCase{
+          .config = []() -> absl::StatusOr<Config> {
+            Config config;
+            CEL_RETURN_IF_ERROR(config.AddVariableConfig(
+                {.name = "foo",
+                 .type_info = {.name = "double"},
+                 .value = Constant(std::numeric_limits<double>::infinity())}));
+            return config;
+          }(),
+          .expected_yaml = R"yaml(
+                variables:
+                  - name: "foo"
+                    type: "double"
+                    value: .inf
+            )yaml",
+      },
+      ExportTestCase{
+          .config = []() -> absl::StatusOr<Config> {
+            Config config;
+            CEL_RETURN_IF_ERROR(config.AddVariableConfig(
+                {.name = "foo",
+                 .type_info = {.name = "double"},
+                 .value = Constant(-std::numeric_limits<double>::infinity())}));
+            return config;
+          }(),
+          .expected_yaml = R"yaml(
+                variables:
+                  - name: "foo"
+                    type: "double"
+                    value: -.inf
             )yaml",
       },
       ExportTestCase{
