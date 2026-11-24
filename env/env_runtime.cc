@@ -24,6 +24,7 @@
 #include "absl/strings/string_view.h"
 #include "env/config.h"
 #include "internal/status_macros.h"
+#include "runtime/reference_resolver.h"
 #include "runtime/runtime.h"
 #include "runtime/runtime_builder.h"
 #include "runtime/runtime_builder_factory.h"
@@ -62,6 +63,8 @@ absl::StatusOr<RuntimeBuilder> EnvRuntime::CreateRuntimeBuilder(
   CEL_ASSIGN_OR_RETURN(
       RuntimeBuilder runtime_builder,
       cel::CreateRuntimeBuilder(descriptor_pool_, runtime_options));
+  CEL_RETURN_IF_ERROR(EnableReferenceResolver(
+      runtime_builder, ReferenceResolverEnabled::kCheckedExpressionOnly));
 
   if (!config_.GetStandardLibraryConfig().disable) {
     CEL_RETURN_IF_ERROR(RegisterStandardFunctions(
