@@ -14,12 +14,16 @@
 
 #include "env/env_yaml.h"
 
+#include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <ostream>
 #include <string>
+#include <system_error>  // NOLINT (required for std::to_chars_result)
 #include <utility>
 #include <vector>
 
@@ -645,6 +649,8 @@ ConstantKindCase GetConstantKindCase(absl::string_view type_name) {
   static const auto kTypeNameToConstantKindCase =
       absl::NoDestructor<absl::flat_hash_map<std::string, ConstantKindCase>>({
           {"null", ConstantKindCase::kNull},
+          {"null_type", ConstantKindCase::kNull},
+          {"google.protobuf.NullValue", ConstantKindCase::kNull},
           {"bool", ConstantKindCase::kBool},
           {"int", ConstantKindCase::kInt},
           {"uint", ConstantKindCase::kUint},
@@ -694,12 +700,23 @@ absl::StatusOr<Constant> ParseConstantValue(absl::string_view yaml,
         return YamlError(yaml, node, "Failed to parse uint constant");
       }
       return Constant(uint_value);
-    case ConstantKindCase::kDouble:
+    case ConstantKindCase::kDouble: {
+      if (absl::EqualsIgnoreCase(value, ".nan")) {
+        return Constant(std::numeric_limits<double>::quiet_NaN());
+      }
+      if (absl::EqualsIgnoreCase(value, ".inf") ||
+          absl::EqualsIgnoreCase(value, "+.inf")) {
+        return Constant(std::numeric_limits<double>::infinity());
+      }
+      if (absl::EqualsIgnoreCase(value, "-.inf")) {
+        return Constant(-std::numeric_limits<double>::infinity());
+      }
       double double_value;
       if (!absl::SimpleAtod(value, &double_value)) {
         return YamlError(yaml, node, "Failed to parse double constant");
       }
       return Constant(double_value);
+    }
     case ConstantKindCase::kBytes: {
       if (!IsBinary(node)) {
         absl::StatusOr<std::string> bytes_literal =
@@ -1184,6 +1201,45 @@ void EmitTypeInfo(const Config::TypeInfo& type_info, YAML::Emitter& out,
   }
 }
 
+#if defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 14000 && \
+        !defined(__APPLE__) ||                              \
+    defined(__GNUC__) && __GNUC__ >= 13 ||                  \
+    defined(_MSC_VER) && _MSC_VER >= 1920
+#define _CEL_ENV_YAML_DOUBLE_TO_CHARS 1
+#endif
+
+std::string FormatYamlDouble(double value) {
+  if (std::isnan(value)) {
+    return ".nan";
+  }
+  if (std::isinf(value)) {
+    return std::signbit(value) ? "-.inf" : ".inf";
+  }
+#if !defined(CEL_NO_CHARCONV_DOUBLE_TO_CHARS) && \
+    defined(_CEL_ENV_YAML_DOUBLE_TO_CHARS)
+  constexpr int kBufSize = 32;
+  char buf[kBufSize];
+  std::to_chars_result result =
+      std::to_chars(buf, buf + kBufSize, value, std::chars_format::general);
+  if (result.ec == std::errc()) {
+    return std::string(buf, result.ptr - buf);
+  }
+#endif
+  // Fallback for toolchains without floating-point std::to_chars (e.g., older
+  // libstdc++ / Apple libc++): try 15 and 16 significant digits first and
+  // return the shortest representation that round-trips identically to `value`
+  // (avoiding trailing precision noise like 3.1400000000000001), falling back
+  // to %.17g (max_digits10) only when 17 digits are required.
+  for (int precision : {15, 16}) {
+    std::string formatted = absl::StrFormat("%.*g", precision, value);
+    double parsed = 0.0;
+    if (absl::SimpleAtod(formatted, &parsed) && parsed == value) {
+      return formatted;
+    }
+  }
+  return absl::StrFormat("%.17g", value);
+}
+
 void EmitVariableConfigs(const Config& env_config, YAML::Emitter& out,
                          const EnvConfigToYamlOptions& options) {
   const auto& variable_configs = env_config.GetVariableConfigs();
@@ -1226,7 +1282,8 @@ void EmitVariableConfigs(const Config& env_config, YAML::Emitter& out,
           out << YAML::Key << "value" << YAML::Value << constant.uint_value();
           break;
         case ConstantKindCase::kDouble:
-          out << YAML::Key << "value" << YAML::Value << constant.double_value();
+          out << YAML::Key << "value" << YAML::Value
+              << FormatYamlDouble(constant.double_value());
           break;
         case ConstantKindCase::kBytes: {
           out << YAML::Key << "value";
