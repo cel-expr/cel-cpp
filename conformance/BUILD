@@ -218,6 +218,9 @@ _TESTS_TO_SKIP = [
     "enums/strong_proto2",
     "enums/strong_proto3",
 
+    # Skip until int(-9223372036854775808.0) returns the minimum int instead of an error.
+    "conversions/int/double_int_min_range",
+
     # These depend on legacy US/ timezones. It's spotty if these are included with a normally
     # configured timezone database.
     "timestamps/timestamp_selectors_tz/getDayOfMonth_name_pos",
