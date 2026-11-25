@@ -289,6 +289,7 @@ class LegacyConformanceServiceImpl : public ConformanceServiceInterface {
     options.enable_empty_wrapper_null_unboxing = true;
     options.enable_qualified_identifier_rewrites = true;
     options.fail_on_warnings = false;
+    options.enable_exact_double_to_int_range = true;
 
     if (optimize) {
       std::cerr << "Enabling optimizations" << std::endl;
@@ -488,6 +489,7 @@ class ModernConformanceServiceImpl : public ConformanceServiceInterface {
     options.enable_timestamp_duration_overflow_errors = true;
     options.enable_heterogeneous_equality = true;
     options.enable_empty_wrapper_null_unboxing = true;
+    options.enable_exact_double_to_int_range = true;
     // Planning warnings are expected in conformance tests, but the test expects
     // failure to happen at evaluation time so we ignore them.
     options.fail_on_warnings = false;

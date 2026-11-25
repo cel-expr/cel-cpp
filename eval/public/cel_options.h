@@ -232,8 +232,14 @@ struct InterpreterOptions {
   //
   // Note: Enabling this option may change observed expression tracing behavior.
   bool enable_subexpression_inlining = false;
+
+  // Converts -9223372036854775808.0 (-2^63) to the minimum int in int(double).
+  bool enable_exact_double_to_int_range = false;
 };
-// LINT.ThenChange(//depot/google3/runtime/runtime_options.h)
+// LINT.ThenChange(
+//   //depot/google3/runtime/runtime_options.h,
+//   //depot/google3/eval/public/cel_options.cc
+// )
 
 cel::RuntimeOptions ConvertToRuntimeOptions(const InterpreterOptions& options);
 

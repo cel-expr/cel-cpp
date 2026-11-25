@@ -852,6 +852,13 @@ TEST_F(BuiltinsTest, TestIntConversions_doubleIntMin) {
   TestTypeConversionError(builtin::kInt, CelValue::CreateDouble(range));
 }
 
+TEST_F(BuiltinsTest, IntConversionsDoubleIntMinExactRange) {
+  options_.enable_exact_double_to_int_range = true;
+  double range = std::numeric_limits<int64_t>::lowest();
+  TestTypeConverts(builtin::kInt, CelValue::CreateDouble(range),
+                   std::numeric_limits<int64_t>::lowest());
+}
+
 TEST_F(BuiltinsTest, TestIntConversions_doubleIntMinMinus1024) {
   // Converting values between [int64_t::lowest(), (int64_t::lowest() - 1024)]
   // will result in an int64_t representable value, in some cases, but not all
