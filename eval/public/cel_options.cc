@@ -46,6 +46,7 @@ cel::RuntimeOptions ConvertToRuntimeOptions(const InterpreterOptions& options) {
       options.enable_precision_preserving_double_format,
       options.enable_typed_field_access,
       options.enable_subexpression_inlining,
+      options.enable_exact_double_to_int_range,
   };
 }
 

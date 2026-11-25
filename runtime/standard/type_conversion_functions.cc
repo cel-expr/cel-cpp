@@ -16,6 +16,7 @@
 
 #include <charconv>
 #include <cstdint>
+#include <limits>
 #include <system_error>  // NOLINT (required for std::to_chars_result)
 #include <utility>
 
@@ -110,7 +111,7 @@ absl::Status RegisterBoolConversionFunctions(FunctionRegistry& registry,
 }
 
 absl::Status RegisterIntConversionFunctions(FunctionRegistry& registry,
-                                            const RuntimeOptions&) {
+                                            const RuntimeOptions& options) {
   // bool -> int
   absl::Status status =
       UnaryFunctionAdapter<int64_t, bool>::RegisterGlobalOverload(
@@ -121,8 +122,13 @@ absl::Status RegisterIntConversionFunctions(FunctionRegistry& registry,
   // double -> int
   status = UnaryFunctionAdapter<Value, double>::RegisterGlobalOverload(
       cel::builtin::kInt,
-      [](double v, const Function::InvokeContext& context) -> Value {
-        auto conv = cel::internal::CheckedDoubleToInt64(v);
+      [exact_range = options.enable_exact_double_to_int_range](
+          double v, const Function::InvokeContext& context) -> Value {
+        if (exact_range &&
+            v == static_cast<double>(std::numeric_limits<int64_t>::lowest())) {
+          return IntValue(std::numeric_limits<int64_t>::lowest());
+        }
+        absl::StatusOr<int64_t> conv = cel::internal::CheckedDoubleToInt64(v);
         if (!conv.ok()) {
           return ErrorValue::From(conv.status(), context.arena());
         }

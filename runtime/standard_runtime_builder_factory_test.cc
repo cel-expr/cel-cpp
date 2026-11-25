@@ -14,7 +14,9 @@
 
 #include "runtime/standard_runtime_builder_factory.h"
 
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -48,9 +50,12 @@ namespace cel {
 namespace {
 
 using ::absl_testing::IsOk;
+using ::absl_testing::IsOkAndHolds;
 using ::absl_testing::StatusIs;
 using ::cel::extensions::ProtobufRuntimeAdapter;
 using ::cel::test::BoolValueIs;
+using ::cel::test::ErrorValueIs;
+using ::cel::test::IntValueIs;
 using ::cel::expr::ParsedExpr;
 using ::google::api::expr::parser::Parse;
 using ::testing::ElementsAre;
@@ -528,7 +533,24 @@ TEST(StandardRuntimeTest, RuntimeIssueSupport) {
   }
 }
 
-class StandardRuntimeEvalTest : public ::testing::Test {};
+class StandardRuntimeEvalTest : public ::testing::Test {
+ protected:
+  template <typename Matcher>
+  void ExpectEval(absl::string_view expression, const RuntimeOptions& options,
+                  const Matcher& matcher) {
+    ASSERT_OK_AND_ASSIGN(ParsedExpr expr, ParseWithTestMacros(expression));
+    ASSERT_OK_AND_ASSIGN(
+        auto builder, CreateStandardRuntimeBuilder(
+                          google::protobuf::DescriptorPool::generated_pool(), options));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<const Runtime> runtime,
+                         std::move(builder).Build());
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    google::protobuf::Arena arena;
+    Activation activation;
+    EXPECT_THAT(program->Evaluate(&arena, activation), IsOkAndHolds(matcher));
+  }
+};
 
 // Check that calls to specialized builtins are validated.
 TEST_F(StandardRuntimeEvalTest, InvalidBuiltinBoolOp) {
@@ -679,6 +701,24 @@ TEST_F(StandardRuntimeEvalTest, PrecisionPreservingDoubleFormat) {
     ASSERT_OK_AND_ASSIGN(auto result, program->Evaluate(&arena, activation));
     EXPECT_TRUE(result->Is<BoolValue>() && result.GetBool().NativeValue());
   }
+}
+
+TEST_F(StandardRuntimeEvalTest, ExactDoubleToIntRangeDisabledByDefault) {
+  ExpectEval("int(-9223372036854775808.0)", RuntimeOptions{},
+             ErrorValueIs(StatusIs(absl::StatusCode::kOutOfRange)));
+}
+
+TEST_F(StandardRuntimeEvalTest, ExactDoubleToIntRangeEnabled) {
+  RuntimeOptions options;
+  options.enable_exact_double_to_int_range = true;
+  ExpectEval("int(-9223372036854775808.0)", options,
+             IntValueIs(std::numeric_limits<int64_t>::lowest()));
+  ExpectEval("int(-9223372036854777856.0)", options,
+             ErrorValueIs(StatusIs(absl::StatusCode::kOutOfRange)));
+  ExpectEval("int(-9223372036854774784.0)", options,
+             IntValueIs(-9223372036854774784));
+  ExpectEval("int(9223372036854775808.0)", options,
+             ErrorValueIs(StatusIs(absl::StatusCode::kOutOfRange)));
 }
 
 }  // namespace
