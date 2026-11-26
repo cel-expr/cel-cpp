@@ -528,6 +528,15 @@ TEST(ParseSignatureTest, ProtoParsing) {
                                  *GetTestingDescriptorPool()));
   EXPECT_TRUE(gp_any.IsAny());
 
+  ASSERT_OK_AND_ASSIGN(auto null_alias, ParseType("null_type", GetTestArena(),
+                                                  *GetTestingDescriptorPool()));
+  EXPECT_TRUE(null_alias.IsNull());
+
+  ASSERT_OK_AND_ASSIGN(auto gp_null_value,
+                       ParseType("google.protobuf.NullValue", GetTestArena(),
+                                 *GetTestingDescriptorPool()));
+  EXPECT_TRUE(gp_null_value.IsNull());
+
   ASSERT_OK_AND_ASSIGN(auto gp_timestamp,
                        ParseType("google.protobuf.Timestamp", GetTestArena(),
                                  *GetTestingDescriptorPool()));

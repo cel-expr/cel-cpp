@@ -85,6 +85,18 @@ TEST_P(TypeInfoTest, TypeInfo) {
 std::vector<TestCase> GetTestCases() {
   return {
       TestCase{
+          .type_info = {.name = "null"},
+          .expected_type_pb = "null: NULL_VALUE",
+      },
+      TestCase{
+          .type_info = {.name = "null_type"},
+          .expected_type_pb = "null: NULL_VALUE",
+      },
+      TestCase{
+          .type_info = {.name = "google.protobuf.NullValue"},
+          .expected_type_pb = "null: NULL_VALUE",
+      },
+      TestCase{
           .type_info = {.name = "int"},
           .expected_type_pb = "primitive: INT64",
       },

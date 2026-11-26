@@ -649,6 +649,8 @@ ConstantKindCase GetConstantKindCase(absl::string_view type_name) {
   static const auto kTypeNameToConstantKindCase =
       absl::NoDestructor<absl::flat_hash_map<std::string, ConstantKindCase>>({
           {"null", ConstantKindCase::kNull},
+          {"null_type", ConstantKindCase::kNull},
+          {"google.protobuf.NullValue", ConstantKindCase::kNull},
           {"bool", ConstantKindCase::kBool},
           {"int", ConstantKindCase::kInt},
           {"uint", ConstantKindCase::kUint},
