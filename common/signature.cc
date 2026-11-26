@@ -283,7 +283,9 @@ std::string StripUnescapedWhitespace(std::string_view str) {
 }
 
 absl::optional<TypeSpec> ParseBuiltinOrWrapper(std::string_view name_str) {
-  if (name_str == "null") return TypeSpec(NullTypeSpec());
+  if (name_str == "null" || name_str == "null_type" ||
+      name_str == "google.protobuf.NullValue")
+    return TypeSpec(NullTypeSpec());
   if (name_str == "bool") return TypeSpec(PrimitiveType::kBool);
   if (name_str == "int") return TypeSpec(PrimitiveType::kInt64);
   if (name_str == "uint") return TypeSpec(PrimitiveType::kUint64);
@@ -490,6 +492,10 @@ absl::StatusOr<TypeSpec> ParseTypeSignature(std::string_view signature) {
     name_str = Unescape(signature.substr(0, less_idx));
     std::string_view params_str =
         signature.substr(less_idx + 1, signature.size() - less_idx - 2);
+    if (params_str.empty()) {
+      return absl::InvalidArgumentError(
+          "Invalid type signature: empty type parameter list");
+    }
     CEL_ASSIGN_OR_RETURN(auto param_list, SplitTypeList(params_str));
     for (std::string_view param_str : param_list) {
       CEL_ASSIGN_OR_RETURN(auto param, ParseTypeSignature(param_str));

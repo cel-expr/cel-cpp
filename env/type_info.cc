@@ -47,6 +47,8 @@ std::optional<TypeKind> TypeNameToTypeKind(absl::string_view type_name) {
       absl::flat_hash_map<absl::string_view, TypeKind>>
       kTypeNameToTypeKind({
           {"null", TypeKind::kNull},
+          {NullType::kName, TypeKind::kNull},
+          {"google.protobuf.NullValue", TypeKind::kNull},
           {"bool", TypeKind::kBool},
           {"int", TypeKind::kInt},
           {"uint", TypeKind::kUint},
